@@ -1,6 +1,8 @@
 # URL prefixes served by the Rust portal instead of Flask (Rust migration,
 # docs/rust-migration.md). One per line. Empty: everything is on Flask.
 #
+# Phase 3 (media), read-only routes only: the routes that create or act on jobs,
+# and those that return a stored file (media_store may read S3), stay on Flask.
 # Not routed yet, on purpose: /api/home, /system/stats and /api/ranking, whose
 # ADMIN branches are ported but not compared to Flask (the bench account is not
 # an admin); /api/latency, which measures the Flask process itself; and the
@@ -18,3 +20,10 @@
 /usage/hourly
 /metrics
 /docs
+/api/image/history
+/api/image/status
+/api/ocr/history
+/api/video/history
+/api/voice/history
+/api/voice/info
+/api/transcribe/available

@@ -123,7 +123,8 @@ Not routable yet, and why:
 **Routed to Rust since 2026-10-14** (`migration/rust-routes.txt`): `/api/config`,
 `/healthz`, `/api/session`, `/api/whoami`, `/api/health`, `/api/modelhealth`,
 `/api/running-models`, `/api/search`, `/.well-known/security.txt`,
-`/api/branding/logo`, `/usage/hourly`, `/metrics`, `/docs`. Each prefix covers
+`/api/branding/logo`, `/usage/hourly`, `/metrics`, `/docs`, and the phase 3
+read-only media routes (see below). Each prefix covers
 only itself. Checked from the frontend's own traffic: these reach `portal-rs`;
 `/api/home`, `/api/ranking`, `/api/latency` and look-alike paths stay on Flask.
 Held back: `/api/home`, `/system/stats` and `/api/ranking`, whose ADMIN
@@ -131,6 +132,23 @@ branches are ported but not compared (the bench account is not an admin).
 Rollback: empty the file and restart the frontend (`docker restart
 dgx-portal-frontend`: it reads the file at start, and `compose up` does not
 recreate it when only the file changed).
+
+### Phase 3 — state (media, read-only part)
+
+Routed: the histories of image, OCR, video and voice, the image job status
+(404 for another account's job), `/api/voice/info` and
+`/api/transcribe/available`. Identical to Flask on the bench; the image
+history was compared on 56 real jobs, OCR, video and voice on empty
+histories only (the demo account owns none), so their content is unverified.
+
+Not ported, on purpose:
+- **Anything that creates or acts on a job** (generate, extract, speak,
+  transcribe, cancel, delete, the voice chat): they write rows, call sidecars
+  and spend budget. They move as whole flows, with their guards.
+- **Anything that returns a stored file** (`/image/file`, `/video/file`,
+  `/ocr/image`, `/voice/audio`): `media_store` may read the bucket, and
+  porting S3 access is a sub-project.
+- **`/api/video/status`**: it asks ComfyUI and persists the result.
 
 Porting notes that cost a wrong first attempt: LiteLLM listens on 4001 inside
 the Docker network and `/health` needs a key since 1.102 (probe

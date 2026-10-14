@@ -3,11 +3,11 @@ use std::collections::HashMap;
 use axum::{
     extract::{Path, Query, State},
     http::{StatusCode, HeaderMap},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     Json,
 };
 use serde_json::{json, Value};
-use crate::{AppState, auth, docs, health, hf, home, models, probes, ranking, sidecars, system};
+use crate::{AppState, auth, docs, health, hf, home, media, models, probes, ranking, sidecars, system};
 
 /// GET /healthz - Minimal public liveness probe
 pub async fn healthz() -> impl IntoResponse {
@@ -577,4 +577,86 @@ pub async fn index(
         }
         Err(e) => e.into_response(),
     }
+}
+
+/// Signed-in viewer, or the refusal to answer with (401 JSON-less, like Flask's API routes).
+async fn viewer(state: &AppState, headers: &HeaderMap) -> Result<auth::SessionData, Response> {
+    auth::require_session(headers, &state.db).await.map_err(|e| e.into_response())
+}
+
+/// GET /api/image/history - the viewer's image jobs
+pub async fn api_image_history(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let session = match viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    match media::image_history(state.db.pool(), &session.username).await {
+        Ok(v) => Json(v).into_response(),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "error": "Base du portail illisible."}))).into_response(),
+    }
+}
+
+/// GET /api/image/status/:prompt_id - one of the viewer's image jobs, 404 otherwise
+pub async fn api_image_status(State(state): State<AppState>, headers: HeaderMap, Path(prompt_id): Path<String>) -> Response {
+    let session = match viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    match media::image_status(state.db.pool(), &session.username, &prompt_id).await {
+        Ok(Some(v)) => Json(v).into_response(),
+        Ok(None) => auth::html_status(StatusCode::NOT_FOUND),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "error": "Base du portail illisible."}))).into_response(),
+    }
+}
+
+/// GET /api/ocr/history - the viewer's OCR jobs
+pub async fn api_ocr_history(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let session = match viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    match media::ocr_history(state.db.pool(), &session.username).await {
+        Ok(v) => Json(v).into_response(),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "error": "Base du portail illisible."}))).into_response(),
+    }
+}
+
+/// GET /api/video/history - the viewer's video jobs
+pub async fn api_video_history(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let session = match viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    match media::video_history(state.db.pool(), &session.username).await {
+        Ok(v) => Json(v).into_response(),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "error": "Base du portail illisible."}))).into_response(),
+    }
+}
+
+/// GET /api/voice/history - the viewer's voice jobs
+pub async fn api_voice_history(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let session = match viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    match media::voice_history(state.db.pool(), &session.username).await {
+        Ok(v) => Json(v).into_response(),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "error": "Base du portail illisible."}))).into_response(),
+    }
+}
+
+/// GET /api/voice/info - capabilities of the loaded voice backend
+pub async fn api_voice_info(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = viewer(&state, &headers).await {
+        return r;
+    }
+    Json(media::voice_info().await).into_response()
+}
+
+/// GET /api/transcribe/available - dictation can serve now or on demand
+pub async fn api_transcribe_available(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = viewer(&state, &headers).await {
+        return r;
+    }
+    Json(json!({"available": media::transcribe_available().await})).into_response()
 }

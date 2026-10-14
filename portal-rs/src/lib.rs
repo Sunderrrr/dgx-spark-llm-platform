@@ -14,6 +14,7 @@ pub mod system;
 pub mod hf;
 pub mod docs;
 pub mod sidecars;
+pub mod media;
 
 pub use db::Database;
 pub use error::ApiError;

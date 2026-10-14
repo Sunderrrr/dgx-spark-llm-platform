@@ -60,6 +60,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/usage/hourly", get(handlers::usage_hourly))
         .route("/api/latency", get(handlers::api_latency))
         .route("/", get(handlers::index))
+        .route("/api/image/history", get(handlers::api_image_history))
+        .route("/api/image/status/:prompt_id", get(handlers::api_image_status))
+        .route("/api/ocr/history", get(handlers::api_ocr_history))
+        .route("/api/video/history", get(handlers::api_video_history))
+        .route("/api/voice/history", get(handlers::api_voice_history))
+        .route("/api/voice/info", get(handlers::api_voice_info))
+        .route("/api/transcribe/available", get(handlers::api_transcribe_available))
         
         .layer(axum::middleware::from_fn(portal_rs::security::layer))
         .layer(TraceLayer::new_for_http())

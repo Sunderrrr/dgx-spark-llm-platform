@@ -139,13 +139,28 @@ class RankingMetricsTest(Patched):
 
 class ActivityRecordsTest(Patched):
 
-    def test_activity_heatmap(self):
-        rows = [(1, 9, ALICE, 4, 100), (1, 9, BOB, 2, 50), (7, 23, ALICE, 1, 10)]
-        d, _ = self.run_with([('ISODOW', rows)], lambda: ranking.activity('week'))
-        self.assertEqual(d['cells'][0][9]['requests'], 6)
-        self.assertEqual(d['cells'][6][23]['tokens'], 10)
+    def test_activity_is_real_moments(self):
+        """One cell = one real hour (week) or one real day (month, year):
+        never every Monday of the period folded into one slot."""
+        today = datetime.now(ranking.ZoneInfo(ranking.LOCAL_TZ)).date()
+        two_days_ago = today - timedelta(days=2)
+        rows = [(today, 9, ALICE, 4, 100), (today, 9, BOB, 2, 50), (two_days_ago, 23, ALICE, 1, 10),
+                (today - timedelta(days=200), 9, ALICE, 7, 70)]       # outside the week, inside the year
+        d, _ = self.run_with([('GROUP BY 1, 2, api_key', rows)], lambda: ranking.activity('week'))
+        self.assertEqual(d['mode'], 'hours')
+        self.assertEqual([r['day'] for r in d['rows']][-1], today.isoformat())
+        self.assertEqual(len(d['rows']), 7)
+        self.assertEqual(d['rows'][-1]['cells'][9]['requests'], 6)
+        self.assertEqual(d['rows'][-3]['cells'][23]['tokens'], 10)
         self.assertEqual((d['max_requests'], d['total_requests']), (6, 7))
-        d, _ = self.run_with([('ISODOW', rows)], lambda: ranking.activity('week', BOB))
+        d, _ = self.run_with([('GROUP BY 1, 2, api_key', rows)], lambda: ranking.activity('year'))
+        self.assertEqual(d['mode'], 'days')
+        self.assertEqual(len(d['days']), 365)
+        by_day = {x['day']: x['requests'] for x in d['days']}
+        self.assertEqual(by_day[today.isoformat()], 6)
+        self.assertEqual(by_day[(today - timedelta(days=200)).isoformat()], 7)
+        self.assertEqual(d['total_requests'], 14)
+        d, _ = self.run_with([('GROUP BY 1, 2, api_key', rows)], lambda: ranking.activity('week', BOB))
         self.assertEqual(d['total_requests'], 2)
 
     def test_records_and_streaks(self):

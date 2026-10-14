@@ -1,11 +1,16 @@
 "use client";
-// When the box works: successful requests per day of the week × hour (local
-// time), for the viewer or the whole platform. Tells when to schedule a
-// maintenance or a model switch without cutting anyone off.
+// When the box works — and a cell is always ONE real moment.
 //
-// One hue, light → dark (sequential): the accent at a growing opacity over
-// the card, so both themes follow the tokens. The scale is a square root:
-// office hours dwarf the night, and a linear scale left the evenings blank.
+// The first version folded every Monday of the period into one « Monday 4 h »
+// cell: over 12 months, 52 different moments read as a slot that never
+// happened (operator, 2026-10-14). Now:
+//   - 7 days: the 7 real dates × the 24 hours (an hour of a given day);
+//   - 30 days, 12 months: a calendar, one cell per real day — weeks in
+//     columns, weekdays in rows, months named above.
+//
+// One hue, light → dark (sequential): the accent at a growing opacity, so both
+// themes follow the tokens; an empty slot is an outline, never a fill that
+// reads like low activity. Square-root scale: office hours dwarf the night.
 import { useEffect, useState } from "react";
 import { Card } from "@astryxdesign/core/Card";
 import { VStack, HStack } from "@astryxdesign/core/Stack";
@@ -15,21 +20,47 @@ import { getJSON } from "@/lib/api";
 import { useT, useLocale } from "@/lib/i18n";
 import { num, type Activity } from "./types";
 
-const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
-const CELL = 22;
+const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 const GAP = 2;
-const LABEL_W = 34;
+const LABEL_W = 62;
 const TOP = 16;
+const TEXT = { fontSize: 9, fill: "var(--color-text-secondary)" } as const;
 
 function opacity(n: number, max: number) {
   return n <= 0 || max <= 0 ? 0 : 0.18 + 0.82 * Math.sqrt(n / max);
+}
+
+const at = (iso: string) => new Date(`${iso}T12:00:00`);
+
+/** An outline (the slot exists) and, over it, the activity fill. */
+function Cell({ x, y, size, n, max, title, label }: {
+  x: number; y: number; size: number; n: number; max: number; title: string; label?: string;
+}) {
+  return (
+    <g>
+      <rect x={x + 0.5} y={y + 0.5} width={size - 1} height={size - 1} rx={3}
+        style={{ fill: "none", stroke: "var(--color-border)", strokeWidth: 1 }} />
+      <rect x={x} y={y} width={size} height={size} rx={3}
+        style={{ fill: "var(--color-accent)", fillOpacity: opacity(n, max) }}>
+        <title>{title}</title>
+      </rect>
+      {label ? (
+        // A halo in the card's colour keeps the day number readable on the
+        // darkest fills too (it vanished on them, 2026-10-14).
+        <text x={x + 4} y={y + 11} style={{
+          ...TEXT, fill: "var(--color-text-primary)", stroke: "var(--color-background-surface)",
+          strokeWidth: 2.5, paintOrder: "stroke", pointerEvents: "none",
+        }}>{label}</text>
+      ) : null}
+    </g>
+  );
 }
 
 export function ActivityHeatmap() {
   const t = useT();
   const locale = useLocale();
   const [scope, setScope] = useState("all");
-  const [period, setPeriod] = useState("month");
+  const [period, setPeriod] = useState("week");
   const [data, setData] = useState<Activity | null>(null);
 
   useEffect(() => {
@@ -40,13 +71,88 @@ export function ActivityHeatmap() {
     return () => { alive = false; };
   }, [scope, period]);
 
-  const W = LABEL_W + 24 * (CELL + GAP);
-  const H = TOP + 7 * (CELL + GAP);
-  let busiest: { d: number; h: number; n: number } | null = null;
-  data?.cells.forEach((row, d) => row.forEach((c, h) => {
-    if (c.requests > (busiest?.n ?? 0)) busiest = { d, h, n: c.requests };
-  }));
-  const peak = busiest as { d: number; h: number; n: number } | null;
+  const fullDate = (iso: string) =>
+    at(iso).toLocaleDateString(locale, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const shortDate = (iso: string) => at(iso).toLocaleDateString(locale, { weekday: "short", day: "numeric", month: "short" });
+  const slot = (n: number, k: number) =>
+    t("{n} requêtes · {k} tokens").replace("{n}", num(n, locale)).replace("{k}", num(k, locale));
+
+  let chart: React.ReactNode = null;
+  let summary = "";
+  if (data?.mode === "hours" && data.rows) {
+    const CELL = 22;
+    const W = LABEL_W + 24 * (CELL + GAP);
+    const H = TOP + data.rows.length * (CELL + GAP);
+    let peak = { day: "", h: 0, n: 0 };
+    data.rows.forEach((r) => r.cells.forEach((c, h) => { if (c.requests > peak.n) peak = { day: r.day, h, n: c.requests }; }));
+    if (peak.n) {
+      summary = t("Créneau le plus chargé : {d} {h} h ({n} requêtes).")
+        .replace("{d}", shortDate(peak.day)).replace("{h}", String(peak.h)).replace("{n}", num(peak.n, locale));
+    }
+    chart = (
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", maxWidth: W * 1.4, height: "auto", display: "block" }}
+        role="img" aria-label={t("Requêtes par heure, sur chacun des 7 derniers jours")}>
+        {Array.from({ length: 24 }, (_, h) => (
+          <text key={h} x={LABEL_W + h * (CELL + GAP) + CELL / 2} y={11} textAnchor="middle" style={TEXT}>{h}</text>
+        ))}
+        {data.rows.map((r, d) => (
+          <g key={r.day}>
+            <text x={0} y={TOP + d * (CELL + GAP) + CELL * 0.68} style={{ ...TEXT, fontSize: 10 }}>{shortDate(r.day)}</text>
+            {r.cells.map((c, h) => (
+              <Cell key={h} x={LABEL_W + h * (CELL + GAP)} y={TOP + d * (CELL + GAP)} size={CELL}
+                n={c.requests} max={data.max_requests}
+                title={`${fullDate(r.day)}, ${h} h : ${slot(c.requests, c.tokens)}`} />
+            ))}
+          </g>
+        ))}
+      </svg>
+    );
+  } else if (data?.mode === "days" && data.days) {
+    // Calendar: the first column starts on the Monday of the first day's week.
+    const big = data.days.length <= 31;
+    const CELL = big ? 30 : 12;
+    const first = (at(data.days[0].day).getDay() + 6) % 7;
+    const cols = Math.ceil((first + data.days.length) / 7);
+    const W = 30 + cols * (CELL + GAP);
+    const H = TOP + 7 * (CELL + GAP);
+    let peak = { day: "", n: 0 };
+    data.days.forEach((x) => { if (x.requests > peak.n) peak = { day: x.day, n: x.requests }; });
+    if (peak.n) {
+      summary = t("Jour le plus chargé : {d} ({n} requêtes).")
+        .replace("{d}", fullDate(peak.day)).replace("{n}", num(peak.n, locale));
+    }
+    const months: { col: number; label: string }[] = [];
+    data.days.forEach((x, i) => {
+      const d = at(x.day);
+      if (i === 0 || d.getDate() === 1) {
+        months.push({ col: Math.floor((first + i) / 7), label: d.toLocaleDateString(locale, { month: "short" }) });
+      }
+    });
+    chart = (
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", maxWidth: big ? W * 1.6 : W * 1.3, height: "auto", display: "block" }}
+        role="img" aria-label={t("Requêtes par jour, en calendrier")}>
+        {months.map((m, i) => (
+          // A month name needs ~26 px: when the next one starts closer (a
+          // short first month), the first gives way rather than overlap.
+          i + 1 < months.length && (months[i + 1].col - m.col) * (CELL + GAP) < 26 ? null : (
+            <text key={`${m.col}-${m.label}`} x={30 + m.col * (CELL + GAP)} y={11} style={TEXT}>{m.label}</text>
+          )
+        ))}
+        {WEEKDAYS.map((w, r) => (r % 2 === 0 || big ? (
+          <text key={w} x={0} y={TOP + r * (CELL + GAP) + CELL * 0.72} style={TEXT}>{t(w)}</text>
+        ) : null))}
+        {data.days.map((x, i) => {
+          const col = Math.floor((first + i) / 7);
+          const row = (first + i) % 7;
+          return (
+            <Cell key={x.day} x={30 + col * (CELL + GAP)} y={TOP + row * (CELL + GAP)} size={CELL}
+              n={x.requests} max={data.max_requests} label={big ? String(at(x.day).getDate()) : undefined}
+              title={`${fullDate(x.day)} : ${slot(x.requests, x.tokens)}`} />
+          );
+        })}
+      </svg>
+    );
+  }
 
   return (
     <Card>
@@ -55,7 +161,9 @@ export function ActivityHeatmap() {
           <VStack gap={0}>
             <Text weight="semibold">{t("Quand la plateforme travaille")}</Text>
             <Text type="supporting" color="secondary">
-              {t("Requêtes réussies par jour et par heure (heure locale).")}
+              {period === "week"
+                ? t("Requêtes réussies, heure par heure sur chacun des 7 derniers jours (heure locale).")
+                : t("Requêtes réussies, jour par jour.")}
             </Text>
           </VStack>
           <HStack gap={2} wrap="wrap">
@@ -70,33 +178,9 @@ export function ActivityHeatmap() {
             </SegmentedControl>
           </HStack>
         </HStack>
-        {data && data.total_requests > 0 ? (
+        {data && data.total_requests > 0 && chart ? (
           <VStack gap={2}>
-            <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", maxWidth: W * 1.4, height: "auto", display: "block" }}
-              role="img" aria-label={t("Carte d'activité : requêtes par jour de la semaine et par heure")}>
-              {[0, 6, 12, 18].map((h) => (
-                <text key={h} x={LABEL_W + h * (CELL + GAP)} y={11}
-                  style={{ fontSize: 10, fill: "var(--color-text-secondary)" }}>{`${h} h`}</text>
-              ))}
-              {data.cells.map((row, d) => (
-                <g key={d}>
-                  <text x={0} y={TOP + d * (CELL + GAP) + CELL * 0.7}
-                    style={{ fontSize: 10, fill: "var(--color-text-secondary)" }}>{t(DAYS[d]).slice(0, 3)}</text>
-                  {row.map((c, h) => (
-                    <g key={h}>
-                      <rect x={LABEL_W + h * (CELL + GAP)} y={TOP + d * (CELL + GAP)} width={CELL} height={CELL} rx={3}
-                        style={{ fill: "var(--color-background-muted)" }} />
-                      <rect x={LABEL_W + h * (CELL + GAP)} y={TOP + d * (CELL + GAP)} width={CELL} height={CELL} rx={3}
-                        style={{ fill: "var(--color-accent)", fillOpacity: opacity(c.requests, data.max_requests) }}>
-                        <title>{t("{d} {h} h : {n} requêtes · {k} tokens")
-                          .replace("{d}", t(DAYS[d])).replace("{h}", String(h))
-                          .replace("{n}", num(c.requests, locale)).replace("{k}", num(c.tokens, locale))}</title>
-                      </rect>
-                    </g>
-                  ))}
-                </g>
-              ))}
-            </svg>
+            {chart}
             <HStack gap={2} vAlign="center" wrap="wrap">
               <Text type="supporting" color="secondary">{t("moins")}</Text>
               <svg viewBox="0 0 76 12" style={{ width: 76, height: 12 }} aria-hidden="true">
@@ -106,13 +190,7 @@ export function ActivityHeatmap() {
                 ))}
               </svg>
               <Text type="supporting" color="secondary">{t("plus")}</Text>
-              {peak ? (
-                <Text type="supporting" color="secondary">
-                  {" · "}{t("Créneau le plus chargé : {d} {h} h ({n} requêtes).")
-                    .replace("{d}", t(DAYS[peak.d])).replace("{h}", String(peak.h))
-                    .replace("{n}", num(peak.n, locale))}
-                </Text>
-              ) : null}
+              {summary ? <Text type="supporting" color="secondary">{" · "}{summary}</Text> : null}
             </HStack>
           </VStack>
         ) : (

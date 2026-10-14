@@ -103,12 +103,18 @@ def main() -> int:
                    f"table not in line with /api/ranking — text: {text[:200]!r}")
 
         # The heatmap and the records under it (2026-10-14).
-        act = ctx.request.get(f"{c.BASE}/api/ranking/activity?period=month&scope=all")
-        cells = (act.json() or {}).get("cells", []) if act.status == 200 else []
-        if len(cells) == 7 and all(len(row) == 24 for row in cells):
-            p.ok("activity heatmap", f"7 × 24 cells, {act.json().get('total_requests')} request(s) over 30 days")
+        # A cell is a real moment: 7 dates × 24 hours over a week, one cell
+        # per day over 30 days.
+        week = ctx.request.get(f"{c.BASE}/api/ranking/activity?period=week&scope=all")
+        month = ctx.request.get(f"{c.BASE}/api/ranking/activity?period=month&scope=all")
+        rows = (week.json() or {}).get("rows", []) if week.status == 200 else []
+        days = (month.json() or {}).get("days", []) if month.status == 200 else []
+        if len(rows) == 7 and all(len(r["cells"]) == 24 for r in rows) and len(days) == 30:
+            p.ok("activity heatmap", f"7 dates × 24 h, 30 days — {month.json().get('total_requests')} "
+                                     "request(s) over 30 days")
         else:
-            p.fail("activity heatmap", "7 × 24 cells from /api/ranking/activity", f"HTTP {act.status}")
+            p.fail("activity heatmap", "7 dates × 24 hours and 30 days from /api/ranking/activity",
+                   f"HTTP {week.status}/{month.status}, {len(rows)} row(s), {len(days)} day(s)")
         if c.visible_text(page, "Quand la plateforme travaille", "When the platform works") is None:
             p.fail("activity heatmap", "the heatmap card on /ranking", "not rendered")
         rec = ctx.request.get(f"{c.BASE}/api/ranking/records")

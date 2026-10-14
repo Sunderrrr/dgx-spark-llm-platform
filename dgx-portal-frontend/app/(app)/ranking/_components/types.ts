@@ -48,9 +48,14 @@ export type RankingData = {
   me_anonymous: boolean;
 };
 
+type Slot = { requests: number; tokens: number };
+/** One cell is always ONE real moment: an hour of a given day (`hours`, 7
+ *  days) or a given day (`days`, 30 days and 12 months). */
 export type Activity = {
   period: string;
-  cells: { requests: number; tokens: number }[][];
+  mode: "hours" | "days";
+  rows?: { day: string; cells: Slot[] }[];
+  days?: ({ day: string } & Slot)[];
   max_requests: number;
   total_requests: number;
 };

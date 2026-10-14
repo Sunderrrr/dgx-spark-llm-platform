@@ -325,46 +325,63 @@ def _by_group(agg, prev, is_residue):
     return out, out_prev, members
 
 
-# ── Activity heatmap: day of week × hour ───────────────────────────────────
+# ── Activity: when the platform works ───────────────────────────────────────
+# A cell is always ONE real moment. The first version folded every Monday of
+# the period into one « Monday 4 h » cell: over 12 months that was 52 moments
+# averaged into a slot that never happened (operator, 2026-10-14). So:
+#   - week  → the 7 real dates × 24 hours (one cell = one hour of one day);
+#   - month, year → one cell per day (laid out as a calendar by the UI).
 
 ACTIVITY_DAYS = {'week': 7, 'month': 30, 'year': 365}
 
 
 def activity(period='month', username=None):
-    """7 × 24 cells (Monday first, local hours): successful requests and
-    tokens. `username` restricts it to one account's keys."""
-    days = ACTIVITY_DAYS.get(period, 30)
-    cells = [[{'requests': 0, 'tokens': 0} for _ in range(24)] for _ in range(7)]
-    out = {'period': period if period in ACTIVITY_DAYS else 'month', 'cells': cells, 'max_requests': 0,
-           'total_requests': 0}
+    """Successful requests and tokens over the period, per real hour (week) or
+    per real day (month, year). `username` restricts it to one account."""
+    period = period if period in ACTIVITY_DAYS else 'month'
+    days = ACTIVITY_DAYS[period]
+    today = datetime.now(ZoneInfo(LOCAL_TZ)).date()
+    dates = [today - timedelta(days=i) for i in range(days - 1, -1, -1)]
+    hourly = period == 'week'
+    out = {'period': period, 'mode': 'hours' if hourly else 'days',
+           'max_requests': 0, 'total_requests': 0}
+    if hourly:
+        grid = {d: [{'requests': 0, 'tokens': 0} for _ in range(24)] for d in dates}
+    else:
+        grid = {d: {'requests': 0, 'tokens': 0} for d in dates}
     conn = stats._spend_conn()
-    if not conn:
-        return out
     try:
-        umap = stats._key_user_map(conn)
-        since = _utc(datetime.now(ZoneInfo(LOCAL_TZ)) - timedelta(days=days))
-        local = "((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s)"
-        cur = conn.cursor()
-        cur.execute(f'SELECT EXTRACT(ISODOW FROM {local})::int, EXTRACT(HOUR FROM {local})::int, api_key, '
-                    'COUNT(*), SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)) '
-                    'FROM "LiteLLM_SpendLogs" WHERE "startTime" >= %s AND status = \'success\' '
-                    'GROUP BY 1, 2, api_key', (LOCAL_TZ, LOCAL_TZ, since))
-        for dow, hour, api_key, n, tokens in cur.fetchall():
-            if api_key in stats._NON_USER_KEYS:
-                continue
-            if username is not None and umap.get(api_key) != username:
-                continue
-            c = cells[int(dow) - 1][int(hour)]
-            c['requests'] += int(n or 0)
-            c['tokens'] += int(tokens or 0)
-        flat = [c['requests'] for row in cells for c in row]
-        out['max_requests'] = max(flat) if flat else 0
-        out['total_requests'] = sum(flat)
-        return out
+        if conn:
+            umap = stats._key_user_map(conn)
+            since = _utc(datetime.combine(dates[0], datetime.min.time(), ZoneInfo(LOCAL_TZ)))
+            local = "((\"startTime\" AT TIME ZONE 'UTC') AT TIME ZONE %s)"
+            cur = conn.cursor()
+            cur.execute(f'SELECT ({local})::date, EXTRACT(HOUR FROM {local})::int, api_key, COUNT(*), '
+                        'SUM(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)) '
+                        'FROM "LiteLLM_SpendLogs" WHERE "startTime" >= %s AND status = \'success\' '
+                        'GROUP BY 1, 2, api_key', (LOCAL_TZ, LOCAL_TZ, since))
+            for d, hour, api_key, n, tokens in cur.fetchall():
+                if api_key in stats._NON_USER_KEYS or d not in grid:
+                    continue
+                if username is not None and umap.get(api_key) != username:
+                    continue
+                c = grid[d][int(hour)] if hourly else grid[d]
+                c['requests'] += int(n or 0)
+                c['tokens'] += int(tokens or 0)
     except Exception:                                            # noqa: BLE001
-        return out
+        pass
     finally:
-        conn.close()
+        if conn:
+            conn.close()
+    if hourly:
+        out['rows'] = [{'day': d.isoformat(), 'cells': grid[d]} for d in dates]
+        flat = [c['requests'] for d in dates for c in grid[d]]
+    else:
+        out['days'] = [{'day': d.isoformat(), **grid[d]} for d in dates]
+        flat = [grid[d]['requests'] for d in dates]
+    out['max_requests'] = max(flat) if flat else 0
+    out['total_requests'] = sum(flat)
+    return out
 
 
 # ── Records and streaks ─────────────────────────────────────────────────────

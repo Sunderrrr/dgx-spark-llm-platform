@@ -88,7 +88,11 @@ rest of the leaderboard — `activity` (3 periods × 2 scopes), `records`,
 `user/<name>` (own detail; someone else's is 404), `export.csv` (404 for a
 non-admin) and `POST privacy` (the CSRF check runs first: 400 without a
 valid token, even with no session, as in Flask), `/api/modelhealth`, and
-`/api/home` except its media sidecars. The
+`/api/home` except its media sidecars, `/usage/hourly`, `/system/stats`
+(the runner's status, the active users for an admin), `/metrics` (the
+Cloudflare guard included), `/api/branding/logo`, `/api/search` (Hugging Face
+outage answered 503, unknown task 400) and the root page (302 to the login
+page when signed out, 204 when signed in). The
 `login_required` guard is ported whole (max age, `user_sessions` registry,
 account state re-read, owner rule); a database error answers 503, never a
 logout. The security headers (`nosniff`, CSP, HSTS…) match Flask's.
@@ -105,6 +109,11 @@ Not routable yet, and why:
   and `export.csv` have only been checked to answer 404 to a non-admin.
   `quota_pct` on `/api/ranking` needs LiteLLM's `/user/list` and is `null` on
   the Rust side.
+- **`/api/latency` is not ported on purpose**: it is an in-memory ring of this
+  process's own request durations. A Rust port would report the Rust
+  process's latencies under the same name, which is a different measurement;
+  it moves with the routes instead.
+- **`/docs`** (the API page) is still Flask's.
 - **Flask-only writes**: `vllm_health` archives the engine's token counter
   (`model_counters`) and `_active_users` sweeps stale `inflight_requests`.
   The Rust side computes the same figures READ-ONLY — two probers writing one

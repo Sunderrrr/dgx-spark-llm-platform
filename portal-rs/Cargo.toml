@@ -27,6 +27,7 @@ clap = { version = "4", features = ["derive"] }
 sha2 = "0.10"
 hex = "0.4"
 serde_urlencoded = "0.7"
+base64 = "0.21"
 
 [dev-dependencies]
 tokio-test = "0.4"

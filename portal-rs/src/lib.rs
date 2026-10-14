@@ -10,6 +10,8 @@ pub mod spend;
 pub mod health;
 pub mod home;
 pub mod security;
+pub mod system;
+pub mod hf;
 
 pub use db::Database;
 pub use error::ApiError;

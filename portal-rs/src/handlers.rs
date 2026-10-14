@@ -6,8 +6,8 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use serde_json::json;
-use crate::{AppState, auth, health, home, models, probes, ranking};
+use serde_json::{json, Value};
+use crate::{AppState, auth, health, hf, home, models, probes, ranking, system};
 
 /// GET /healthz - Minimal public liveness probe
 pub async fn healthz() -> impl IntoResponse {
@@ -20,12 +20,17 @@ pub async fn healthz() -> impl IntoResponse {
     )
 }
 
-/// GET /metrics - Prometheus metrics placeholder
-pub async fn metrics() -> impl IntoResponse {
-    (
-        StatusCode::OK,
-        "# HELP portal_requests_total Total HTTP requests\n# TYPE portal_requests_total counter\nportal_requests_total 0\n",
-    )
+/// GET /metrics - Prometheus exposition, refused to anything that crossed Cloudflare
+/// (its `Cf-Connecting-Ip` header), as app.prom_metrics.
+pub async fn metrics(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    let _ = state;
+    if headers.contains_key("cf-connecting-ip") {
+        return (StatusCode::FORBIDDEN, [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+                "metrics: accès réservé au réseau local\n").into_response();
+    }
+    let m = system::runner_metrics().await.unwrap_or_else(|| json!({}));
+    (StatusCode::OK, [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+     system::prometheus_text(&m)).into_response()
 }
 
 /// GET /api/config - Public platform config (branding + SSO + setup status)
@@ -107,9 +112,23 @@ pub async fn security_txt(State(state): State<AppState>) -> impl IntoResponse {
     )
 }
 
-/// GET /api/branding/logo
-pub async fn branding_logo() -> impl IntoResponse {
-    (StatusCode::NOT_FOUND, "logo not found")
+/// GET /api/branding/logo - the deployment's logo, public (the login page shows it)
+pub async fn branding_logo(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(value) = state.db.get_setting_set("platform_logo").await else {
+        return auth::html_status(StatusCode::NOT_FOUND);
+    };
+    match system::logo_bytes(&value) {
+        Some((mime, bytes)) => (
+            StatusCode::OK,
+            [
+                (axum::http::header::CONTENT_TYPE, mime),
+                (axum::http::header::CACHE_CONTROL, "public, max-age=3600".to_string()),
+            ],
+            bytes,
+        )
+            .into_response(),
+        None => auth::html_status(StatusCode::NOT_FOUND),
+    }
 }
 
 /// GET /api/health - Aggregated service health (auth required)
@@ -335,46 +354,91 @@ pub async fn api_ranking_records(
     Json(data).into_response()
 }
 
-/// GET /api/search - HF model search (auth required)
+/// GET /api/search - model search on Hugging Face (app.api_search). An outage
+/// answers 503 with `ok: false`, never an empty list.
 pub async fn api_search(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    match auth::require_session(&headers, &state.db).await {
-        Err(e) => return e.into_response(),
-        Ok(_session) => {}
+    if let Err(e) = auth::require_session(&headers, &state.db).await {
+        return e.into_response();
     }
-
-    (StatusCode::OK, Json(json!({"models": []})))
-        .into_response()
+    let query = q.get("q").map(|v| v.trim().to_string()).unwrap_or_default();
+    let task = q.get("task").map(|v| v.trim().to_string()).unwrap_or_default();
+    // The GB10 filter is opt-in; `all=1` is accepted and does nothing.
+    let gb10 = q.get("gb10").map(String::as_str) == Some("1");
+    let skip: u32 = q.get("skip").and_then(|v| v.parse::<i64>().ok()).map(|v| v.max(0) as u32).unwrap_or(0);
+    if !task.is_empty() && !hf::TASKS.contains(&task.as_str()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"ok": false, "results": [], "error": format!("Tâche inconnue : {task}.")})),
+        )
+            .into_response();
+    }
+    let task_opt = (!task.is_empty()).then_some(task.as_str());
+    match hf::search_page(&query, task_opt, gb10, skip).await {
+        Err(hf::HfError::Unavailable(msg)) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "ok": false, "results": [], "code": "hf_unavailable",
+                "error": format!("Hugging Face n'a pas répondu ({msg}). Réessaie dans un instant."),
+            })),
+        )
+            .into_response(),
+        Ok((results, has_more)) => {
+            // Only when the GB10 filter found nothing: does the model exist elsewhere?
+            let outside = if gb10 && !query.is_empty() && results.is_empty() {
+                hf::outside_gb10(&query, task_opt).await
+            } else {
+                None
+            };
+            Json(json!({
+                "ok": true, "results": results, "query": query, "task": task,
+                "gb10_only": gb10, "skip": skip, "page_size": hf::PAGE_SIZE,
+                "has_more": has_more, "outside_gb10": outside,
+                "hf_token": hf::token_present(),
+            }))
+            .into_response()
+        }
+    }
 }
 
-/// GET /system/stats - System statistics (auth required)
+/// GET /system/stats - the runner's metrics, the served model, and for an admin
+/// the runner's state and the active users (admin_routes.system_stats).
 pub async fn system_stats(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    match auth::require_session(&headers, &state.db).await {
+    let session = match auth::require_session(&headers, &state.db).await {
         Err(e) => return e.into_response(),
-        Ok(_session) => {}
+        Ok(session) => session,
+    };
+    let mut data = system::runner_metrics().await.unwrap_or_else(|| json!({}));
+    let model_health = health::vllm_health(&state.db, state.spend.as_ref()).await;
+    data["model"] = model_health.clone();
+    // Flask: `get_running_models()`, the bare list of model names.
+    data["running"] = json!(models::running_models().await);
+    if session.is_admin {
+        data["runner"] = system::runner_status().await;
+        data["active_users"] = home::active_users(&state.db, state.spend.as_ref(), &model_health).await;
     }
-
-    (StatusCode::OK, Json(json!({"memory": {}})))
-        .into_response()
+    Json(data).into_response()
 }
 
-/// GET /usage/hourly - Hourly usage stats (auth required)
+/// GET /usage/hourly - today's hourly token usage of the viewer (`{has_data: false}` when unknown)
 pub async fn usage_hourly(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    match auth::require_session(&headers, &state.db).await {
+    let session = match auth::require_session(&headers, &state.db).await {
         Err(e) => return e.into_response(),
-        Ok(_session) => {}
+        Ok(session) => session,
+    };
+    match home::user_hourly(state.spend.as_ref(), &session.username).await {
+        Value::Null => Json(json!({"has_data": false})).into_response(),
+        v => Json(v).into_response(),
     }
-
-    (StatusCode::OK, Json(json!({"usage": []})))
-        .into_response()
 }
 
 /// GET /api/latency - API latency measurements (auth required)
@@ -490,16 +554,18 @@ pub async fn docs(
         .into_response()
 }
 
-/// GET / - Index (auth required)
+/// GET / - the page itself is the Next.js frontend's. Flask keeps the route for
+/// its redirect targets: signed out → 302 to the login page (it is not an API,
+/// so no 401), signed in → 204.
 pub async fn index(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     match auth::require_session(&headers, &state.db).await {
-        Err(e) => return e.into_response(),
-        Ok(_session) => {}
+        Ok(_session) => StatusCode::NO_CONTENT.into_response(),
+        Err(auth::AuthError::Unauthorized) => {
+            (StatusCode::FOUND, [(axum::http::header::LOCATION, "/login?next=/")]).into_response()
+        }
+        Err(e) => e.into_response(),
     }
-
-    (StatusCode::OK, "Portal Rust - Phase 2 (routes structure)")
-        .into_response()
 }

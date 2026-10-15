@@ -29,6 +29,9 @@ ROUTES['/runner/image/start'] = ROUTES['/runner/image/stop'] = {'detail': 'conta
 ROUTES['/litellm/model/info'] = {'data': [{'model_name': 'vllm-test', 'model_info': {'id': 'mid-7', 'db_model': True, 'mode': 'chat'},
                                            'litellm_params': {'model': 'openai/vllm-test'}}]}
 ROUTES['/litellm/model/delete'] = {'ok': True}
+# Discord's OAuth2 API, for the Rust side (DISCORD_API): Flask's address is fixed.
+ROUTES['/discord-api/oauth2/token'] = {'access_token': 'at-1'}
+ROUTES['/discord-api/users/@me'] = {'id': '4242', 'username': 'neo', 'global_name': None, 'discriminator': '7'}
 for w in ('/runner/launch', '/runner/stop', '/runner/ocr/launch', '/runner/voice/launch'):
     ROUTES[w] = {'status': 'starting'}
 for w in ('/discord/webhook', '/litellm/user/update', '/litellm/user/new', '/litellm/user/delete', '/litellm/key/update'):

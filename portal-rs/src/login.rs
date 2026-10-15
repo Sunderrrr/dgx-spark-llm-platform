@@ -92,7 +92,7 @@ fn now() -> f64 {
 }
 
 /// `_login_locked`: seconds of lock left on a key.
-async fn locked(pool: &sqlx::SqlitePool, key: &str) -> i64 {
+pub async fn locked(pool: &sqlx::SqlitePool, key: &str) -> i64 {
     let until: Option<Option<f64>> = sqlx::query_scalar("SELECT locked_until FROM login_attempts WHERE key=?").bind(key).fetch_optional(pool).await.ok().flatten();
     match until.flatten() {
         Some(u) if u != 0.0 => ((u - now()) as i64).max(0),
@@ -214,4 +214,40 @@ pub async fn login(state: AppState, headers: HeaderMap, connect: Option<std::net
         crate::auth::werkzeug_redirect_body(&next),
     )
         .into_response()
+}
+
+/// `LOGIN_MAX_FAILS` / `LOGIN_WINDOW` / `LOGIN_LOCK`.
+const LOGIN_MAX_FAILS: i64 = 6;
+const LOGIN_WINDOW: f64 = 900.0;
+const LOGIN_LOCK: f64 = 900.0;
+
+/// `_login_fail(key)`: one more failure in the window; the sixth locks the
+/// key for 15 min, and the lock is audited.
+pub async fn fail(pool: &sqlx::SqlitePool, key: &str) {
+    let t = now();
+    let row: Option<(i64, f64)> = sqlx::query_as("SELECT fails, CAST(first_at AS REAL) FROM login_attempts WHERE key=?").bind(key).fetch_optional(pool).await.ok().flatten();
+    let (fails, first_at) = match row {
+        Some((f, first)) if t - first <= LOGIN_WINDOW => (f + 1, first),
+        _ => (1, t),
+    };
+    let locked_until = if fails >= LOGIN_MAX_FAILS { t + LOGIN_LOCK } else { 0.0 };
+    if locked_until > 0.0 {
+        let who = key.rsplit('|').next().unwrap_or(key);
+        crate::sessions::log_audit(pool, who, "login.verrouillage", &format!("{key} — {fails} échecs, verrouillé {} min", (LOGIN_LOCK / 60.0) as i64)).await;
+    }
+    let _ = sqlx::query(
+        "INSERT INTO login_attempts (key, fails, first_at, locked_until) VALUES (?,?,?,?) \
+         ON CONFLICT(key) DO UPDATE SET fails=excluded.fails, first_at=excluded.first_at, locked_until=excluded.locked_until",
+    )
+    .bind(key)
+    .bind(fails)
+    .bind(first_at)
+    .bind(locked_until)
+    .execute(pool)
+    .await;
+}
+
+/// `_login_reset(key)`.
+pub async fn reset(pool: &sqlx::SqlitePool, key: &str) {
+    let _ = sqlx::query("DELETE FROM login_attempts WHERE key=?").bind(key).execute(pool).await;
 }

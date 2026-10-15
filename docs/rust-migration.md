@@ -357,6 +357,16 @@ Routed after the bench found them identical:
   state file, mounted in Flask only) and the media migration (a Flask
   background job) stay on Flask.
 
+- Discord linking, `/discord/link` and `/discord/callback` (the OAuth2 state
+  kept in the server session and single use). Flask's Discord address is
+  fixed, so the bench compares every outcome that needs no network, and runs
+  the full exchange on the Rust side against the fake (`DISCORD_API`).
+
+- `/api/account/delete` (one's own account: a local account goes entirely on
+  its password, checked under the account's failure counter shared with
+  `/login`; a directory account's data is purged). An LDAP account's
+  password can only be checked by Flask: that request is handed over.
+
 The fake upstream records the calls it receives (the probes left out), and
 `bench.py` compares each backend's sequence of upstream calls as well: a
 write that answers the same but deletes another key would not pass.
@@ -572,9 +582,10 @@ version of the shared helper only read the header and refused a form token
 (found by this comparison, fixed for every write).
 
 `/mcp`, `POST /keys` and `POST /request` were left out of this step and moved
-later (their pages keep GET on Next through method entries, see above). Still
-on Flask: the Discord OAuth link and callback, and the account password and
-deletion (phase 6: they share `/login`'s attempt lock, which Rust relays).
+later (their pages keep GET on Next through method entries, see above). The
+Discord OAuth link and callback moved later too (see the parity bench). Still
+on Flask: the account password change (its notice e-mail looks the address up
+in the directory).
 
 ### Skills: routed (`/api/skills`, its 7 routes)
 

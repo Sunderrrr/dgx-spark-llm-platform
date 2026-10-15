@@ -441,6 +441,97 @@ pub async fn admin_user_purge(State(state): State<AppState>, Path(username): Pat
     Json(json!({"ok": true, "purged": report})).into_response()
 }
 
+/// `password_management(username)['management']`: who holds the password.
+async fn management(pool: &SqlitePool, username: &str) -> (&'static str, bool) {
+    let local = sqlx::query_scalar::<_, i64>("SELECT 1 FROM local_users WHERE username=?").bind(username).fetch_optional(pool).await.ok().flatten().is_some();
+    let sources: Option<Option<String>> = sqlx::query_scalar("SELECT sources FROM user_sources WHERE username=?").bind(username).fetch_optional(pool).await.ok().flatten();
+    let sources = sources.flatten().unwrap_or_default();
+    let has = |s: &str| sources.split(',').any(|x| x == s);
+    let m = if local {
+        "portal"
+    } else if has("ldap") {
+        "ldap-directory"
+    } else if has("sso") {
+        "sso-provider"
+    } else {
+        "unknown"
+    };
+    (m, local)
+}
+
+/// POST /api/account/delete - one's own account. A local account goes
+/// entirely (keys, envelope, sessions, data), on its password; a directory
+/// account's data is purged (its access lives in the directory). An LDAP
+/// account's password can only be checked by Flask: it is handed over.
+pub async fn api_account_delete(State(state): State<AppState>, req: Request) -> Response {
+    let (parts, body) = req.into_parts();
+    let Ok(body) = axum::body::to_bytes(body, 4 * 1024 * 1024).await else { return auth::html_status(StatusCode::PAYLOAD_TOO_LARGE) };
+    let headers = parts.headers.clone();
+    let form = form_of(&headers, &body);
+    match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
+        Err(e) => return e.into_response(),
+        Ok(false) => return auth::csrf_refused(),
+        Ok(true) => {}
+    }
+    let s = match auth::require_session(&headers, &state.db).await {
+        Ok(s) => s,
+        Err(e) => return e.into_response(),
+    };
+    let pool = state.db.pool();
+    let (how, local) = management(pool, &s.username).await;
+    if how == "ldap-directory" {
+        return crate::relay::to_flask(Request::from_parts(parts, axum::body::Body::from(body))).await;
+    }
+    let data = body_fields(&headers, &body);
+    if !data.get("confirm").is_some_and(|c| crate::memory::py_strip(c).to_uppercase() == "DELETE") {
+        let counts = count_data(pool, &s.username).await;
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({"ok": false, "needs_confirm": true, "data": counts, "error": "Confirmation requise : cette suppression est définitive."})),
+        )
+            .into_response();
+    }
+    if local && s.is_admin && super::admin_writes::last_local_admin(pool, &s.username).await {
+        return bad(StatusCode::CONFLICT, "Tu es le dernier administrateur local : nomme un autre administrateur avant de supprimer ton compte.");
+    }
+    if how == "portal" {
+        let password = data.get("password").cloned().unwrap_or_default();
+        if password.is_empty() {
+            return bad(StatusCode::BAD_REQUEST, "Mot de passe requis pour supprimer ton compte.");
+        }
+        // `_verify_password_locked`: the account's counter, shared with /login.
+        let ukey = format!("user:{}", s.username);
+        let wait = crate::login::locked(pool, &ukey).await;
+        if wait > 0 {
+            return (StatusCode::TOO_MANY_REQUESTS, Json(json!({"error": format!("Trop de tentatives. Réessaie dans {} min.", wait / 60 + 1)}))).into_response();
+        }
+        let hash: Option<String> = sqlx::query_scalar("SELECT password_hash FROM local_users WHERE username=? AND enabled=1").bind(&s.username).fetch_optional(pool).await.ok().flatten();
+        let ok = match hash {
+            Some(h) => tokio::task::spawn_blocking(move || crate::login::check_password_hash(&h, &password)).await.unwrap_or(false),
+            None => false,
+        };
+        if !ok {
+            crate::login::fail(pool, &ukey).await;
+            return (StatusCode::BAD_REQUEST, Json(json!({"error": "Mot de passe incorrect."}))).into_response();
+        }
+        crate::login::reset(pool, &ukey).await;
+    }
+    if local {
+        let _ = sqlx::query("DELETE FROM local_users WHERE username=?").bind(&s.username).execute(pool).await;
+        let report = deprovision(pool, &s.username, &s.username, "account.self_delete").await;
+        let mut out = json!({"ok": true, "deleted": true, "purged": report});
+        if report["keys_failed"].as_u64().unwrap_or(0) > 0 || report["litellm_user"] != json!(true) {
+            out["warning"] = json!(format!(
+                "{} clé(s) n'ont pas pu être révoquées et/ou l'enveloppe LiteLLM n'a pas pu être supprimée (service injoignable) : préviens un administrateur, ces clés peuvent encore fonctionner.",
+                report["keys_failed"]
+            ));
+        }
+        return Json(out).into_response();
+    }
+    let report = deprovision(pool, &s.username, &s.username, "account.self_purge").await;
+    Json(json!({"ok": true, "deleted": false, "purged": report})).into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -76,8 +76,12 @@ pub async fn request_model(State(state): State<AppState>, headers: HeaderMap, bo
         return auth::html_status(StatusCode::INTERNAL_SERVER_ERROR);
     }
     let fullname = s.fullname.as_deref().unwrap_or("None");
-    let discord_ok = crate::discord::model_request(pool, &model_id, &s.username, fullname, &reason).await;
-    let email_ok = crate::mailer::model_request(pool, &model_id, &s.username, s.fullname.as_deref(), &reason).await;
+    // Both channels at once: the webhook may take its full 5 s, and the
+    // page waits for this answer.
+    let (discord_ok, email_ok) = tokio::join!(
+        crate::discord::model_request(pool, &model_id, &s.username, fullname, &reason),
+        crate::mailer::model_request(pool, &model_id, &s.username, s.fullname.as_deref(), &reason),
+    );
     let mut out = json!({"ok": true, "message": format!("Demande envoyée pour « {model_id} » !"), "discord_sent": discord_ok, "email_sent": email_ok});
     if !(discord_ok || email_ok) {
         out["warning"] = json!("Demande enregistrée, mais l'admin n'a pu être prévenu (ni Discord ni email).");
@@ -172,7 +176,9 @@ pub(crate) async fn request_budget(state: &AppState, s: &auth::SessionData, form
         return auth::html_status(StatusCode::INTERNAL_SERVER_ERROR);
     }
     let fullname = s.fullname.as_deref().unwrap_or("None");
-    crate::discord::budget_request(pool, &s.username, fullname, "(compte)", current, &reason).await;
-    crate::mailer::budget_request(pool, &s.username, fullname, "(compte)", current, &reason).await;
+    tokio::join!(
+        crate::discord::budget_request(pool, &s.username, fullname, "(compte)", current, &reason),
+        crate::mailer::budget_request(pool, &s.username, fullname, "(compte)", current, &reason),
+    );
     Json(json!({"ok": true})).into_response()
 }

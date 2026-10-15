@@ -138,3 +138,6 @@ POST /admin/image/launch
 POST /admin/branding
 /admin/runner/stream
 POST /admin/storage$
+/discord/link
+/discord/callback
+/api/account/delete

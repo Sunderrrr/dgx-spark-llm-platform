@@ -24,6 +24,7 @@ rs() {
   docker run -d --name bench-rs --network bench-net -v "$B/data-rs:/app/data" \
     -v "$B/certs/ca.pem:/certs/ca.pem:ro" -e SSL_CERT_FILE=/certs/ca.pem \
     -e DATABASE_URL=sqlite:/app/data/portal.db -e FLASK_URL=http://bench-flask:5000 \
+    -e DISCORD_API=http://bench-fake:9000/discord-api \
     "${ENVS[@]}" "$RS_IMG" >/dev/null
   until docker exec bench-rs curl -sf -o /dev/null http://127.0.0.1:5100/healthz; do sleep 1; done
 }

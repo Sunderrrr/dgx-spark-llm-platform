@@ -220,20 +220,30 @@ def login(page, p: "Journey | None" = None) -> None:
             x => /^(Se connecter|Sign in)$/i.test((x.textContent || '').trim()));
         return !!b && !b.disabled;
     }"""
-    for _attempt in range(3):
-        user_field.click()
-        user_field.fill(USER)
-        password_field.click()
-        password_field.fill(password())
+    # The whole cycle is retried: on a loaded machine hydration can land after
+    # every refill, and a click on the still-disabled button sends nothing —
+    # the page then sat on /login for 40 s with no error to show for it.
+    signed_in = False
+    for _cycle in range(3):
+        for _attempt in range(3):
+            user_field.click()
+            user_field.fill(USER)
+            password_field.click()
+            password_field.fill(password())
+            try:
+                page.wait_for_function(submit_enabled, timeout=8000)
+                break
+            except Exception:
+                continue
+        submit.click()
         try:
-            page.wait_for_function(submit_enabled, timeout=8000)
+            page.wait_for_url(lambda u: "/login" not in u, timeout=20000)
+            signed_in = True
             break
         except Exception:
-            continue
-    submit.click()
-    try:
-        page.wait_for_url(lambda u: "/login" not in u, timeout=40000)
-    except Exception:
+            if label_fragment("Identifiants incorrects", "Incorrect credentials").search(page.locator("body").inner_text()):
+                break               # a real refusal: retrying would only feed the lock
+    if not signed_in:
         raise JourneyFailure(
             p.name if p else "login", "login",
             "a redirect to the home page after sign-in",

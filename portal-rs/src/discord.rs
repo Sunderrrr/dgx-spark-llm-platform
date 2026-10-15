@@ -5,10 +5,12 @@
 use sqlx::SqlitePool;
 use std::time::Duration;
 
-/// `config.DISCORD_API`.
-const DISCORD_API: &str = "https://discord.com/api/v10";
+/// `config.DISCORD_API`; `DISCORD_API` overrides it (the parity bench's fake).
+pub fn api() -> String {
+    std::env::var("DISCORD_API").unwrap_or_else(|_| "https://discord.com/api/v10".into())
+}
 
-async fn setting(pool: &SqlitePool, key: &str) -> String {
+pub(crate) async fn setting(pool: &SqlitePool, key: &str) -> String {
     sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key=?").bind(key).fetch_optional(pool).await.ok().flatten().unwrap_or_default()
 }
 
@@ -65,7 +67,7 @@ pub async fn announce(pool: &SqlitePool, kind: &str, a: &str, b: &str) {
 async fn send_dm(token: &str, discord_id: &str, content: &str) -> bool {
     let c = crate::sidecars::http();
     let auth = format!("Bot {token}");
-    let Ok(ch) = c.post(format!("{DISCORD_API}/users/@me/channels")).header("Authorization", &auth).json(&serde_json::json!({"recipient_id": discord_id})).timeout(Duration::from_secs(8)).send().await else {
+    let Ok(ch) = c.post(format!("{}/users/@me/channels", api())).header("Authorization", &auth).json(&serde_json::json!({"recipient_id": discord_id})).timeout(Duration::from_secs(8)).send().await else {
         return false;
     };
     if !ch.status().is_success() {
@@ -75,7 +77,7 @@ async fn send_dm(token: &str, discord_id: &str, content: &str) -> bool {
         return false;
     };
     let body = serde_json::json!({"content": content.chars().take(1900).collect::<String>()});
-    let post = || c.post(format!("{DISCORD_API}/channels/{channel}/messages")).header("Authorization", &auth).json(&body).timeout(Duration::from_secs(8)).send();
+    let post = || c.post(format!("{}/channels/{channel}/messages", api())).header("Authorization", &auth).json(&body).timeout(Duration::from_secs(8)).send();
     let Ok(r) = post().await else { return false };
     if r.status().as_u16() == 429 {
         let wait = r.json::<serde_json::Value>().await.ok().and_then(|v| v.get("retry_after").and_then(|x| x.as_f64())).unwrap_or(1.0).clamp(0.0, 5.0);

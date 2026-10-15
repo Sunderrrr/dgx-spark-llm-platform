@@ -150,6 +150,27 @@ Not ported, on purpose:
   porting S3 access is a sub-project.
 - **`/api/video/status`**: it asks ComfyUI and persists the result.
 
+### Skills: routed (`/api/skills`, its 7 routes)
+
+List, detail, download, enable, sync, and the .zip and Git imports
+(`portal-rs/src/skillstore.rs`, routes in `handlers/skill_routes.rs`). The
+security-sensitive parts are checked against outputs of the Python code
+itself (`tests/fixtures/skills_ref.json`, `skills_zip.json`): the SSRF address
+rule of `mcp_client._is_blocked_ip` on 6 947 addresses (Python 3.12's
+`ipaddress` ranges and exceptions, IPv4-mapped IPv6 included), the zip member
+path rule, the SKILL.md front matter, the Git URL forms, and the archive
+reading on trapped archives (path traversal, absolute and drive paths, `.git`,
+symlink, binary, oversized and non-UTF-8 members, wrapper folder, nested
+skill, sub-folder, 52 skills, not-a-zip). A download resolves the host once,
+refuses it if ANY address is internal, and pins the first one (no DNS
+rebinding), with no redirect and a 25 MB cap. Compared on the demo account
+(27 checks identical, its skills removed afterwards): imports, replace,
+detail, download, enable, sync, ten SSRF refusals (`localtest.me`, which
+resolves to 127.0.0.1, included), and a real import of a public GitHub
+folder then its sync. One known gap: the zip crate exposes the Unix mode only
+for archives made on Unix or DOS, so a symlink flagged in an archive claiming
+another system would be read as a plain text file (never followed).
+
 ### Memory: routed (`/api/memory`, its 11 routes)
 
 The graph read, the settings, add / correct / forget a fact, the purge, the

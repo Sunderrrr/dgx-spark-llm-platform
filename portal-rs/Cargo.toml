@@ -8,7 +8,7 @@ name = "portal"
 path = "src/main.rs"
 
 [dependencies]
-axum = "0.7"
+axum = { version = "0.7", features = ["multipart"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
@@ -32,6 +32,7 @@ getrandom = "0.2"
 unicode-normalization = "0.1"
 unicode-properties = "0.1"
 regex = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tokio-test = "0.4"

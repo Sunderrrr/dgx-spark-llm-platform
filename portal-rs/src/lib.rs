@@ -23,6 +23,7 @@ pub mod sessions;
 pub mod sharing;
 pub mod memnorm;
 pub mod memory;
+pub mod skillstore;
 
 pub use db::Database;
 pub use error::ApiError;

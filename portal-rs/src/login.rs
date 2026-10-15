@@ -165,11 +165,12 @@ pub async fn login(state: AppState, headers: HeaderMap, connect: Option<std::net
         Ok(f) => f,
         Err(_) => return crate::auth::html_status(StatusCode::INTERNAL_SERVER_ERROR),
     };
-    let passkey: Option<Option<i64>> = sqlx::query_scalar("SELECT enabled FROM user_security WHERE username=?").bind(&username).fetch_optional(pool).await.ok().flatten();
-    if facts.blocked || passkey.flatten().unwrap_or(0) != 0 {
-        // The refusal (and its audit line) and the second factor are Flask's.
+    if facts.blocked {
+        // The refusal and its audit line are Flask's.
         return relay(headers, body, uri).await;
     }
+    let passkey: Option<Option<i64>> = sqlx::query_scalar("SELECT enabled FROM user_security WHERE username=?").bind(&username).fetch_optional(pool).await.ok().flatten();
+    let second_factor = passkey.flatten().unwrap_or(0) != 0;
     let fullname = fullname.filter(|f| !f.is_empty()).unwrap_or_else(|| username.clone());
     for k in [&key, &ukey] {
         let _ = sqlx::query("DELETE FROM login_attempts WHERE key=?").bind(k).execute(pool).await;
@@ -186,6 +187,13 @@ pub async fn login(state: AppState, headers: HeaderMap, connect: Option<std::net
     record_source(pool, &username, source, &fullname, is_admin).await;
     if source == "ldap" {
         crate::handlers::apply_group_quota(&state, &username).await;
+    }
+    if second_factor {
+        // A valid password is not a session yet: the passkey's challenge is the next step.
+        return match crate::handlers::passkey_start_login(&state, &username, &fullname, is_admin, source).await {
+            Some(v) => axum::Json(serde_json::json!({"webauthn_required": true, "publicKey": v["publicKey"], "nonce": v["nonce"]})).into_response(),
+            None => crate::auth::html_status(StatusCode::INTERNAL_SERVER_ERROR),
+        };
     }
     let token = match apply_session(&state, &headers, &ip, &username, &fullname, is_admin, false).await {
         Ok(t) => t,

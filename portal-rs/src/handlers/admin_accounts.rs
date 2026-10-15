@@ -459,7 +459,7 @@ pub async fn admin_user_purge(State(state): State<AppState>, Path(username): Pat
 }
 
 /// `password_management(username)['management']`: who holds the password.
-async fn management(pool: &SqlitePool, username: &str) -> (&'static str, bool) {
+pub(crate) async fn management(pool: &SqlitePool, username: &str) -> (&'static str, bool) {
     let local = sqlx::query_scalar::<_, i64>("SELECT 1 FROM local_users WHERE username=?").bind(username).fetch_optional(pool).await.ok().flatten().is_some();
     let sources: Option<Option<String>> = sqlx::query_scalar("SELECT sources FROM user_sources WHERE username=?").bind(username).fetch_optional(pool).await.ok().flatten();
     let sources = sources.flatten().unwrap_or_default();
@@ -479,7 +479,7 @@ async fn management(pool: &SqlitePool, username: &str) -> (&'static str, bool) {
 /// `_verify_password_locked`: the password checked against the source that
 /// holds it, under the account's failure counter shared with /login (an SSO
 /// account has none the portal can check).
-async fn verify_password_locked(pool: &SqlitePool, username: &str, how: &str, password: &str) -> Result<(), Response> {
+pub(crate) async fn verify_password_locked(pool: &SqlitePool, username: &str, how: &str, password: &str) -> Result<(), Response> {
     if how == "sso-provider" {
         return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Compte SSO : aucun mot de passe n'est géré par le portail, la vérification est impossible."}))).into_response());
     }

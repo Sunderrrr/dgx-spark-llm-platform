@@ -153,3 +153,8 @@ GET /admin/storage$
 POST /admin/storage/migrate
 /login/sso
 /api/oauth2-redirect
+POST /api/security/register/begin
+POST /api/security/register/finish
+POST /api/security/remove
+POST /api/security/toggle
+POST /api/security/verify-login

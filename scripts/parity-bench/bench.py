@@ -38,8 +38,9 @@ INSIDE = r'''
 import json, sqlite3, sys, urllib.error, urllib.request
 op, arg = sys.argv[1], json.loads(sys.argv[2])
 if op == 'call':
-    m, url, tok, csrf, body, ctype = arg
+    m, url, tok, csrf, body, ctype = arg[:6]
     h = {'Host': 'portal.test', 'X-Forwarded-Proto': 'https'}
+    h.update(arg[6] if len(arg) > 6 else {})
     if tok: h['Cookie'] = 'session=' + tok
     if m != 'GET': h['X-CSRFToken'] = csrf; h['Content-Type'] = ctype
     class NR(urllib.request.HTTPRedirectHandler):

@@ -40,6 +40,7 @@ pub mod litellm_models;
 pub mod launches;
 pub mod ldap;
 pub mod sso;
+pub mod webauthn;
 
 pub use db::Database;
 pub use error::ApiError;

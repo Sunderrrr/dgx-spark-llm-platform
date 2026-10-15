@@ -35,6 +35,8 @@ mod discord_routes;
 mod admin_directory;
 mod admin_config;
 mod sso_routes;
+mod passkeys;
+mod internal;
 pub use memory_routes::*;
 pub use skill_routes::*;
 pub use user_routes::*;
@@ -61,6 +63,9 @@ pub use discord_routes::*;
 pub use admin_directory::*;
 pub use admin_config::*;
 pub use sso_routes::*;
+pub use internal::internal_authcheck;
+pub use passkeys::{register_begin, register_finish, remove as passkey_remove, toggle as passkey_toggle, verify_login as passkey_verify_login};
+pub use passkeys::{start_login as passkey_start_login};
 pub use user_requests::{api_model_request, request_model};
 
 use crate::{AppState, auth, guards, s3, conversations, docs, health, hf, home, keys, media, memory, models, probes, ranking, sessions, settings, sharing, sidecars, skillstore, system, userdata};

@@ -397,15 +397,31 @@ Routed after the bench found them identical:
   `scripts/parity-bench/sso_check.py` and `migrate_check.py` run the flows
   bench.py cannot (random state and nonce, a background move).
 
-Left on Flask on purpose (8 routes): the root page `/` (it would catch every
-path) and `/api/latency` (it measures the Flask process itself);
-`/internal/authcheck`, which Traefik's forwardAuth calls on dgx-portal
-directly (switching it is a Traefik configuration change, outside this
-repository); and passkeys (`/api/security/register/*`, `remove`, `toggle`,
-`verify-login`, and the second factor of `/login`, relayed). Porting them
-means a CBOR, COSE and attestation stack checked against py_webauthn, and a
-mistake locks the accounts that use one out of the portal — to be done
-with a software authenticator on the bench, not under time pressure.
+Passkeys (`portal-rs/src/webauthn.rs`, `handlers/passkeys.rs`): the five
+`/api/security/*` writes and the second factor of `POST /login` (a password
+that passes answers `webauthn_required` and the challenge; the session opens
+on `verify-login`). Verified with a software authenticator
+(`scripts/parity-bench/wa_driver.py`, run inside the Flask image for cbor2
+and cryptography): 20 steps identical on both backends, the database
+identical after each run, and a key created by Flask verified by Rust (the
+production case) with the replay and a forged signature refused.
+
+Scope, on purpose: the algorithms are the ones py_webauthn accepts by default
+(ES256, RS256, EdDSA); the attestations are `none`, `packed` (self, or with
+an `x5c` certificate, not chain-checked — Flask does not check it either
+without configured roots) and `fido-u2f`. tpm, apple and android-key are
+refused with a message: a key of those formats must be re-enrolled on a
+`none` authenticator, which is what the registration asks for. The clone
+check (the counter must grow) is the same.
+
+`/internal/authcheck` is ported too (`handlers/internal.rs`, 6 cases identical
+on the bench, calls from the trusted bridge and from loopback), but Traefik's
+forwardAuth still points at `dgx-portal:5000` in `/opt/traefik` (outside this
+repository): the switch is a Traefik configuration change, not made here.
+
+Left on Flask (3 routes): the root page `/` (a Next page; Flask's answer is a
+redirect target only) and `/api/latency` (it measures the Flask process
+itself), and `/internal/authcheck` until Traefik points at portal-rs.
 
 The fake upstream records the calls it receives (the probes left out), and
 `bench.py` compares each backend's sequence of upstream calls as well: a

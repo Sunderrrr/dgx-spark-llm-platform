@@ -21,7 +21,7 @@ fn env_url(name: &str, default: &str) -> String {
     std::env::var(name).ok().filter(|v| !v.is_empty()).unwrap_or_else(|| default.to_string()).trim_end_matches('/').to_string()
 }
 
-fn ocr_url() -> String {
+pub(crate) fn ocr_url() -> String {
     env_url("OCR_URL", "http://ocr:8000/v1")
 }
 fn voice_url() -> String {

@@ -204,6 +204,17 @@ Two Flask defects found on the way:
 - a refused job slot (429) left its row « running » forever: Rust takes the
   slot before inserting the row.
 
+### Phase 3 — OCR extraction, routed (`/api/ocr/extract`)
+
+The image is stored first, then the OCR container's SSE answer is relayed
+line by line from a tokio task (a `: ouverture` comment goes out before any
+work, as in Flask, for the proxy's 15 s connect delay); the job is written
+at the end — with the partial text if the client left, the image dropped if
+nothing came. chandra's layout prompt is compiled in verbatim. Tested on the
+demo account with chandra-ocr-2 started for the test: the same invoice image
+gives the same HTML through both backends, both jobs land in the history
+with their image.
+
 ### Phase 3 — dictation and voice mode, routed (`/api/transcribe`, `/api/voice/chat/start`, `/api/voice/speak`)
 
 The dictation sidecar's on-demand state is FILE state (idle clock, in-flight

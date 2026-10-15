@@ -71,3 +71,4 @@
 /api/transcribe
 /api/voice/chat/start
 /api/voice/speak
+/api/ocr/extract

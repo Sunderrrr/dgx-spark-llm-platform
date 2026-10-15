@@ -74,7 +74,7 @@ pub(crate) fn image_dimensions(d: &[u8], mime: &str) -> Option<(u64, u64)> {
 }
 
 /// `_read_uploaded_image`: the reference image, or the refusal text.
-fn reference_image(name: &str, mime: &str, data: &[u8]) -> Result<(), String> {
+pub(crate) fn reference_image(name: &str, mime: &str, data: &[u8]) -> Result<(), String> {
     if name.is_empty() {
         return Err("Aucune image fournie.".into());
     }

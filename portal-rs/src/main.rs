@@ -107,12 +107,15 @@ async fn main() -> anyhow::Result<()> {
         .route("/support/feedback", post(handlers::support_feedback))
         .route("/api/playground/data", get(handlers::api_playground_data))
         .route("/playground/chat", post(handlers::playground_chat))
+        .route("/support/chat", post(handlers::support_chat))
+        .route("/support/confirm", post(handlers::support_confirm))
         .route("/api/voice/chat/status", get(handlers::api_voice_chat_status))
         .route("/api/image/generate", post(handlers::api_image_generate))
         .route("/api/image/cancel/:prompt_id", post(handlers::api_image_cancel))
         .route("/api/image/delete/:prompt_id/:idx", post(handlers::api_image_delete))
         .route("/api/csrf", get(handlers::api_csrf))
         .route("/logout", post(handlers::logout))
+        .route("/login", post(handlers::login))
         .route("/api/voice/generate", post(handlers::api_voice_generate))
         .route("/api/playground/title", post(handlers::api_playground_title))
         .route("/api/playground/summarize", post(handlers::api_playground_summarize))
@@ -136,6 +139,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/notifications/seen", post(handlers::api_notifications_seen))
         .route("/api/announcements/seen", post(handlers::api_announcements_seen))
         
+        .layer(axum::middleware::from_fn_with_state(state.clone(), portal_rs::relay::admin_layer))
         .layer(axum::middleware::from_fn(portal_rs::security::layer))
         .layer(TraceLayer::new_for_http())
         .layer(DefaultBodyLimit::max(16 * 1024 * 1024)) // 16 MB max body

@@ -263,6 +263,41 @@ request (engine slot freed) and the in-flight row.
 portal-rs joined `web_net` and mounts the crawl4ai token (read-only), as
 dgx-portal; the runner and engine stay reachable from it (checked).
 
+### The admin relay
+
+Some routes have an admin branch that cannot be compared with Flask: no
+admin session may be used for tests. `portal-rs/src/relay.rs` serves them
+for every other account and hands an ADMIN session's request to Flask
+unchanged (method, path, query, cookie, CSRF, body), streaming Flask's answer
+back (SSE included; checked against a fake upstream). Covered:
+`/api/home`, `/system/stats`, `/api/ranking*`, `/support/chat`,
+`/support/confirm`. The first three were already ported and compared for the
+demo account (identical); they are now routed, admins staying on Flask.
+
+### Phase 7 — the Support assistant, routed (`/support/chat`, `/support/confirm`)
+
+`chat/support.rs` and `chat/support_tools.rs` port the non-admin Support:
+system prompt and FAQ with the instance name, the account context (budget,
+masked keys, today's use, catalogue, runner, services, requests, last
+actions), memory as data, the self-service tools plus the user's MCP tools,
+past-conversation search and skills. Each turn streams; a `<think>` written
+into the content is held back until it closes; tool calls are gathered from
+the deltas, four rounds at most, then a last turn without tools. Sensitive
+actions are only proposed (`dgx_confirm`, single-use token, executed by
+`/support/confirm`); after an MCP or skill result, they and key creation are
+refused for the turn. The budget and model requests go through Flask's own
+forms (`/keys`, `/request`) with the user's cookie, so the admin
+notifications (Discord, e-mail) stay where they live. A completed turn is
+saved as the thread (last 40) and feeds the memory.
+
+Compared on the demo account: empty request (400), a context question (same
+keys), key creation, revocation proposed then confirmed (a replay answers
+404), malformed confirm token, an MCP call (same events, same upstream
+failure), and an MCP read followed by a request — both backends end on the
+same `model_replied_error` 400: an MCP result has no size bound and can
+overflow the window (pre-existing, noted for later). The thread is saved. Not
+run live: the budget/model requests (they notify the admin).
+
 ### Phase 7 — MCP servers, routed (`/mcp`)
 
 Registering, updating, toggling and deleting the viewer's MCP servers. The

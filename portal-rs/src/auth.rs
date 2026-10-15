@@ -86,6 +86,12 @@ pub fn werkzeug_body(status: StatusCode) -> String {
     format!("<!doctype html>\n<html lang=en>\n<title>{} {title}</title>\n<h1>{title}</h1>\n<p>{text}</p>\n", status.as_u16())
 }
 
+/// werkzeug's `redirect(location)` body.
+pub fn werkzeug_redirect_body(location: &str) -> String {
+    let escaped = location.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&#34;").replace('\'', "&#39;");
+    format!("<!doctype html>\n<html lang=en>\n<title>Redirecting...</title>\n<h1>Redirecting...</h1>\n<p>You should be redirected automatically to the target URL: <a href=\"{escaped}\">{escaped}</a>. If not, click the link.\n")
+}
+
 /// `login_required` on a page path: signed out → 302 to the login page with
 /// `next`, as werkzeug's `redirect(url_for('login', next=request.path))` writes it.
 pub fn login_redirect(path: &str) -> Response {

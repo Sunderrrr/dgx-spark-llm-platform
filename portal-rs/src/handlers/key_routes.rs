@@ -36,7 +36,7 @@ async fn ensure_user(username: &str, max_budget: f64, duration: &str) {
 }
 
 /// `create_litellm_key`: the new key, or None when LiteLLM did not answer.
-async fn create_key(state: &AppState, alias: &str, username: &str, is_admin: bool) -> Option<String> {
+pub(crate) async fn create_key(state: &AppState, alias: &str, username: &str, is_admin: bool) -> Option<String> {
     let mut payload = json!({"key_alias": alias, "metadata": {"user": username, "created_by": "dgx-portal"}});
     if !is_admin {
         // The budget is the ACCOUNT's, shared by all its keys through user_id.
@@ -52,6 +52,11 @@ async fn create_key(state: &AppState, alias: &str, username: &str, is_admin: boo
         return None;
     }
     r.json::<Value>().await.ok()?.get("key")?.as_str().map(str::to_string)
+}
+
+/// `revoke_litellm_key`: the key in the body, never in a URL.
+pub(crate) async fn revoke_key(key: &str) -> bool {
+    litellm_post("/key/delete", json!({"keys": [key]}), 5).await.is_some_and(|r| r.status().is_success())
 }
 
 /// Relays the request to Flask unchanged (cookie, CSRF, body) and returns its answer.

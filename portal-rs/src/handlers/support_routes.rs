@@ -238,3 +238,13 @@ pub async fn api_voice_chat_status(State(state): State<AppState>, headers: Heade
 pub async fn playground_chat(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
     crate::chat::playground::playground_chat(state, headers, body).await
 }
+
+/// POST /support/chat - the Support assistant's turn, streamed (see chat::support)
+pub async fn support_chat(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    crate::chat::support::support_chat(state, headers, body).await
+}
+
+/// POST /support/confirm - run or cancel an action the Support proposed
+pub async fn support_confirm(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    crate::chat::support::support_confirm(state, headers, body).await
+}

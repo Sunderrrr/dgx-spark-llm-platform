@@ -91,3 +91,37 @@ impl Client {
         Ok(self.rpc("tools/list", json!({})).await?.get("tools").and_then(Value::as_array).cloned().unwrap_or_default())
     }
 }
+
+impl Client {
+    /// `call_tool`: the text parts joined, and whether the server reported success.
+    pub async fn call_tool(&mut self, name: &str, arguments: &Value) -> Result<(String, bool), McpError> {
+        let result = self.rpc("tools/call", json!({"name": name, "arguments": arguments})).await?;
+        let parts: Vec<String> = result
+            .get("content")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter(|c| c.get("type").and_then(Value::as_str) == Some("text")).map(|c| c.get("text").and_then(Value::as_str).unwrap_or("").to_string()).filter(|t| !t.is_empty()).collect())
+            .unwrap_or_default();
+        let text = if parts.is_empty() { "(réponse vide du serveur MCP)".to_string() } else { parts.join("\n") };
+        Ok((text, !result.get("isError").is_some_and(crate::keys::truthy)))
+    }
+}
+
+/// Per-server tools, cached 120 s — failures too (a dead server must not cost
+/// its timeouts on every message).
+static TOOLS_CACHE: std::sync::Mutex<Option<std::collections::HashMap<i64, (std::time::Instant, Vec<Value>)>>> = std::sync::Mutex::new(None);
+
+/// `list_tools_cached`.
+pub async fn list_tools_cached(server_id: i64, url: &str, auth: Option<&str>, ldap_host: &str) -> Vec<Value> {
+    if let Some((at, tools)) = TOOLS_CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|m| m.get(&server_id)).cloned() {
+        if at.elapsed() < std::time::Duration::from_secs(120) {
+            return tools;
+        }
+    }
+    let mut c = Client::new(url, auth, ldap_host);
+    let tools = match c.initialize().await {
+        Ok(_) => c.list_tools().await.unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    TOOLS_CACHE.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).insert(server_id, (std::time::Instant::now(), tools.clone()));
+    tools
+}

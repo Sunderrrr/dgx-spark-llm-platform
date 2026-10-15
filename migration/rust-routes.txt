@@ -76,3 +76,8 @@
 POST /keys
 GET /api/security
 /playground/chat
+/api/home
+/system/stats
+/api/ranking
+/support/chat
+/support/confirm

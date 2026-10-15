@@ -73,3 +73,8 @@ pub async fn logout(State(state): State<AppState>, headers: HeaderMap, body: axu
     }
     resp
 }
+
+/// POST /login - a local account's sign-in in Rust; directory accounts and passkeys go to Flask
+pub async fn login(State(state): State<AppState>, connect: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>, uri: axum::http::Uri, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    crate::login::login(state, headers, connect.map(|c| c.0), uri, body).await
+}

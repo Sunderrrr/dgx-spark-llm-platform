@@ -31,6 +31,8 @@ pub mod session_store;
 pub mod asr_ondemand;
 pub mod mcp;
 pub mod chat;
+pub mod relay;
+pub mod login;
 
 pub use db::Database;
 pub use error::ApiError;

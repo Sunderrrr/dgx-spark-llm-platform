@@ -13,7 +13,9 @@ the probes are left out).
 
 A case that is not a GET is a write: both databases are restored from the
 seed first, and after the request every table is compared too (timestamps
-masked; `ignore_tables` leaves tables out). The bench runs the requests from
+masked; `ignore_tables` leaves tables out; `sql` statements run on both
+restored databases first, to set up a case; `ignore_columns` leaves
+columns out, e.g. a salted password hash). The bench runs the requests from
 inside bench-flask, so both backends see the same client and Host.
 """
 import json
@@ -51,8 +53,11 @@ elif op == 'upstream':
     print(urllib.request.urlopen('http://bench-fake:9000/__calls', timeout=10).read().decode())
 elif op == 'restore':
     seed = sqlite3.connect('file:/bench/seed.db?mode=ro', uri=True)
-    for p in arg:
-        dst = sqlite3.connect(p, timeout=30); seed.backup(dst); dst.close()
+    for p in arg['dbs']:
+        dst = sqlite3.connect(p, timeout=30); seed.backup(dst)
+        for q in arg['sql']:
+            dst.execute(q)
+        dst.commit(); dst.close()
 elif op == 'dump':
     out = {}
     for name, p in arg.items():
@@ -83,6 +88,14 @@ def mask(v):
     if isinstance(v, int) and 1_000_000_000 < v < 10_000_000_000:
         return '<t>'
     return v
+
+
+def deep_mask(v):
+    if isinstance(v, dict):
+        return {k: deep_mask(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [deep_mask(x) for x in v]
+    return mask(v)
 
 
 def norm(v, ignore):
@@ -122,7 +135,7 @@ def compare(case):
     tok = {'admin': ADMIN, 'ops': OPS, 'stale': STALE, 'user': USER, 'anon': None}[case.get('as', 'admin')]
     write = method != 'GET'
     if write:
-        inside('restore', list(DBS.values()))
+        inside('restore', {'dbs': list(DBS.values()), 'sql': case.get('sql', [])})
     res, calls = {}, {}
     for side, base in BASES.items():
         inside('upstream', None)
@@ -142,15 +155,16 @@ def compare(case):
         if f['body'] != r['body']:
             issues.append(f"body {f['body'][:100]!r} != {r['body'][:100]!r}")
     # The upstream calls (LiteLLM, runner…) each side made, in order.
-    issues += diff(calls['flask'], calls['rust'], 'upstream')
+    issues += diff(deep_mask(calls['flask']), deep_mask(calls['rust']), 'upstream')
     if write:
         dump = inside('dump', DBS)
         skip = NOISY_TABLES | set(case.get('ignore_tables', []))
         for t in sorted(set(dump['flask']) | set(dump['rust'])):
             if t in skip:
                 continue
-            a = [{k: mask(v) for k, v in row.items()} for row in dump['flask'].get(t, [])]
-            b = [{k: mask(v) for k, v in row.items()} for row in dump['rust'].get(t, [])]
+            cols = set(case.get('ignore_columns', []))
+            a = [{k: mask(v) for k, v in row.items() if k not in cols} for row in dump['flask'].get(t, [])]
+            b = [{k: mask(v) for k, v in row.items() if k not in cols} for row in dump['rust'].get(t, [])]
             a.sort(key=lambda d: json.dumps(d, sort_keys=True))
             b.sort(key=lambda d: json.dumps(d, sort_keys=True))
             issues += diff(a, b, f'db.{t}')

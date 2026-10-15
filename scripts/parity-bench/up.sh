@@ -14,14 +14,15 @@ B="${PARITY_BENCH_DIR:-$HOME/.cache/parity-bench}"
 FLASK_IMG=ai-platform-dgx-portal
 RS_IMG=ai-platform-portal-rs
 F=http://bench-fake:9000
-ENVS=(-e VLLM_RUNNER_URL=$F/runner -e RUNNER_TOKEN=t -e VLLM_API_URL=$F/engine/v1
-      -e LITELLM_URL=$F/litellm -e LITELLM_MASTER_KEY=k -e OCR_URL=$F/ocr/v1
-      -e VOICE_URL=$F/voice -e ASR_URL=$F/asr -e IMAGE_URL=$F/image -e COMFYUI_URL=$F/comfy
+ENVS=(-e "VLLM_RUNNER_URL=$F/runner" -e RUNNER_TOKEN=t -e "VLLM_API_URL=$F/engine/v1"
+      -e "LITELLM_URL=$F/litellm" -e LITELLM_MASTER_KEY=k -e "OCR_URL=$F/ocr/v1"
+      -e "VOICE_URL=$F/voice" -e "ASR_URL=$F/asr" -e "IMAGE_URL=$F/image" -e "COMFYUI_URL=$F/comfy"
       -e SESSION_COOKIE_SECURE=0)
 
 rs() {
   docker rm -f bench-rs >/dev/null 2>&1 || true
   docker run -d --name bench-rs --network bench-net -v "$B/data-rs:/app/data" \
+    -v "$B/certs/ca.pem:/certs/ca.pem:ro" -e SSL_CERT_FILE=/certs/ca.pem \
     -e DATABASE_URL=sqlite:/app/data/portal.db -e FLASK_URL=http://bench-flask:5000 \
     "${ENVS[@]}" "$RS_IMG" >/dev/null
   until docker exec bench-rs curl -sf -o /dev/null http://127.0.0.1:5100/healthz; do sleep 1; done
@@ -52,8 +53,21 @@ cp "$B/data-flask/portal.db" "$B/portal.seed.db"
 cp "$B/portal.seed.db" "$B/data-rs/portal.db"
 chown -R "$UID_IN" "$B/data-flask" "$B/data-rs" 2>/dev/null || true
 
+# The fake SMTP server's certificate, signed by a bench CA the Rust side trusts
+# (it verifies the server certificate; Python's smtplib does not).
+if [ ! -s "$B/certs/server.pem" ]; then
+  mkdir -p "$B/certs"
+  openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=bench CA" \
+    -keyout "$B/certs/ca.key" -out "$B/certs/ca.pem" 2>/dev/null
+  openssl req -newkey rsa:2048 -nodes -subj "/CN=bench-fake" -addext "subjectAltName=DNS:bench-fake" \
+    -keyout "$B/certs/server.key" -out "$B/certs/server.csr" 2>/dev/null
+  openssl x509 -req -in "$B/certs/server.csr" -CA "$B/certs/ca.pem" -CAkey "$B/certs/ca.key" -CAcreateserial \
+    -days 3650 -copy_extensions copy -out "$B/certs/server.pem" 2>/dev/null
+  chmod 644 "$B"/certs/*
+fi
+
 docker network create --internal bench-net >/dev/null
-docker run -d --name bench-fake --network bench-net -v "$HERE/fake.py:/fake.py:ro" "$FLASK_IMG" python3 /fake.py >/dev/null
+docker run -d --name bench-fake --network bench-net -v "$HERE/fake.py:/fake.py:ro" -v "$B/certs:/certs:ro" "$FLASK_IMG" python3 /fake.py >/dev/null
 docker run -d --name bench-flask --network bench-net -v "$B/data-flask:/app/data" \
   -v "$B/data-rs:/bench/rs" -v "$B/portal.seed.db:/bench/seed.db:ro" \
   -e SECRET_KEY="$SK" "${ENVS[@]}" "$FLASK_IMG" >/dev/null

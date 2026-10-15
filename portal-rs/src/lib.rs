@@ -35,6 +35,8 @@ pub mod relay;
 pub mod login;
 pub mod rowjson;
 pub mod discord;
+pub mod mailer;
+pub mod litellm_models;
 
 pub use db::Database;
 pub use error::ApiError;

@@ -27,6 +27,9 @@ mod admin_routes;
 mod admin_writes;
 mod admin_budget;
 mod admin_groups;
+mod admin_accounts;
+mod user_requests;
+mod admin_catalog;
 pub use memory_routes::*;
 pub use skill_routes::*;
 pub use user_routes::*;
@@ -46,6 +49,9 @@ pub use admin_routes::*;
 pub use admin_writes::*;
 pub use admin_budget::*;
 pub use admin_groups::*;
+pub use admin_accounts::*;
+pub use admin_catalog::*;
+pub use user_requests::{api_model_request, request_model};
 
 use crate::{AppState, auth, guards, s3, conversations, docs, health, hf, home, keys, media, memory, models, probes, ranking, sessions, settings, sharing, sidecars, skillstore, system, userdata};
 

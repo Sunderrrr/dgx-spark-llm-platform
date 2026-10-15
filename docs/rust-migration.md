@@ -307,6 +307,34 @@ Routed after the bench found them identical:
   `/admin/budget/approve|reject/<id>` (permanent raise, temporary grant,
   stacking on a running grant, LiteLLM refusing the write).
 
+- groups: `/admin/groups/create` and `/delete/<name>` (case-insensitive
+  merge, the last-local-admin refusals, the local members' quota sync and the
+  directory members' right and group quota recomputed);
+- local accounts: `/admin/users/create`, `/update/<id>`, `/delete/<id>` and
+  `/admin/users/<u>/purge` (keys, sessions, LiteLLM envelope, then every
+  attached table). An update that sets a password is handed to Flask, which
+  e-mails the account about it; Rust hashes new passwords as werkzeug does
+  (scrypt, N=32768, r=8, p=1).
+
+- e-mail: `portal-rs/src/mailer.rs` sends notify.py's template (HTML and the
+  plain-text part) through the Admin → Config SMTP account with STARTTLS;
+  `/admin/maintenance/toggle` (the operator's e-mail, the warning when it
+  fails) and `/admin/email/test` use it. Unlike Python's `smtplib`, it
+  verifies the server certificate (system roots, or `SSL_CERT_FILE`). The
+  bench's fake upstream runs an SMTP server with STARTTLS behind a bench CA
+  and records each message (sender, envelope, subject, text part): Rust's
+  and Flask's are identical.
+
+- users' requests (`portal-rs/src/handlers/user_requests.rs`): `POST /request`
+  (a model to add: Discord webhook and e-mail, the warning when neither
+  went out), `/api/model/request` (a media model wanted, with its cooldown)
+  and the budget request of `POST /keys`, no longer relayed to Flask.
+
+- the sidecars' manual start and stop, `/admin/<kind>/start|stop` for
+  asr, image, ocr, video and voice (memory guard, the runner's reason on a
+  failure, the dictation pin). Listed one by one in the routes file: a
+  `/admin/*/stop` entry would also catch `/admin/model/stop`.
+
 The fake upstream records the calls it receives (the probes left out), and
 `bench.py` compares each backend's sequence of upstream calls as well: a
 write that answers the same but deletes another key would not pass.
@@ -317,6 +345,10 @@ Found by the bench and fixed:
   was read with the new role by Rust, but the session was not rewritten and
   the `session.role_rafraichi` audit line not written, as Flask does.
 - The router's own 405 had an empty body; it now carries werkzeug's page.
+- The Rust connection enforces foreign keys (sqlx's default), Flask's does
+  not: forgetting a memory fact removed the orphan node's aliases in Rust
+  (cascade) and left them in Flask, where they kept their
+  `(username, alias_norm)` key from any later node. Flask now deletes them.
 - Flask accepted `nan` as a budget amount (`nan <= 0` and `nan > 1e12` are
   both false) and sent it to LiteLLM as the account's cap; both backends now
   refuse it (`not v > 0`).
@@ -326,10 +358,9 @@ Found by the bench and fixed:
   the console's concurrent probes lost SYNs and waited 1 s. A bench artifact
   (the sidecars run uvicorn, backlog 2048), fixed in `fake.py`.
 
-Still on Flask: user create/update/delete and the groups (they sync quotas
-to LiteLLM and recompute directory members), the model
-launches and stops, `/admin/model/*` (LiteLLM registration, weight deletion),
-the maintenance toggle (its e-mail), the directory-backed reads
+Still on Flask: the model
+launches (chat, OCR, voice, image), `/admin/model/*` (LiteLLM registration, weight deletion),
+the directory-backed reads
 (`/api/admin/users`, `/admin/platform`, `/admin/users/<u>/detail`), the
 configuration (`/admin/config`, `/admin/validate`), and the storage.
 

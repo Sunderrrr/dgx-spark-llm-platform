@@ -335,6 +335,13 @@ def _mem_forget(username, edge_id):
                "(SELECT src_id FROM memory_edges WHERE username=? "
                " UNION SELECT dst_id FROM memory_edges WHERE username=? AND dst_id IS NOT NULL)",
                (username, username, username))
+    # ...and its aliases with it. The schema says ON DELETE CASCADE, but this
+    # connection runs with foreign keys off: the aliases stayed, and since
+    # (username, alias_norm) is their key, a later node could no longer take
+    # the same alias (INSERT OR IGNORE dropped it). The Rust portal's
+    # connection enforces the cascade; both now leave the same rows.
+    db.execute("DELETE FROM memory_aliases WHERE username=? AND node_id NOT IN "
+               "(SELECT id FROM memory_nodes WHERE username=?)", (username, username))
     db.commit()
     return cur.rowcount > 0
 

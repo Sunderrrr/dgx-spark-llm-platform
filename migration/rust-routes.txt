@@ -107,3 +107,23 @@ POST /admin/users/*/block
 POST /admin/users/*/budget/set
 POST /admin/budget/approve
 POST /admin/budget/reject
+POST /admin/groups/create
+POST /admin/groups/delete
+POST /admin/users/create
+POST /admin/users/update
+POST /admin/users/delete
+POST /admin/users/*/purge
+POST /admin/maintenance/toggle
+POST /admin/email/test
+POST /request
+/api/model/request
+POST /admin/asr/start
+POST /admin/asr/stop
+POST /admin/image/start
+POST /admin/image/stop
+POST /admin/ocr/start
+POST /admin/ocr/stop
+POST /admin/video/start
+POST /admin/video/stop
+POST /admin/voice/start
+POST /admin/voice/stop

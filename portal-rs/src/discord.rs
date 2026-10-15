@@ -85,6 +85,57 @@ async fn send_dm(token: &str, discord_id: &str, content: &str) -> bool {
     r.status().is_success()
 }
 
+/// The admin-alert webhook (Admin → Config), empty when unset.
+async fn webhook(pool: &SqlitePool) -> String {
+    setting(pool, "cfg_discord_webhook_url").await
+}
+
+fn utc_iso() -> String {
+    crate::keys::iso(&chrono::Utc::now().naive_utc())
+}
+
+/// `notify_discord(model_id, username, fullname, reason)`: true when the
+/// webhook answered 2xx.
+pub async fn model_request(pool: &SqlitePool, model_id: &str, username: &str, fullname: &str, reason: &str) -> bool {
+    let url = webhook(pool).await;
+    if url.is_empty() {
+        return false;
+    }
+    let payload = serde_json::json!({"embeds": [{
+        "title": "🤖 Nouvelle demande de modèle — DGX Spark",
+        "color": 0x76B900,
+        "fields": [
+            {"name": "Utilisateur", "value": format!("{fullname} (`{username}`)"), "inline": true},
+            {"name": "Modèle", "value": format!("`{model_id}`"), "inline": true},
+            {"name": "Raison", "value": if reason.is_empty() { "—" } else { reason }},
+        ],
+        "footer": {"text": "DGX Portal"},
+        "timestamp": utc_iso(),
+    }]});
+    crate::sidecars::http().post(url).json(&payload).timeout(Duration::from_secs(5)).send().await.is_ok_and(|r| r.status().is_success())
+}
+
+/// `notify_budget_discord(...)`: a token increase request (best effort).
+pub async fn budget_request(pool: &SqlitePool, username: &str, fullname: &str, key_alias: &str, current: Option<f64>, reason: &str) {
+    let url = webhook(pool).await;
+    if url.is_empty() {
+        return;
+    }
+    let payload = serde_json::json!({"embeds": [{
+        "title": "🔋 Demande de tokens supplémentaires — DGX Spark",
+        "color": 0xF0A500,
+        "fields": [
+            {"name": "Utilisateur", "value": format!("{fullname} (`{username}`)"), "inline": true},
+            {"name": "Clé", "value": format!("`{key_alias}`"), "inline": true},
+            {"name": "Budget actuel", "value": current.map_or("—".to_string(), |c| format!("{} tokens", crate::mailer::comma_grouped(c))), "inline": true},
+            {"name": "Raison", "value": if reason.is_empty() { "—" } else { reason }},
+        ],
+        "footer": {"text": "DGX Portal"},
+        "timestamp": utc_iso(),
+    }]});
+    let _ = crate::sidecars::http().post(url).json(&payload).timeout(Duration::from_secs(5)).send().await;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

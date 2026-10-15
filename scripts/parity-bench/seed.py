@@ -50,10 +50,14 @@ session('STALETOKEN' * 4 + 'ABC', {'auth_at': int(now), 'csrf': 'csrf-stale', 'f
 for u in ('dave', 'failuser'):
     c.execute("INSERT INTO budget_requests (username, fullname, key_alias, current_budget, reason, status, created_at) VALUES (?,?,?,?,?,?,?)", (u, u.title(), '(compte)', 1000.0, 'plus', 'pending', iso(now - 100)))
 c.execute("INSERT INTO budget_grants (username, base_budget, current_budget, expires_at, created_at, updated_at) VALUES ('dave', 4000.0, 6000.0, ?, ?, ?)", (iso(now + 86400 * 2), iso(now), iso(now)))
-c.execute("INSERT INTO budget_grants (username, base_budget, current_budget, expires_at, created_at, updated_at) VALUES ('alice', 1.0, 2.0, '2020-01-01T00:00:00', '2020-01-01', '2020-01-01')")
 # Directory memberships: dave (LDAP) in « team », erin (SSO) in « ops » and « Famille ».
 ins('user_groups', {'name': 'Famille', 'max_budget': None, 'is_admin': 0, 'sources': 'ldap,sso'})
 for u, g, src in (('dave', 'team', 'ldap'), ('erin', 'ops', 'sso'), ('erin', 'Famille', 'sso')):
     c.execute("INSERT INTO user_directory_groups (username, group_name, source, seen_at) VALUES (?,?,?,?)", (u, g, src, iso(now)))
 c.execute("UPDATE local_users SET group_name='team' WHERE username='carol'")
+# SMTP: the fake upstream's server (fake.py).
+for k, v in (('smtp_host', 'bench-fake'), ('smtp_port', '2525'), ('smtp_user', 'bench'), ('smtp_pass', 'pw'),
+             ('smtp_from', 'Bench Portal <noreply@bench.test>'), ('admin_email', 'ops@bench.test'),
+             ('discord_webhook_url', 'http://bench-fake:9000/discord/webhook')):
+    c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ('cfg_' + k, v))
 c.commit(); print('seeded')

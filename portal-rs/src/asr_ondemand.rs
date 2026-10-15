@@ -132,3 +132,18 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// `_ASR_PIN_S`: a manual admin start keeps the idle reaper away this long.
+const ASR_PIN_S: f64 = 3600.0;
+
+/// `asr_pin()`: pin the dictation sidecar against the idle reaper (shared
+/// with Flask's workers through the state directory).
+pub fn pin() {
+    let until = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0) + ASR_PIN_S;
+    let _ = std::fs::write(state_dir().join("pinned"), until.to_string());
+}
+
+/// `asr_unpin()`.
+pub fn unpin() {
+    let _ = std::fs::remove_file(state_dir().join("pinned"));
+}

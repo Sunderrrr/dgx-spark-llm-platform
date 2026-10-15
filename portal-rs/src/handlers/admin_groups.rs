@@ -13,7 +13,7 @@ const MAX_BUDGET: f64 = 1e12;
 type Group = (String, Option<f64>, bool);
 
 /// `_local_group(name)`: the group of exactly that name.
-async fn local_group(pool: &SqlitePool, name: Option<&str>) -> Option<Group> {
+pub(crate) async fn local_group(pool: &SqlitePool, name: Option<&str>) -> Option<Group> {
     let name = name.filter(|n| !n.is_empty())?;
     sqlx::query_as::<_, (String, Option<f64>, Option<i64>)>("SELECT name, CAST(max_budget AS REAL), is_admin FROM user_groups WHERE name=?")
         .bind(name)
@@ -26,14 +26,14 @@ async fn local_group(pool: &SqlitePool, name: Option<&str>) -> Option<Group> {
 
 /// A `local_users` row as the quota and rights helpers read it.
 #[derive(Clone)]
-struct Local {
-    username: String,
-    is_admin: bool,
-    group: Option<String>,
-    max_budget: Option<f64>,
+pub(crate) struct Local {
+    pub username: String,
+    pub is_admin: bool,
+    pub group: Option<String>,
+    pub max_budget: Option<f64>,
 }
 
-async fn locals(pool: &SqlitePool, filter: &str, arg: Option<&str>) -> Vec<Local> {
+pub(crate) async fn locals(pool: &SqlitePool, filter: &str, arg: Option<&str>) -> Vec<Local> {
     let sql = format!("SELECT username, is_admin, group_name, CAST(max_budget AS REAL) FROM local_users {filter}");
     let mut q = sqlx::query_as::<_, (String, Option<i64>, Option<String>, Option<f64>)>(&sql);
     if let Some(a) = arg {
@@ -48,7 +48,7 @@ async fn locals(pool: &SqlitePool, filter: &str, arg: Option<&str>) -> Vec<Local
 }
 
 /// `_local_user_is_admin(row)`.
-async fn local_is_admin(pool: &SqlitePool, row: &Local) -> bool {
+pub(crate) async fn local_is_admin(pool: &SqlitePool, row: &Local) -> bool {
     row.is_admin || local_group(pool, row.group.as_deref()).await.is_some_and(|g| g.2)
 }
 
@@ -77,7 +77,7 @@ async fn update_envelope(username: &str, amount: f64, duration: &str) -> bool {
 
 /// `_sync_local_user_budget(username, row)`: the account's effective quota
 /// (its own, else its group's, else the default) written at LiteLLM.
-async fn sync_local_budget(state: &AppState, row: &Local) -> bool {
+pub(crate) async fn sync_local_budget(state: &AppState, row: &Local) -> bool {
     let pool = state.db.pool();
     let eff = match row.max_budget {
         Some(b) => b,
@@ -168,7 +168,7 @@ async fn recompute_members(state: &AppState, group: &str) {
 
 /// `_local_admins_after({member: (0, None)})`: the enabled, unblocked local
 /// admins left once these accounts lose every admin right.
-async fn local_admins_without(pool: &SqlitePool, removed: &[String]) -> usize {
+pub(crate) async fn local_admins_without(pool: &SqlitePool, removed: &[String]) -> usize {
     let mut n = 0;
     for r in locals(pool, "WHERE enabled=1 AND username NOT IN (SELECT username FROM blocked_users)", None).await {
         if !removed.contains(&r.username) && local_is_admin(pool, &r).await {
@@ -179,7 +179,7 @@ async fn local_admins_without(pool: &SqlitePool, removed: &[String]) -> usize {
 }
 
 /// `_parse_budget(raw)`: '' → None (inherit), else a positive integer.
-fn parse_budget(raw: Option<&str>) -> Result<Option<f64>, &'static str> {
+pub(crate) fn parse_budget(raw: Option<&str>) -> Result<Option<f64>, &'static str> {
     let raw = crate::memory::py_strip(raw.unwrap_or("")).replace(' ', "");
     if raw.is_empty() {
         return Ok(None);

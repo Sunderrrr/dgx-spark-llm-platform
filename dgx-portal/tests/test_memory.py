@@ -263,6 +263,18 @@ class CapAndPurgeTest(MemoryTestBase):
         self.assertTrue(memory._mem_forget(self.USER, edge_id))
         self.assertEqual(memory._mem_graph(self.USER)['nodes'], [])
 
+    def test_forget_drops_the_orphan_node_aliases(self):
+        """Foreign keys are off on this connection: the alias of a removed node
+        stayed and kept its (username, alias_norm) key from any later node."""
+        memory._mem_add_fact(self.USER, 'vLLM', 'version', "Tourne en 0.27.")
+        g = memory._mem_graph(self.USER)
+        db = portal.get_db()
+        db.execute("INSERT INTO memory_aliases (node_id, username, alias_norm) VALUES (?,?,?)",
+                   (g['nodes'][0]['id'], self.USER, 'serveur d inference'))
+        db.commit()
+        self.assertTrue(memory._mem_forget(self.USER, g['edges'][0]['id']))
+        self.assertEqual(memory._mem_aliases(self.USER), {})
+
 
 if __name__ == '__main__':
     unittest.main()

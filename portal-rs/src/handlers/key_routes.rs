@@ -1,7 +1,6 @@
 //! The « Clés API » tab's actions (app.py `POST /keys`): create, revoke and
-//! rename the viewer's LiteLLM keys, each answering honestly. The budget
-//! request (`request_budget`) notifies the admin by Discord and e-mail: it is
-//! relayed to Flask as is, which keeps those notifications where they live.
+//! rename the viewer's LiteLLM keys, each answering honestly; the budget
+//! request (`request_budget`) is user_requests.rs's.
 #![allow(unused_imports)]
 use super::*;
 
@@ -59,36 +58,9 @@ pub(crate) async fn revoke_key(key: &str) -> bool {
     litellm_post("/key/delete", json!({"keys": [key]}), 5).await.is_some_and(|r| r.status().is_success())
 }
 
-/// Relays the request to Flask unchanged (cookie, CSRF, body) and returns its answer.
-async fn relay_to_flask(headers: &HeaderMap, body: axum::body::Bytes) -> Response {
-    let base = std::env::var("FLASK_URL").unwrap_or_else(|_| "http://dgx-portal:5000".to_string());
-    let Ok(c) = reqwest::Client::builder().timeout(std::time::Duration::from_secs(60)).redirect(reqwest::redirect::Policy::none()).build() else {
-        return auth::html_status(StatusCode::SERVICE_UNAVAILABLE);
-    };
-    let mut req = c.post(format!("{}/keys", base.trim_end_matches('/'))).body(body);
-    for name in [axum::http::header::COOKIE, axum::http::header::CONTENT_TYPE, axum::http::HeaderName::from_static("x-csrftoken"),
-                 axum::http::HeaderName::from_static("x-forwarded-for"), axum::http::HeaderName::from_static("cf-connecting-ip")] {
-        if let Some(v) = headers.get(&name) {
-            req = req.header(name.as_str(), v.as_bytes());
-        }
-    }
-    match req.send().await {
-        Ok(r) => {
-            let status = StatusCode::from_u16(r.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
-            let ctype = r.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("text/html; charset=utf-8").to_string();
-            let bytes = r.bytes().await.unwrap_or_default();
-            (status, [(axum::http::header::CONTENT_TYPE, ctype)], bytes).into_response()
-        }
-        Err(_) => auth::html_status(StatusCode::SERVICE_UNAVAILABLE),
-    }
-}
-
 /// POST /keys - create, revoke or rename one of the viewer's keys (or request a budget)
 pub async fn keys_form(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
     let form = form_of(&headers, &body);
-    if form.get("action").map(String::as_str) == Some("request_budget") {
-        return relay_to_flask(&headers, body).await;
-    }
     match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
         Err(e) => return e.into_response(),
         Ok(false) => return auth::csrf_refused(),
@@ -98,6 +70,9 @@ pub async fn keys_form(State(state): State<AppState>, headers: HeaderMap, body: 
         Err(r) => return r,
         Ok(s) => s,
     };
+    if form.get("action").map(String::as_str) == Some("request_budget") {
+        return super::user_requests::request_budget(&state, &session, &form).await;
+    }
     let user = session.username.as_str();
     let pool = state.db.pool();
     let raw = |k: &str| form.get(k).map(String::as_str).unwrap_or("");

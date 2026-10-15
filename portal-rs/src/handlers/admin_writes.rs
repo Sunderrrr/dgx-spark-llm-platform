@@ -46,7 +46,7 @@ pub(crate) fn json_error(message: &str, code: StatusCode) -> Response {
 }
 
 /// `request.form.get(key, '').strip()`.
-fn field(form: &HashMap<String, String>, key: &str) -> String {
+pub(crate) fn field(form: &HashMap<String, String>, key: &str) -> String {
     crate::memory::py_strip(form.get(key).map(String::as_str).unwrap_or("")).to_string()
 }
 
@@ -267,8 +267,74 @@ pub async fn admin_unblock(State(state): State<AppState>, Path(username): Path<S
     Json(json!({"ok": true, "unblocked": n > 0})).into_response()
 }
 
+/// POST /admin/<kind>/start|stop - a sidecar started (under the memory
+/// guard) or stopped by hand; the runner's reason is said on a failure.
+pub async fn admin_sidecar_control(State(state): State<AppState>, Path((kind, action)): Path<(String, String)>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    if !["asr", "image", "ocr", "video", "voice"].contains(&kind.as_str()) || !["start", "stop"].contains(&action.as_str()) {
+        return auth::html_status(StatusCode::NOT_FOUND);
+    }
+    let (s, _) = match admin_form(&state, &headers, &body, "/admin/x/start").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    if action == "start" {
+        if let Some(err) = crate::chat::tools::media::mem_guard(&kind) {
+            return (StatusCode::INSUFFICIENT_STORAGE, Json(json!({"ok": false, "error": err}))).into_response();
+        }
+    }
+    let (ok, detail) = crate::asr_ondemand::sidecar_action(&state.db, &kind, &action, &s.username, "").await;
+    if kind == "asr" && ok {
+        if action == "start" { crate::asr_ondemand::pin() } else { crate::asr_ondemand::unpin() }
+    }
+    let error = (!ok).then(|| if action == "start" { format!("Échec du démarrage {kind}.{detail}") } else { format!("Échec de l'arrêt {kind}.{detail}") });
+    (if ok { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE }, Json(json!({"ok": ok, "error": error}))).into_response()
+}
+
+/// POST /admin/maintenance/toggle - blocks the non-admin accounts (and the
+/// public API) or lets them back; no model is touched. The operator is
+/// e-mailed, and a send that failed is said in the answer.
+pub async fn admin_maintenance_toggle(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let (s, _) = match admin_form(&state, &headers, &body, "/admin/maintenance/toggle").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let pool = state.db.pool();
+    let now_on = !state.db.maintenance_active().await;
+    let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('maintenance_mode', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+        .bind(if now_on { "1" } else { "0" })
+        .execute(pool)
+        .await;
+    add_announcement(pool, "maintenance", if now_on { "on" } else { "off" }, "").await;
+    let sent = crate::mailer::maintenance(pool, now_on, &s.username, s.fullname.as_deref().unwrap_or("")).await;
+    crate::sessions::log_audit(pool, &s.username, "maintenance", if now_on { "activé" } else { "désactivé" }).await;
+    let smtp = crate::mailer::smtp_config(pool).await;
+    let warning = (smtp.configured() && !smtp.admin_email.is_empty() && !sent).then_some("L'email d'alerte n'a pas pu être envoyé — vérifie la config SMTP.");
+    json_ok(
+        if now_on { "Mode maintenance activé." } else { "Mode maintenance désactivé." },
+        json!({"maintenance_mode": now_on, "warning": warning}),
+    )
+}
+
+/// POST /admin/email/test - a test e-mail to the alert recipient.
+pub async fn admin_email_test(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    if let Err(r) = admin_form(&state, &headers, &body, "/admin/email/test").await {
+        return r;
+    }
+    let pool = state.db.pool();
+    let smtp = crate::mailer::smtp_config(pool).await;
+    if !smtp.configured() || smtp.admin_email.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"ok": false, "configured": false, "error": "SMTP non configuré (renseigne-le dans Admin → Config, hôte, utilisateur, mot de passe et destinataire des alertes)."})),
+        )
+            .into_response();
+    }
+    let ok = crate::mailer::test(pool).await;
+    Json(json!({"ok": ok, "configured": true})).into_response()
+}
+
 /// `_local_user_is_admin(row)`: its own flag, or its group's.
-async fn local_is_admin(pool: &sqlx::SqlitePool, own: bool, group: Option<&str>) -> bool {
+pub(crate) async fn local_is_admin(pool: &sqlx::SqlitePool, own: bool, group: Option<&str>) -> bool {
     if own {
         return true;
     }
@@ -277,7 +343,7 @@ async fn local_is_admin(pool: &sqlx::SqlitePool, own: bool, group: Option<&str>)
 }
 
 /// `_last_local_admin(username)`: no other enabled, unblocked local admin.
-async fn last_local_admin(pool: &sqlx::SqlitePool, username: &str) -> bool {
+pub(crate) async fn last_local_admin(pool: &sqlx::SqlitePool, username: &str) -> bool {
     let rows: Vec<(String, Option<i64>, Option<String>)> =
         sqlx::query_as("SELECT username, is_admin, group_name FROM local_users WHERE enabled=1 AND username NOT IN (SELECT username FROM blocked_users)")
             .fetch_all(pool)
@@ -292,7 +358,7 @@ async fn last_local_admin(pool: &sqlx::SqlitePool, username: &str) -> bool {
 }
 
 /// `_body()`: the JSON object of a JSON request, else the form.
-fn body_fields(headers: &HeaderMap, body: &axum::body::Bytes) -> HashMap<String, String> {
+pub(crate) fn body_fields(headers: &HeaderMap, body: &axum::body::Bytes) -> HashMap<String, String> {
     let is_json = headers.get(axum::http::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(|v| v.starts_with("application/json") || v.contains("+json"));
     if is_json {
         if let Ok(Value::Object(m)) = serde_json::from_slice::<Value>(body) {
@@ -302,9 +368,9 @@ fn body_fields(headers: &HeaderMap, body: &axum::body::Bytes) -> HashMap<String,
     form_of(headers, body)
 }
 
-/// `user_lifecycle.revoke_account_keys`: every key revoked at LiteLLM, the
-/// rows forgotten whatever happened, the result audited. (ok, failed, total).
-pub(crate) async fn revoke_account_keys(pool: &sqlx::SqlitePool, username: &str, by: &str, reason: &str) -> (usize, usize, usize) {
+/// `user_lifecycle._revoke_keys`: every key revoked at LiteLLM, the rows
+/// forgotten whatever happened. (ok, failed, total).
+pub(crate) async fn revoke_keys(pool: &sqlx::SqlitePool, username: &str) -> (usize, usize, usize) {
     let values: Vec<String> = sqlx::query_scalar("SELECT key_value FROM api_keys WHERE username=?").bind(username).fetch_all(pool).await.unwrap_or_default();
     let mut ok = 0;
     for v in &values {
@@ -312,10 +378,15 @@ pub(crate) async fn revoke_account_keys(pool: &sqlx::SqlitePool, username: &str,
             ok += 1;
         }
     }
-    let failed = values.len() - ok;
     let _ = sqlx::query("DELETE FROM api_keys WHERE username=?").bind(username).execute(pool).await;
+    (ok, values.len() - ok, values.len())
+}
+
+/// `user_lifecycle.revoke_account_keys`: `revoke_keys`, audited.
+pub(crate) async fn revoke_account_keys(pool: &sqlx::SqlitePool, username: &str, by: &str, reason: &str) -> (usize, usize, usize) {
+    let (ok, failed, total) = revoke_keys(pool, username).await;
     let by = if by.is_empty() { "?" } else { by };
-    let mut detail = format!("{username} — {ok}/{} clé(s) révoquée(s)", values.len());
+    let mut detail = format!("{username} — {ok}/{total} clé(s) révoquée(s)");
     if failed > 0 {
         detail += &format!(", {failed} ÉCHEC(S) À RÉVOQUER");
     }
@@ -323,7 +394,7 @@ pub(crate) async fn revoke_account_keys(pool: &sqlx::SqlitePool, username: &str,
         detail += &format!(" — {reason}");
     }
     crate::sessions::log_audit(pool, by, "user.keys_revoked", &detail).await;
-    (ok, failed, values.len())
+    (ok, failed, total)
 }
 
 /// POST /admin/users/<username>/block - refused at login whatever its source;

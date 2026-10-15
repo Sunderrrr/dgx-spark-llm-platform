@@ -62,3 +62,5 @@
 /api/csrf
 /logout
 /api/voice/generate
+/api/playground/title
+/api/playground/summarize

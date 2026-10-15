@@ -249,6 +249,13 @@ Compared with Flask on the demo account, written rows included. The chat
 streams themselves (`/playground/chat`, `/support/chat`), titles and
 summaries stay on Flask.
 
+`/api/playground/title` and `/api/playground/summarize` are routed too:
+one non-streamed completion on the viewer's newest key, behind the chat's
+guards (maintenance, then their own `rl-titre` / `rl-resume` buckets in the
+shared SQL table). Python's `str()` of a non-text content is its `repr()`,
+reproduced. Compared with Flask on the deterministic cases (identical) and
+against the served model (both answer, e.g. « Tarte aux pommes »).
+
 `/api/voice/chat/status` (can the voice mode speak: Kyutai engine loaded,
 its voices, the ASR state) is routed with them; the voice chat's start and
 speak calls drive sidecars and stay on Flask. `/api/security` cannot move

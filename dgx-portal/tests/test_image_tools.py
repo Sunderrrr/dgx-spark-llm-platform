@@ -219,3 +219,24 @@ class InventedImagesTest(unittest.TestCase):
                     "![c](/image/file/abc123/3) ![d](/image/file/abc123/3) ![e](/image/file/ffff00/0)")
             self.assertEqual(image_tools.invented_images(text, 'demo'),
                              ['/image/file/abc123/3', '/image/file/ffff00/0'])
+
+
+class CancelFlagTest(unittest.TestCase):
+    """The worker's cancellation probe must see a cancelled job."""
+
+    def test_cancelled_job_is_seen(self):
+        import app  # noqa: F401  (creates the schema)
+        import image_routes
+        c = sqlite3.connect(DB_PATH)
+        c.execute("INSERT INTO image_jobs (username, prompt_id, prompt, status, count, done_count, format, created_at) "
+                  "VALUES ('zz-cancel', 'c0ffee', 'p', 'cancelled', 2, 0, 'png', '2026-10-15T00:00:00')")
+        c.execute("INSERT INTO image_jobs (username, prompt_id, prompt, status, count, done_count, format, created_at) "
+                  "VALUES ('zz-cancel', 'beef00', 'p', 'running', 2, 0, 'png', '2026-10-15T00:00:00')")
+        c.commit()
+        try:
+            self.assertTrue(image_routes._image_cancelled('c0ffee', 'zz-cancel'))
+            self.assertFalse(image_routes._image_cancelled('beef00', 'zz-cancel'))
+        finally:
+            c.execute("DELETE FROM image_jobs WHERE username='zz-cancel'")
+            c.commit()
+            c.close()

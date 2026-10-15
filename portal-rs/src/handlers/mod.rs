@@ -14,14 +14,16 @@ mod user_routes;
 mod media_routes;
 mod support_routes;
 mod preview_routes;
+mod image_routes;
 pub use memory_routes::*;
 pub use skill_routes::*;
 pub use user_routes::*;
 pub use media_routes::*;
 pub use support_routes::*;
 pub use preview_routes::*;
+pub use image_routes::*;
 
-use crate::{AppState, auth, s3, conversations, docs, health, hf, home, keys, media, memory, models, probes, ranking, sessions, settings, sharing, sidecars, skillstore, system, userdata};
+use crate::{AppState, auth, guards, s3, conversations, docs, health, hf, home, keys, media, memory, models, probes, ranking, sessions, settings, sharing, sidecars, skillstore, system, userdata};
 
 /// GET /healthz - Minimal public liveness probe
 pub async fn healthz() -> impl IntoResponse {

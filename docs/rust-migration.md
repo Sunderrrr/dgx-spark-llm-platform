@@ -149,6 +149,32 @@ Not ported, on purpose:
   stores it into the bucket — a write, it moves with the video flow.
 - **`/api/video/status`**: it asks ComfyUI and persists the result.
 
+### Phase 3 — image generation, routed (`/api/image/generate`, `cancel`, `delete`)
+
+The job runs in a tokio task: one sidecar call per variation, the
+cancellation checked before each, each image saved through
+`media_store::save` (the bucket when Admin → Stockage says so — S3 PUT
+signed like the reads — else the local volume, and the local volume when the
+bucket refuses). Guards in the same order as Flask: CSRF, session,
+maintenance (admins pass), the `rl-media` bucket (the same SQL row as
+Flask's, so both count against one window), then the in-flight bound of 3
+jobs per account. The form is read urlencoded or multipart (the page sends
+`FormData`).
+
+Not tested live: a generation on the demo account would trim its history
+(79 jobs, the route keeps the 20 newest). The worker is covered by an
+integration test instead (fake sidecar, scratch database: a whole batch, then
+a cancel during the first image), and every refusal was compared with Flask.
+
+Two Flask defects found on the way:
+- `_image_cancelled` read `row['status']` on a bare tuple: the exception was
+  swallowed, so « Arrêter » never stopped a batch and the final status
+  overwrote « cancelled ». Fixed on both sides (test in
+  `test_image_tools.CancelFlagTest`); Flask still runs the playground image
+  tool's jobs.
+- a refused job slot (429) left its row « running » forever: Rust takes the
+  slot before inserting the row.
+
 ### Phase 3 — stored files, routed (`/image/file`, `/ocr/image`, `/voice/audio`)
 
 `portal-rs/src/s3.rs` is a minimal S3 reader (SigV4, path-style GET only):

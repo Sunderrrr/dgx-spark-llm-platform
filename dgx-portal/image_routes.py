@@ -57,7 +57,9 @@ def _image_cancelled(prompt_id, username):
         row = c.execute("SELECT status FROM image_jobs WHERE prompt_id=? AND username=?",
                         (prompt_id, username)).fetchone()
         c.close()
-        return bool(row and row['status'] == 'cancelled')
+        # A bare connection returns tuples: `row['status']` raised, the except
+        # answered False, and « Arrêter » never stopped a batch.
+        return bool(row and row[0] == 'cancelled')
     except Exception:
         return False
 

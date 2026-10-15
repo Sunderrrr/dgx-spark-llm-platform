@@ -56,3 +56,6 @@
 /api/playground/data
 /playground/preview
 /api/voice/chat/status
+/api/image/generate
+/api/image/cancel
+/api/image/delete

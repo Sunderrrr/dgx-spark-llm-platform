@@ -27,7 +27,7 @@ fn ocr_url() -> String {
 fn voice_url() -> String {
     env_url("VOICE_URL", "http://voice:8004")
 }
-fn image_url() -> String {
+pub(crate) fn image_url() -> String {
     env_url("IMAGE_URL", "http://image:8007")
 }
 fn comfyui_url() -> String {

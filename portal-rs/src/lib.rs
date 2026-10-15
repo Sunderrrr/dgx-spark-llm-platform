@@ -25,6 +25,8 @@ pub mod memnorm;
 pub mod memory;
 pub mod skillstore;
 pub mod s3;
+pub mod media_store;
+pub mod guards;
 
 pub use db::Database;
 pub use error::ApiError;

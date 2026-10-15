@@ -6,16 +6,9 @@
 use super::*;
 use axum::http::Uri;
 
-pub(crate) const KINDS: [&str; 4] = ["image_files", "video_files", "ocr_images", "voice_audio"];
-
 /// `media_store._check`: a server-made bare file name, never a client path.
 pub(crate) fn valid_media_name(kind: &str, name: &str) -> bool {
-    let mut chars = name.chars();
-    KINDS.contains(&kind)
-        && chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
-        && name.chars().count() <= 201
-        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
-        && !name.contains("..")
+    crate::media_store::valid_name(kind, name)
 }
 
 /// `media_store.serve`: the file's answer, or None when it exists nowhere.
@@ -23,7 +16,7 @@ pub(crate) async fn serve_media(state: &AppState, headers: &HeaderMap, kind: &st
     if !valid_media_name(kind, name) {
         return None;
     }
-    let local = format!("/app/data/{kind}/{name}");
+    let local = crate::media_store::local_path(kind, name);
     if let Ok(meta) = tokio::fs::metadata(&local).await {
         if meta.is_file() && meta.len() > 0 {
             let data = tokio::fs::read(&local).await.ok()?;
@@ -75,7 +68,7 @@ fn image_mime(ext: &str) -> &'static str {
 }
 
 /// `find_image`: the stored name of image <idx> of a job — local first, then the bucket.
-async fn find_image(state: &AppState, safe: &str, idx: i64) -> Option<String> {
+pub(crate) async fn find_image(state: &AppState, safe: &str, idx: i64) -> Option<String> {
     let mut names: Vec<String> = IMAGE_EXTS.iter().map(|e| format!("{safe}_{idx}.{e}")).collect();
     if idx == 0 {
         names.push(format!("{safe}.png"));
@@ -84,7 +77,7 @@ async fn find_image(state: &AppState, safe: &str, idx: i64) -> Option<String> {
         return None;
     }
     for n in &names {
-        if tokio::fs::metadata(format!("/app/data/image_files/{n}")).await.is_ok_and(|m| m.is_file()) {
+        if tokio::fs::metadata(crate::media_store::local_path("image_files", n)).await.is_ok_and(|m| m.is_file()) {
             return Some(n.clone());
         }
     }

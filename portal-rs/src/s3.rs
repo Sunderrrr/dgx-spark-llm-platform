@@ -70,9 +70,14 @@ fn hmac(key: &[u8], data: &str) -> Vec<u8> {
 /// The Authorization header of a GET with an empty payload (SigV4). Pure:
 /// checked against AWS's documented example in the tests.
 pub fn authorization(cfg: &Config, region: &str, host: &str, canonical_uri: &str, amz_date: &str) -> String {
+    signed(cfg, "GET", EMPTY_SHA256, region, host, canonical_uri, amz_date)
+}
+
+/// SigV4 for any method; `payload_sha256` is the hex digest of the body.
+fn signed(cfg: &Config, method: &str, payload_sha256: &str, region: &str, host: &str, canonical_uri: &str, amz_date: &str) -> String {
     let date = &amz_date[..8];
     let canonical = format!(
-        "GET\n{canonical_uri}\n\nhost:{host}\nx-amz-content-sha256:{EMPTY_SHA256}\nx-amz-date:{amz_date}\n\nhost;x-amz-content-sha256;x-amz-date\n{EMPTY_SHA256}"
+        "{method}\n{canonical_uri}\n\nhost:{host}\nx-amz-content-sha256:{payload_sha256}\nx-amz-date:{amz_date}\n\nhost;x-amz-content-sha256;x-amz-date\n{payload_sha256}"
     );
     let scope = format!("{date}/{region}/s3/aws4_request");
     let to_sign = format!("AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n{}", hex::encode(Sha256::digest(canonical.as_bytes())));
@@ -123,6 +128,27 @@ pub enum Get {
 /// `object_store.get` (and the ranged probe of `head`): None-like `Missing`
 /// for a 404 / NoSuchKey, transient refusals retried.
 pub async fn get(cfg: &Config, key: &str, range: Option<&str>) -> Result<Get, String> {
+    send(cfg, reqwest::Method::GET, key, range, None).await
+}
+
+/// `object_store.put_bytes`: one object, written whole.
+pub async fn put(cfg: &Config, key: &str, data: Vec<u8>, content_type: &str) -> Result<(), String> {
+    match send(cfg, reqwest::Method::PUT, key, None, Some((data, content_type.to_string()))).await? {
+        Get::Found(_) => Ok(()),
+        _ => Err("S3 refused the write".to_string()),
+    }
+}
+
+/// `object_store.delete`: a missing object is not an error (S3 answers 204 either way).
+pub async fn delete(cfg: &Config, key: &str) -> Result<(), String> {
+    send(cfg, reqwest::Method::DELETE, key, None, None).await.map(|_| ())
+}
+
+async fn send(cfg: &Config, method: reqwest::Method, key: &str, range: Option<&str>, body: Option<(Vec<u8>, String)>) -> Result<Get, String> {
+    let payload_sha256 = match &body {
+        Some((data, _)) => hex::encode(Sha256::digest(data)),
+        None => EMPTY_SHA256.to_string(),
+    };
     let host_port = cfg.endpoint.split_once("://").map_or(cfg.endpoint.as_str(), |(_, h)| h);
     let host_port = host_port.split('/').next().unwrap_or(host_port);
     let base_path = cfg.endpoint.split_once("://").and_then(|(_, h)| h.split_once('/')).map(|(_, p)| p).unwrap_or("");
@@ -146,10 +172,13 @@ pub async fn get(cfg: &Config, key: &str, range: Option<&str>) -> Result<Get, St
     loop {
         let amz_date = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
         let mut req = client
-            .get(&url)
+            .request(method.clone(), &url)
             .header("x-amz-date", &amz_date)
-            .header("x-amz-content-sha256", EMPTY_SHA256)
-            .header("authorization", authorization(cfg, &region, host_port, &canonical_uri, &amz_date));
+            .header("x-amz-content-sha256", &payload_sha256)
+            .header("authorization", signed(cfg, method.as_str(), &payload_sha256, &region, host_port, &canonical_uri, &amz_date));
+        if let Some((data, content_type)) = &body {
+            req = req.header(reqwest::header::CONTENT_TYPE, content_type).body(data.clone());
+        }
         if let Some(r) = range {
             req = req.header(reqwest::header::RANGE, r);
         }

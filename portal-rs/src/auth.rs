@@ -11,8 +11,9 @@
 //! or group); a directory account keeps the role recorded at its last login,
 //! the owner is always an admin, and missing data never demotes anyone.
 //!
-//! Not ported: Flask also clears the cookie and writes a `session.invalidee`
-//! audit line when it drops a session. Here the request is refused only.
+//! A session that no longer holds is dropped (its row deleted), and an
+//! account found blocked or disabled leaves a `session.invalidee` audit line,
+//! as in Flask. Not ported: the Set-Cookie that deletes the cookie itself.
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -202,6 +203,13 @@ pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
+/// `session.clear()` on a session that no longer holds: its row goes, so the
+/// token is dead everywhere. (Flask also deletes the cookie; here the browser
+/// keeps a token that names nothing, and the next `/api/csrf` starts afresh.)
+async fn drop_session(db: &Database, token: &str) {
+    let _ = crate::session_store::delete(db.pool(), token).await;
+}
+
 /// Require a valid session (login_required).
 pub async fn require_session(headers: &HeaderMap, db: &Database) -> Result<SessionData, AuthError> {
     let token = get_session_token(headers).ok_or(AuthError::Unauthorized)?;
@@ -219,16 +227,24 @@ pub async fn require_session(headers: &HeaderMap, db: &Database) -> Result<Sessi
         .to_string();
     let t = now();
     if too_old(data.get("auth_at").and_then(Value::as_f64), t, max_age()) {
+        drop_session(db, &token).await;
         return Err(AuthError::Unauthorized);
     }
     if let Some(sid) = data.get("sid").and_then(Value::as_str).filter(|s| !s.is_empty()) {
         let row = db.get_session_registry(sid).await.map_err(|_| AuthError::Unavailable)?;
         if !registry_holds(row, t) {
+            drop_session(db, &token).await;
             return Err(AuthError::Unauthorized);
         }
     }
     let facts = db.get_account_facts(&username).await.map_err(|_| AuthError::Unavailable)?;
-    let role = account_state(&facts).ok_or(AuthError::Unauthorized)?;
+    let Some(role) = account_state(&facts) else {
+        // One audit line per invalidated session, as `_revalidate_session` writes.
+        let reason = if facts.blocked { "blocked" } else { "disabled" };
+        crate::sessions::log_audit(db.pool(), &username, "session.invalidee", &format!("compte {reason} — session fermée")).await;
+        drop_session(db, &token).await;
+        return Err(AuthError::Unauthorized);
+    };
     let session_admin = data.get("is_admin").and_then(Value::as_bool).unwrap_or(false);
 
     Ok(SessionData {

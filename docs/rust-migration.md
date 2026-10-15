@@ -166,6 +166,13 @@ Checked: a Rust-minted session is read by Flask (its login keeps the
 token), and the whole flow through the proxy — token from Rust, login on
 Flask, logout on Rust, 401 afterwards.
 
+The session guard now drops what Flask drops: an expired or revoked
+session loses its row at the first refused request, and an account found
+blocked or disabled leaves the `session.invalidee` audit line (checked: a
+demo session revoked from another one gets 401 and its row is gone). The
+Set-Cookie that deletes the cookie itself is not sent; the token then names
+nothing.
+
 Not ported: the conversion of a legacy signed cookie (a `.` in the value).
 Those predate phase 0 and are past their 12 h; `/api/csrf` opens a new
 session for one.

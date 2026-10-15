@@ -42,3 +42,4 @@
 /settings/appearance
 /settings/avatar
 /conversations
+/api/memory

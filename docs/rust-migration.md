@@ -150,16 +150,22 @@ Not ported, on purpose:
   porting S3 access is a sub-project.
 - **`/api/video/status`**: it asks ComfyUI and persists the result.
 
-### Memory: name normalization verified, the rest not ported
+### Memory: routed (`/api/memory`, its 11 routes)
 
-`portal-rs/src/memnorm.rs` reproduces `_mem_norm` (memory_routes.py). It is
-checked against 1 527 reference outputs produced by the Python function
-(`portal-rs/tests/fixtures/mem_norm.json`): random mixes of latin with accents,
-combining marks, kana, Cyrillic, CJK, full-width forms, emoji, punctuation and
-whitespace, plus compatibility and edge cases. Python's `\w` is reproduced as
-letters Lm/Lt/Lu/Ll/Lo, numbers Nd/Nl/No and the underscore. Nothing routes
-to it yet: `/api/memory` also carries the graph reads, the writes, the import
-and the export, and a prefix captures all of them.
+The graph read, the settings, add / correct / forget a fact, the purge, the
+JSON and Markdown export and import (`portal-rs/src/memory.rs`). Three
+pieces are checked against outputs of the Python functions themselves:
+`_mem_norm` (1 527 cases, `tests/fixtures/mem_norm.json`), `_md_parse` and
+`_split_sentences` (1 203 generated documents and 600 sentences,
+`tests/fixtures/memory_md.json`; the sentence split is written by hand, Rust's
+regex has no look-around; `str.splitlines()` is reproduced with its 11 line
+boundaries). The routes were compared on the demo account, whose memory was
+snapshotted raw and restored exactly afterwards: reads, both exports, every
+write and its error paths, the expiry of a fact on an explicit relation, both
+imports, the switches and the purge. One deliberate difference: Flask sends
+`text/markdown; charset=utf-8; charset=utf-8` for the Markdown export (a
+duplicated parameter); the Rust side sends it once. The chat keeps writing
+memory on the Flask side, on the same tables with the same normalization.
 
 ### Phase 4 — state (user data, read-only part)
 

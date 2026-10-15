@@ -135,3 +135,6 @@ POST /admin/model/stop
 POST /admin/ocr/catalog/launch
 POST /admin/voice/catalog/launch
 POST /admin/image/launch
+POST /admin/branding
+/admin/runner/stream
+POST /admin/storage$

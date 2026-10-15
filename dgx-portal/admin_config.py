@@ -250,7 +250,9 @@ def admin_branding():
     logo = (request.form.get('platform_logo') or '').strip()
     if name and not re.fullmatch(r'[\w .\-\u00c0-\u024f]{1,60}', name):
         return jsonify({'ok': False, 'error': "Nom invalide."}), 400
-    if logo and not re.fullmatch(r'data:image/(png|jpeg|webp|svg\+xml|gif);base64,[A-Za-z0-9+/=]+', logo):
+    # '-' (remove the logo, below) is not a data URL: checking its format first
+    # refused it, so the removal could never happen.
+    if logo and logo != '-' and not re.fullmatch(r'data:image/(png|jpeg|webp|svg\+xml|gif);base64,[A-Za-z0-9+/=]+', logo):
         return jsonify({'ok': False, 'error': "Logo attendu en PNG, JPEG, WebP, SVG ou GIF."}), 400
     if logo and len(logo) > 2 * 1024 * 1024:
         return jsonify({'ok': False, 'error': "Logo trop lourd (2 Mo maximum)."}), 400

@@ -28,7 +28,8 @@ pub async fn admin_branding(State(state): State<AppState>, headers: HeaderMap, b
     if !name.is_empty() && !platform_name_ok(&name) {
         return bad("Nom invalide.");
     }
-    if !logo.is_empty() && !logo_ok(&logo) {
+    // `-` removes the logo: it is not a data URL to check.
+    if !logo.is_empty() && logo != "-" && !logo_ok(&logo) {
         return bad("Logo attendu en PNG, JPEG, WebP, SVG ou GIF.");
     }
     if logo.chars().count() > 2 * 1024 * 1024 {
@@ -47,6 +48,61 @@ pub async fn admin_branding(State(state): State<AppState>, headers: HeaderMap, b
     let logo_state = if logo == "-" { "retiré" } else if logo.is_empty() { "inchangé" } else { "posé" };
     let shown = if name.is_empty() { "(inchangé)" } else { name.as_str() };
     crate::sessions::log_audit(pool, &s.username, "branding.modifie", &format!("nom={shown} logo={logo_state}")).await;
+    Json(json!({"ok": true})).into_response()
+}
+
+/// `backups.MAX_KEEP`.
+const BACKUP_MAX_KEEP: i64 = 365;
+
+/// POST /admin/storage - where new media files go, the backups' destination
+/// and retention; only the fields present change. S3 cannot be chosen before
+/// it is configured.
+pub async fn admin_storage_save(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let (s, form) = match admin_form(&state, &headers, &body, "/admin/storage").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let s3_ready = crate::s3::Config::load(&state.db).await.is_some();
+    let pool = state.db.pool();
+    let set = |k: &'static str, v: String| async move {
+        let _ = sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(k).bind(v).execute(pool).await;
+    };
+    let unconfigured = "Configure d'abord le stockage S3 (Admin → Config).";
+    let mut changes = Vec::new();
+    if let Some(v) = form.get("media_storage") {
+        if v != "local" && v != "s3" {
+            return super::admin_writes::json_error("Emplacement inconnu.", StatusCode::BAD_REQUEST);
+        }
+        if v == "s3" && !s3_ready {
+            return super::admin_writes::json_error(unconfigured, StatusCode::BAD_REQUEST);
+        }
+        set("media_storage", v.clone()).await;
+        changes.push(format!("fichiers={v}"));
+    }
+    if let Some(v) = form.get("backup_destination") {
+        if !["local", "s3", "both"].contains(&v.as_str()) {
+            return super::admin_writes::json_error("Destination inconnue.", StatusCode::BAD_REQUEST);
+        }
+        if v != "local" && !s3_ready {
+            return super::admin_writes::json_error(unconfigured, StatusCode::BAD_REQUEST);
+        }
+        set("backup_destination", v.clone()).await;
+        changes.push(format!("sauvegardes={v}"));
+    }
+    for name in ["backup_keep_local", "backup_keep_s3"] {
+        if let Some(v) = form.get(name) {
+            let Some(n) = super::support_routes::py_int(&Value::String(v.clone())) else {
+                return super::admin_writes::json_error("La rétention doit être un nombre de sauvegardes.", StatusCode::BAD_REQUEST);
+            };
+            if !(1..=BACKUP_MAX_KEEP).contains(&n) {
+                return super::admin_writes::json_error(&format!("La rétention va de 1 à {BACKUP_MAX_KEEP} sauvegardes."), StatusCode::BAD_REQUEST);
+            }
+            set(name, n.to_string()).await;
+            changes.push(format!("{name}={n}"));
+        }
+    }
+    let detail = if changes.is_empty() { "(rien)".to_string() } else { changes.join(", ") };
+    crate::sessions::log_audit(pool, &s.username, "stockage.modifie", &detail).await;
     Json(json!({"ok": true})).into_response()
 }
 

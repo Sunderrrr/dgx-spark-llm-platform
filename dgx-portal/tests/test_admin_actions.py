@@ -300,6 +300,20 @@ class LastAdminGuardTest(BaseAdmin):
         self.assertEqual(r.status_code, 409)
 
 
+class BrandingTest(BaseAdmin):
+
+    def test_dash_removes_the_logo(self):
+        """« - » means remove: its format check used to refuse it, 400."""
+        c = self._client(ADMIN1)
+        logo = 'data:image/png;base64,iVBORw0KGgo='
+        self.assertEqual(self._post(c, '/admin/branding', {'platform_logo': logo}).status_code, 200)
+        r = self._post(c, '/admin/branding', {'platform_logo': '-'})
+        self.assertEqual(r.status_code, 200)
+        with portal.app.app_context():
+            self.assertIsNone(portal.get_db().execute(
+                "SELECT 1 FROM settings WHERE key='platform_logo'").fetchone())
+
+
 class QuotasTest(BaseAdmin):
     """A quota must neither be lost, nor become permanent by accident."""
 

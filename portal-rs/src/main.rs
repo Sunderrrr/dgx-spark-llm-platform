@@ -147,6 +147,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/admin/maintenance/toggle", post(handlers::admin_maintenance_toggle))
         .route("/admin/email/test", post(handlers::admin_email_test))
         .route("/admin/branding", post(handlers::admin_branding))
+        .route("/admin/storage", post(handlers::admin_storage_save))
         .route("/admin/runner/stream", get(handlers::admin_runner_stream))
         .route("/admin/model/add", post(handlers::admin_model_add))
         .route("/admin/model/launch", post(handlers::admin_model_launch))

@@ -350,6 +350,13 @@ Routed after the bench found them identical:
   infra alert on a failure). Only a launch's network failure differs: the
   message carries reqwest's error text, not Python's.
 
+- `/admin/branding` (the instance's name and logo) and `/admin/runner/stream`
+  (the runner's SSE log stream, relayed without its routine access lines);
+- `POST /admin/storage$` (where new media go, the backups' destination and
+  retention). Reading the storage page (an S3 listing, the host's backup
+  state file, mounted in Flask only) and the media migration (a Flask
+  background job) stay on Flask.
+
 The fake upstream records the calls it receives (the probes left out), and
 `bench.py` compares each backend's sequence of upstream calls as well: a
 write that answers the same but deletes another key would not pass.
@@ -364,6 +371,8 @@ Found by the bench and fixed:
   not: forgetting a memory fact removed the orphan node's aliases in Rust
   (cascade) and left them in Flask, where they kept their
   `(username, alias_norm)` key from any later node. Flask now deletes them.
+- `/admin/branding` checked the logo's format before its `-` (remove)
+  value, so the removal always answered 400; both now let it through.
 - Flask accepted `nan` as a budget amount (`nan <= 0` and `nan > 1e12` are
   both false) and sent it to LiteLLM as the account's cap; both backends now
   refuse it (`not v > 0`).
@@ -376,7 +385,8 @@ Found by the bench and fixed:
 Still on Flask: `/admin/update/<id>`
 (it looks the requester's e-mail up in the directory), the directory-backed reads
 (`/api/admin/users`, `/admin/platform`, `/admin/users/<u>/detail`), the
-configuration (`/admin/config`, `/admin/validate`), and the storage.
+configuration (`/admin/config`, `/admin/validate`), and the storage page and
+migration.
 
 ### Phase 6 — local sign-in, routed (`POST /login`)
 

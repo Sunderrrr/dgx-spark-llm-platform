@@ -149,3 +149,7 @@ POST /admin/update
 /admin/validate
 GET /admin/storage$
 /api/account/password
+/api/setup
+POST /admin/storage/migrate
+/login/sso
+/api/oauth2-redirect

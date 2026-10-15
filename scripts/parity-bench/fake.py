@@ -63,6 +63,48 @@ def oidc_token(form):
     return {'access_token': 'at-oidc', 'token_type': 'Bearer', 'expires_in': 300, 'id_token': idt}
 
 
+# A minimal S3 (path style, no signature check) under /s3/<bucket>/<key>:
+# PUT, GET (with Range), HEAD, DELETE and ListObjectsV2. /__s3 GET lists it,
+# POST replaces it ({key: text}).
+S3 = {}
+
+
+def s3(handler, method, path, query, raw):
+    from urllib.parse import parse_qs, unquote
+    rest = unquote(path[len('/s3/'):])
+    bucket, _, key = rest.partition('/')
+
+    def send(code, body=b'', headers=()):
+        handler.send_response(code)
+        for k, v in headers:
+            handler.send_header(k, v)
+        handler.send_header('Content-Length', str(len(body)))
+        handler.end_headers()
+        if method != 'HEAD':
+            handler.wfile.write(body)
+    if not key and method == 'GET':
+        q = parse_qs(query)
+        prefix = q.get('prefix', [''])[0]
+        items = ''.join(f'<Contents><Key>{k}</Key><Size>{len(v)}</Size><LastModified>2026-10-15T00:00:00.000Z</LastModified></Contents>'
+                        for k, v in sorted(S3.items()) if k.startswith(prefix))
+        return send(200, f'<?xml version="1.0"?><ListBucketResult><IsTruncated>false</IsTruncated>{items}</ListBucketResult>'.encode(), [('Content-Type', 'application/xml')])
+    if method == 'PUT':
+        S3[key] = raw
+        return send(200)
+    if method == 'DELETE':
+        S3.pop(key, None)
+        return send(204)
+    if key not in S3:
+        return send(404, b'<Error><Code>NoSuchKey</Code></Error>')
+    data = S3[key]
+    rng = handler.headers.get('Range')
+    if rng and rng.startswith('bytes='):
+        a, _, b = rng[6:].partition('-')
+        a, b = int(a), min(int(b or len(data) - 1), len(data) - 1)
+        return send(206, data[a:b + 1], [('Content-Range', f'bytes {a}-{b}/{len(data)}')])
+    return send(200, data)
+
+
 # Every call but the bench's own, for bench.py to compare the two backends' upstream traffic.
 CALLS = []
 
@@ -80,8 +122,8 @@ class H(BaseHTTPRequestHandler):
             body = json.loads(raw) if raw else None
         except ValueError:
             body = raw.decode('utf-8', 'replace')
-        if not p.startswith('/oidc/') and (self.command != 'GET' or not p.endswith(('/status', '/health', '/model-info', '/models', '/logs', '/system_stats'))):
-            CALLS.append([self.command, self.path, body])
+        if not p.startswith(('/oidc/', '/__s3')) and (self.command != 'GET' or not p.endswith(('/status', '/health', '/model-info', '/models', '/logs', '/system_stats'))):
+            CALLS.append([self.command, self.path, body if not p.startswith('/s3/') else len(raw)])
         if p == '/litellm/key/delete':
             ok = not any('fail' in k for k in (body or {}).get('keys', []))
             b = json.dumps({'deleted_keys': body.get('keys')} if ok else {'error': 'no'}).encode()
@@ -101,6 +143,14 @@ class H(BaseHTTPRequestHandler):
             code, out = (404, {'absent': True}) if 'absent' in hf else (500, {'error': 'disk busy'}) if 'busy' in hf else (200, {'bytes': 3 * 2**30 + 5})
             b = json.dumps(out).encode(); self.send_response(code); self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(b)
             return
+        if p == '/__s3':
+            if self.command == 'POST':
+                S3.clear(); S3.update({k: v.encode() for k, v in json.loads(raw).items()})
+            b = json.dumps({k: v.decode('utf-8', 'replace') for k, v in S3.items()}).encode()
+            self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(b)
+            return
+        if p.startswith('/s3/'):
+            return s3(self, self.command, p, urlparse(self.path).query, raw)
         if p == '/oidc/token':
             b = json.dumps(oidc_token(raw.decode())).encode()
             self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(b)
@@ -123,7 +173,7 @@ class H(BaseHTTPRequestHandler):
             b = json.dumps(ROUTES[p]).encode(); self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(b)
         else:
             self.send_response(404); self.end_headers()
-    do_POST = do_GET
+    do_POST = do_PUT = do_DELETE = do_HEAD = do_GET
     def log_message(self, *a): pass
 class SMTP(socketserver.StreamRequestHandler):
     """A minimal SMTP server with STARTTLS and AUTH: each message received is

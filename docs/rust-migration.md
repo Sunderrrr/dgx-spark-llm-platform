@@ -387,6 +387,26 @@ Routed after the bench found them identical:
   and its own validation state (the panel's polling can land on a worker that
   never started the run). portal-rs is one process: one snapshot, one state.
 
+- the SSO sign-in, `/login/sso` and `/api/oauth2-redirect`
+  (`portal-rs/src/sso.rs`: the authorization-code flow, the id_token checked
+  against the provider's JWKS — signature, issuer, audience, expiry, nonce —
+  then the identity resolved by the directory); `/api/setup` (the owner of a
+  fresh instance); `/admin/storage/migrate` (its lock is the same flock as
+  Flask's, on the data volume). The bench's fake plays an OIDC provider
+  (authlib signs its RS256 id_tokens) and a minimal S3;
+  `scripts/parity-bench/sso_check.py` and `migrate_check.py` run the flows
+  bench.py cannot (random state and nonce, a background move).
+
+Left on Flask on purpose (8 routes): the root page `/` (it would catch every
+path) and `/api/latency` (it measures the Flask process itself);
+`/internal/authcheck`, which Traefik's forwardAuth calls on dgx-portal
+directly (switching it is a Traefik configuration change, outside this
+repository); and passkeys (`/api/security/register/*`, `remove`, `toggle`,
+`verify-login`, and the second factor of `/login`, relayed). Porting them
+means a CBOR, COSE and attestation stack checked against py_webauthn, and a
+mistake locks the accounts that use one out of the portal — to be done
+with a software authenticator on the bench, not under time pressure.
+
 The fake upstream records the calls it receives (the probes left out), and
 `bench.py` compares each backend's sequence of upstream calls as well: a
 write that answers the same but deletes another key would not pass.
@@ -412,8 +432,7 @@ Found by the bench and fixed:
   the console's concurrent probes lost SYNs and waited 1 s. A bench artifact
   (the sidecars run uvicorn, backlog 2048), fixed in `fake.py`.
 
-Still on Flask: the media migration (`/admin/storage/migrate`, a Flask
-background job).
+Nothing of this phase is left on Flask.
 
 ### Phase 6 — local sign-in, routed (`POST /login`)
 

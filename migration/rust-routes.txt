@@ -55,3 +55,4 @@
 /support/feedback
 /api/playground/data
 /playground/preview
+/api/voice/chat/status

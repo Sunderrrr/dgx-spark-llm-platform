@@ -101,6 +101,7 @@ pub async fn voice_history(pool: &SqlitePool, username: &str) -> Result<Value, s
 type Cache = Mutex<Option<(Instant, Value)>>;
 static VOICE_INFO: Cache = Mutex::new(None);
 static ASR_INFO: Cache = Mutex::new(None);
+static VOICE_CHAT_INFO: Cache = Mutex::new(None);
 
 fn cached(cache: &Cache, ttl: Duration) -> Option<Value> {
     let guard = cache.lock().unwrap_or_else(|e| e.into_inner());
@@ -154,6 +155,45 @@ async fn asr_info() -> Value {
     let v = sidecar_model_info(&sidecar_url("ASR_URL", "http://asr:8006"), Duration::from_millis(300)).await;
     store(&ASR_INFO, &v);
     v
+}
+
+/// voice_chat_routes._voice_info: model-info of the voice container, asked
+/// only while it runs ({} otherwise), cached 3 s.
+async fn voice_chat_info() -> Value {
+    if let Some(v) = cached(&VOICE_CHAT_INFO, Duration::from_secs(3)) {
+        return v;
+    }
+    let mut v = json!({});
+    if sidecars::proc_status("voice").await == "running" {
+        let got = sidecar_model_info(&sidecar_url("VOICE_URL", "http://voice:8004"), Duration::from_secs(2)).await;
+        if got.as_object().is_some_and(|o| !o.is_empty()) {
+            v = got;
+        }
+    }
+    store(&VOICE_CHAT_INFO, &v);
+    v
+}
+
+/// The engine the playground's voice mode speaks with.
+const KYUTAI_ENGINE: &str = "kyutai";
+
+/// `/api/voice/chat/status` (`_status_body`): can the voice mode speak, and with what.
+pub async fn voice_chat_status() -> Value {
+    let info = voice_chat_info().await;
+    let state = sidecars::proc_status("voice").await;
+    let engine = info.get("engine").cloned().unwrap_or(Value::Null);
+    let engine_str = engine.as_str().unwrap_or("");
+    let truthy = |k: &str| info.get(k).is_some_and(crate::keys::truthy);
+    json!({
+        "ready": engine_str == KYUTAI_ENGINE && truthy("loaded"),
+        "state": state,
+        "engine": engine,
+        "wrong_engine": crate::keys::truthy(&engine) && engine_str != KYUTAI_ENGINE,
+        "voices": info.get("voices").filter(|v| crate::keys::truthy(v)).cloned().unwrap_or_else(|| json!([])),
+        "default_voice": info.get("default_voice").cloned().unwrap_or(Value::Null),
+        "sample_rate": info.get("sample_rate").filter(|v| crate::keys::truthy(v)).cloned().unwrap_or_else(|| json!(24000)),
+        "asr_ready": asr_info().await.get("loaded").is_some_and(crate::keys::truthy),
+    })
 }
 
 /// `/api/transcribe/available`: dictation can serve NOW, or ON DEMAND (a stopped

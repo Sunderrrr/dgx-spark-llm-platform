@@ -221,3 +221,11 @@ mod tests {
         assert_eq!(py_str_field(&d, "e", 10), "2.0");
     }
 }
+
+/// GET /api/voice/chat/status - whether the playground's voice mode can speak
+pub async fn api_voice_chat_status(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    match viewer(&state, &headers).await {
+        Err(r) => r,
+        Ok(_) => Json(media::voice_chat_status().await).into_response(),
+    }
+}

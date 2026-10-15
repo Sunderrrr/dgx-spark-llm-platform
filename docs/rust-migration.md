@@ -182,6 +182,11 @@ Compared with Flask on the demo account, written rows included. The chat
 streams themselves (`/playground/chat`, `/support/chat`), titles and
 summaries stay on Flask.
 
+`/api/voice/chat/status` (can the voice mode speak: Kyutai engine loaded,
+its voices, the ASR state) is routed with them; the voice chat's start and
+speak calls drive sidecars and stay on Flask. `/api/security` cannot move
+alone: routing is by prefix, and its sub-paths are the WebAuthn writes.
+
 The HTML preview (`/playground/preview`, create + show) is routed too: the
 page goes out with its own `sandbox` policy (opaque origin, `default-src
 'none'`, `form-action 'none'`), the error spy grafted after `<head>`, and

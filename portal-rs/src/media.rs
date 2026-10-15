@@ -148,7 +148,7 @@ pub async fn voice_info() -> Value {
 }
 
 /// asr_routes / sidecars._asr_info: the ASR sidecar's model-info (0.3 s, cached 10 s).
-async fn asr_info() -> Value {
+pub(crate) async fn asr_info() -> Value {
     if let Some(v) = cached(&ASR_INFO, Duration::from_secs(10)) {
         return v;
     }
@@ -160,7 +160,12 @@ async fn asr_info() -> Value {
 /// voice_chat_routes._voice_info: model-info of the voice container, asked
 /// only while it runs ({} otherwise), cached 3 s.
 async fn voice_chat_info() -> Value {
-    if let Some(v) = cached(&VOICE_CHAT_INFO, Duration::from_secs(3)) {
+    voice_chat_info_aged(Duration::from_secs(3)).await
+}
+
+/// `_voice_info(max_age)`: a zero age forces a fresh read (the readiness probe).
+pub(crate) async fn voice_chat_info_aged(max_age: Duration) -> Value {
+    if let Some(v) = cached(&VOICE_CHAT_INFO, max_age) {
         return v;
     }
     let mut v = json!({});
@@ -179,6 +184,11 @@ const KYUTAI_ENGINE: &str = "kyutai";
 
 /// `/api/voice/chat/status` (`_status_body`): can the voice mode speak, and with what.
 pub async fn voice_chat_status() -> Value {
+    voice_chat_body().await
+}
+
+/// `_status_body`.
+pub(crate) async fn voice_chat_body() -> Value {
     let info = voice_chat_info().await;
     let state = sidecars::proc_status("voice").await;
     let engine = info.get("engine").cloned().unwrap_or(Value::Null);

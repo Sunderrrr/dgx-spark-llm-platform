@@ -236,6 +236,9 @@ services:
       DISCORD_REDIRECT_URI: ${DISCORD_REDIRECT_URI:-}
       # App served over HTTPS behind Traefik → Secure session cookie
       SESSION_COOKIE_SECURE: "1"
+      # Dictation's on-demand state (idle clock, in-flight calls), on the data
+      # volume so portal-rs records into the same files the reaper reads.
+      ASR_ONDEMAND_DIR: /app/data/.asr-ondemand
     volumes:
       - portal_data:/app/data
       # Proxy in-flight activity, READ-ONLY: LiteLLM is the only writer, and a
@@ -424,6 +427,8 @@ services:
       ASR_URL: http://asr:8006
       IMAGE_URL: ${IMAGE_URL:-http://image:8007}
       COMFYUI_URL: http://172.19.0.1:8188
+      # Shared with dgx-portal, whose reaper stops the idle dictation sidecar.
+      ASR_ONDEMAND_DIR: /app/data/.asr-ondemand
     volumes:
       - portal_data:/app/data
       # The LiteLLM callback's in-flight requests, READ-ONLY as for dgx-portal.

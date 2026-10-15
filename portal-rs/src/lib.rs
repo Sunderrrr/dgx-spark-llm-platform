@@ -28,6 +28,7 @@ pub mod s3;
 pub mod media_store;
 pub mod guards;
 pub mod session_store;
+pub mod asr_ondemand;
 
 pub use db::Database;
 pub use error::ApiError;

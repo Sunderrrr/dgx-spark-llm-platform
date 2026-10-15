@@ -204,6 +204,22 @@ Two Flask defects found on the way:
 - a refused job slot (429) left its row « running » forever: Rust takes the
   slot before inserting the row.
 
+### Phase 3 — dictation and voice mode, routed (`/api/transcribe`, `/api/voice/chat/start`, `/api/voice/speak`)
+
+The dictation sidecar's on-demand state is FILE state (idle clock, in-flight
+markers, pin, stop lock) that Flask's idle reaper reads. It moved from the
+Flask container's `/tmp` to the data volume both portals mount
+(`ASR_ONDEMAND_DIR=/app/data/.asr-ondemand`): Rust records activity and
+in-flight calls into the same files, the reaper stays in Flask
+(`src/asr_ondemand.rs`). The automatic start keeps its guards: 8 GiB of
+MemAvailable, the 60 s throttle after a success, the audit line.
+
+Tested end to end on the demo account: Kyutai speaks a sentence through
+Rust (same PCM length and headers as Flask), that audio wrapped as WAV is
+transcribed by both backends word for word, and Rust's on-demand start of the
+stopped ASR container answered « starting » until the model loaded. The voice
+mode's start returns the same body as Flask.
+
 ### Phase 3 — video, routed (`/api/video/generate`, `status`, `cancel`, `/video/file`)
 
 The ComfyUI client is ported: the two MiniMax H3 graphs (compiled in from

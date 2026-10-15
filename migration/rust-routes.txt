@@ -68,3 +68,6 @@
 /api/video/status
 /api/video/cancel
 /video/file
+/api/transcribe
+/api/voice/chat/start
+/api/voice/speak

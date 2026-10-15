@@ -172,6 +172,17 @@ async fn relay(tx: &Tx, image: &[u8], mime: &str, instruction: &str) -> String {
     }
 }
 
+/// The OCR text of an image, without relaying anything (the chat's document
+/// tool): the same request as `relay`, its stream gathered.
+pub(crate) async fn ocr_extract_text(image: &[u8], mime: &str, instruction: &str) -> Result<String, String> {
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<axum::body::Bytes, std::convert::Infallible>>(64);
+    let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+    let text = relay(&tx, image, mime, instruction).await;
+    drop(tx);
+    let _ = drain.await;
+    Ok(text)
+}
+
 /// One upstream line → `line\n\n` downstream, its content delta gathered.
 /// False once the client is gone.
 async fn forward_line<F, Fut>(send: &F, raw: &[u8], full: &mut String) -> bool

@@ -30,6 +30,7 @@ pub mod guards;
 pub mod session_store;
 pub mod asr_ondemand;
 pub mod mcp;
+pub mod chat;
 
 pub use db::Database;
 pub use error::ApiError;

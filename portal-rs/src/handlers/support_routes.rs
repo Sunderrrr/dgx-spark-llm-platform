@@ -139,18 +139,11 @@ pub(crate) fn model_sees(args: &str, engine: &str) -> bool {
     }
 }
 
-/// GET /api/playground/data - served models, their windows, vision, and whether the viewer has a key
-pub async fn api_playground_data(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let session = match viewer(&state, &headers).await {
-        Err(r) => return r,
-        Ok(s) => s,
-    };
+/// `_playground_model_limits` and `_playground_model_vision`: each catalog
+/// entry's window and whether it sees; `auto-model` inherits the running model's.
+pub(crate) async fn model_windows(state: &AppState, running: &[String]) -> Result<(serde_json::Map<String, Value>, serde_json::Map<String, Value>), sqlx::Error> {
     let rows: Vec<(Option<String>, Option<String>, Option<String>)> =
-        match sqlx::query_as("SELECT name, vllm_args, engine FROM model_configs").fetch_all(state.db.pool()).await {
-            Ok(r) => r,
-            Err(_) => return db_down_500(),
-        };
-    let running = models::running_models().await;
+        sqlx::query_as("SELECT name, vllm_args, engine FROM model_configs").fetch_all(state.db.pool()).await?;
     let auto = std::env::var("AUTO_MODEL_NAME").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| "auto-model".to_string());
     let mut limits = serde_json::Map::new();
     let mut vision = serde_json::Map::new();
@@ -170,6 +163,17 @@ pub async fn api_playground_data(State(state): State<AppState>, headers: HeaderM
         let sees = vision.get(first).cloned().unwrap_or(json!(false));
         vision.insert(auto, sees);
     }
+    Ok((limits, vision))
+}
+
+/// GET /api/playground/data - served models, their windows, vision, and whether the viewer has a key
+pub async fn api_playground_data(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let session = match viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    let running = models::running_models().await;
+    let Ok((limits, vision)) = model_windows(&state, &running).await else { return db_down_500() };
     let has_key = sqlx::query_scalar::<_, i64>("SELECT 1 FROM api_keys WHERE username = ? LIMIT 1")
         .bind(&session.username)
         .fetch_optional(state.db.pool())
@@ -228,4 +232,9 @@ pub async fn api_voice_chat_status(State(state): State<AppState>, headers: Heade
         Err(r) => r,
         Ok(_) => Json(media::voice_chat_status().await).into_response(),
     }
+}
+
+/// POST /playground/chat - the playground's turn, streamed (see chat::playground)
+pub async fn playground_chat(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    crate::chat::playground::playground_chat(state, headers, body).await
 }

@@ -106,6 +106,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/support/thread/clear", post(handlers::support_thread_clear))
         .route("/support/feedback", post(handlers::support_feedback))
         .route("/api/playground/data", get(handlers::api_playground_data))
+        .route("/playground/chat", post(handlers::playground_chat))
         .route("/api/voice/chat/status", get(handlers::api_voice_chat_status))
         .route("/api/image/generate", post(handlers::api_image_generate))
         .route("/api/image/cancel/:prompt_id", post(handlers::api_image_cancel))

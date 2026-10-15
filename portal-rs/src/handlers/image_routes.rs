@@ -168,6 +168,23 @@ pub(crate) async fn media_block(state: &AppState, session: &auth::SessionData) -
     }
 }
 
+/// Starts the worker of an image job already inserted (the chat's image tool):
+/// the slot is released when it ends.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn spawn_image_worker(db: std::sync::Arc<crate::db::Database>, username: String, prompt_id: String, prompt: String, count: i64, fmt: &'static str, size: (i64, i64), out_size: (i64, i64)) {
+    let job = ImageJob { db, username, prompt_id, prompt, count, fmt, width: size.0, height: size.1, out_width: out_size.0, out_height: out_size.1 };
+    tokio::spawn(async move {
+        let u = job.username.clone();
+        job.run().await;
+        guards::job_done(&u);
+    });
+}
+
+/// `IMAGE_FORMATS` lookup for the chat tool (« jpg » → « jpeg », else png).
+pub(crate) fn tool_image_format(raw: &str) -> &'static str {
+    image_format(raw)
+}
+
 struct ImageJob {
     db: std::sync::Arc<crate::db::Database>,
     username: String,

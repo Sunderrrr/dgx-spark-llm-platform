@@ -1,0 +1,270 @@
+[
+{
+"text": "",
+"expected": false
+},
+{
+"text": "   ",
+"expected": false
+},
+{
+"text": "merci",
+"expected": false
+},
+{
+"text": "ok",
+"expected": false
+},
+{
+"text": "Bonjour !",
+"expected": false
+},
+{
+"text": "Pourquoi le ciel est bleu",
+"expected": true
+},
+{
+"text": "POURQUOI",
+"expected": true
+},
+{
+"text": "explique-moi docker",
+"expected": true
+},
+{
+"text": "Réfléchis bien",
+"expected": true
+},
+{
+"text": "fais-le ÉTAPE PAR ÉTAPE",
+"expected": true
+},
+{
+"text": "def f(x): return x",
+"expected": true
+},
+{
+"text": "SELECT * FROM t",
+"expected": true
+},
+{
+"text": "select * from t",
+"expected": false
+},
+{
+"text": "1234 + 5",
+"expected": true
+},
+{
+"text": "12 + 34",
+"expected": true
+},
+{
+"text": "²³¹⁰ = x",
+"expected": true
+},
+{
+"text": "①②③④-",
+"expected": true
+},
+{
+"text": "compare A et B",
+"expected": true
+},
+{
+"text": "quel est le meilleur ?",
+"expected": true
+},
+{
+"text": "a ? b ?",
+"expected": true
+},
+{
+"text": "a ? b",
+"expected": false
+},
+{
+"text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+"expected": false
+},
+{
+"text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+"expected": true
+},
+{
+"text": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+"expected": true
+},
+{
+"text": "PLAN de vol",
+"expected": true
+},
+{
+"text": "explanation",
+"expected": true
+},
+{
+"text": "Je veux un script bash",
+"expected": true
+},
+{
+"text": "c'est quoi un bug",
+"expected": true
+},
+{
+"text": "Quelle heure est-il ?",
+"expected": false
+},
+{
+"text": "docker ps",
+"expected": true
+},
+{
+"text": "Docker ps",
+"expected": false
+},
+{
+"text": "systemctl restart",
+"expected": true
+},
+{
+"text": "a => b",
+"expected": true
+},
+{
+"text": "x -> y",
+"expected": true
+},
+{
+"text": "100% de 20 = ?",
+"expected": true
+},
+{
+"text": "2026-10-15",
+"expected": true
+},
+{
+"text": "1/2/3/4",
+"expected": true
+},
+{
+"text": "café",
+"expected": false
+},
+{
+"text": "ΑΣ",
+"expected": false
+},
+{
+"text": "İstanbul pourquoi",
+"expected": true
+},
+{
+"text": "  ",
+"expected": false
+},
+{
+"text": "Étapes à suivre",
+"expected": true
+},
+{
+"text": "MIGRATION",
+"expected": true
+},
+{
+"text": "Sécurité réseau",
+"expected": true
+},
+{
+"text": "import os",
+"expected": true
+},
+{
+"text": "function foo",
+"expected": true
+},
+{
+"text": "class A",
+"expected": true
+},
+{
+"text": "INSERT INTO",
+"expected": true
+},
+{
+"text": "Fais une requête",
+"expected": true
+},
+{
+"text": "trade-off ?",
+"expected": true
+},
+{
+"text": "que choisir entre",
+"expected": true
+},
+{
+"text": "Lesquels ?",
+"expected": true
+},
+{
+"text": "laquelle",
+"expected": true
+},
+{
+"text": "vaut-il mieux",
+"expected": true
+},
+{
+"text": "faut-il",
+"expected": true
+},
+{
+"text": "debugger",
+"expected": true
+},
+{
+"text": "traceback",
+"expected": true
+},
+{
+"text": "audit",
+"expected": true
+},
+{
+"text": "statistique",
+"expected": true
+},
+{
+"text": "probabilité",
+"expected": true
+},
+{
+"text": "équation",
+"expected": true
+},
+{
+"text": "calculer 2+2",
+"expected": true
+},
+{
+"text": "٣٤٥٦ + 1",
+"expected": true
+},
+{
+"text": "Organise ma semaine",
+"expected": true
+},
+{
+"text": "procédure",
+"expected": true
+},
+{
+"text": "arbitrage",
+"expected": true
+},
+{
+"text": "optimiser le code",
+"expected": true
+}
+]

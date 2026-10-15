@@ -75,3 +75,4 @@
 /mcp
 POST /keys
 GET /api/security
+/playground/chat

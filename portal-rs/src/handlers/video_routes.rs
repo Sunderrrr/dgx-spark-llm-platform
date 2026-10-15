@@ -105,7 +105,7 @@ pub(crate) fn h3_graph(uploaded: Option<&str>, prompt: &str, duration: f64, seed
 }
 
 /// `comfyui_generate`: the prompt id, or None.
-async fn comfyui_generate(image: Option<Vec<u8>>, prompt: &str, duration: f64) -> Option<String> {
+pub(crate) async fn comfyui_generate(image: Option<Vec<u8>>, prompt: &str, duration: f64) -> Option<String> {
     let mut uploaded = None;
     if let Some(bytes) = image {
         let part = reqwest::multipart::Part::bytes(bytes).file_name("ref.png");
@@ -127,7 +127,7 @@ async fn comfyui_generate(image: Option<Vec<u8>>, prompt: &str, duration: f64) -
 }
 
 /// `comfyui_status`: {'status', 'video_path', …} of a prompt.
-async fn comfyui_status(prompt_id: &str) -> Value {
+pub(crate) async fn comfyui_status(prompt_id: &str) -> Value {
     let error = json!({"status": "error", "video_path": null});
     let probe = async {
         let c = client(5)?;
@@ -220,7 +220,7 @@ async fn cache_video(state: &AppState, prompt_id: &str, st: &Value) -> Option<St
 }
 
 /// `_persist_video`: a known result written into the job, the MP4 cached.
-async fn persist_video(state: &AppState, prompt_id: &str, username: &str, st: &Value, created_at: Option<&str>, duration_ms: Option<i64>) {
+pub(crate) async fn persist_video(state: &AppState, prompt_id: &str, username: &str, st: &Value, created_at: Option<&str>, duration_ms: Option<i64>) {
     let status = st.get("status").and_then(Value::as_str).unwrap_or("");
     if status != "done" && status != "error" {
         return;

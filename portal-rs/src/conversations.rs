@@ -212,7 +212,7 @@ fn parse_files(raw: Option<&Value>) -> Vec<(String, String)> {
 }
 
 /// conversation_routes.valid_images: image data: URLs only, bounded.
-fn valid_images(m: &serde_json::Map<String, Value>) -> Vec<String> {
+pub(crate) fn valid_images(m: &serde_json::Map<String, Value>) -> Vec<String> {
     let Some(Value::Array(imgs)) = m.get("images") else { return Vec::new() };
     imgs.iter()
         .take(IMAGES_PER_MESSAGE)

@@ -101,7 +101,18 @@ def main() -> int:
                    "an image served by /image/file/… shown in the answer "
                    "(the sidecar starts on demand: up to 4 min)",
                    f"no image within 4 min and no service notice — answer: {text[-300:]!r}")
-        # « Real image »: loaded by the browser, with dimensions.
+        # « Real image »: loaded by the browser, with dimensions. Visible is not
+        # loaded: the <img> shows as soon as the markdown renders, its bytes
+        # (~2 MB from the bucket) arrive a moment later — reading naturalWidth
+        # at once made the journey fail on a perfectly good image.
+        try:
+            image.first.evaluate(
+                "e => e.complete && e.naturalWidth > 0 ? true : new Promise(r => {"
+                " e.addEventListener('load', () => r(true), {once: true});"
+                " e.addEventListener('error', () => r(false), {once: true});"
+                " setTimeout(() => r(false), 15000); })")
+        except Exception:                                # noqa: BLE001
+            pass
         width = image.first.evaluate("e => e.naturalWidth")
         if not width:
             p.fail("image really loaded",

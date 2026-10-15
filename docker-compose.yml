@@ -429,6 +429,9 @@ services:
       COMFYUI_URL: http://172.19.0.1:8188
       # Shared with dgx-portal, whose reaper stops the idle dictation sidecar.
       ASR_ONDEMAND_DIR: /app/data/.asr-ondemand
+      # Web search, same services as dgx-portal (web_net).
+      SEARXNG_URL: http://searxng:8080
+      CRAWL4AI_URL: http://crawl4ai:11235
     volumes:
       - portal_data:/app/data
       # The LiteLLM callback's in-flight requests, READ-ONLY as for dgx-portal.
@@ -436,6 +439,8 @@ services:
       # ComfyUI's output directory, READ-ONLY as for dgx-portal: past videos
       # are served from disk even while ComfyUI is stopped.
       - /root/ComfyUI/output:/comfyui-output:ro
+      # crawl4ai's API token, read-only (the playground's page reads).
+      - ./secrets/crawl4ai_token:/run/secrets/crawl4ai_token:ro
       # Hugging Face token for the model search, read-only; same rule as
       # dgx-portal: missing file = anonymous search, no error.
       - ./secrets/hf_token:/run/secrets/hf_token:ro
@@ -458,6 +463,7 @@ services:
       voice_net: {}
       asr_net: {}
       image_net: {}
+      web_net: {}
 
 volumes:
   postgres_data:

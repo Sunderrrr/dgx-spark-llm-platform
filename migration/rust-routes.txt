@@ -1,6 +1,9 @@
 # URL prefixes served by the Rust portal instead of Flask (Rust migration,
 # docs/rust-migration.md). One per line. Empty: everything is on Flask.
 #
+# A prefix is routed for EVERY method, page GETs included (dgx-portal-frontend/
+# proxy.ts): never list a prefix that is also a Next page path (/request, /keys,
+# /memory, /search…), or the page itself would be sent to the Rust portal.
 # Phase 3 (media), read-only routes only: the routes that create or act on jobs,
 # and those that return a stored file (media_store may read S3), stay on Flask.
 # Not routed yet, on purpose: /api/home, /system/stats and /api/ranking, whose
@@ -41,3 +44,6 @@
 /conversations
 /api/memory
 /api/skills
+/api/onboarding/done
+/discord/unlink
+/skills

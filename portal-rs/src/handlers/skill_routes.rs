@@ -77,7 +77,7 @@ pub async fn api_skill_download(State(state): State<AppState>, headers: HeaderMa
 /// POST /api/skills/:id/enabled - offer the skill to the model or not
 pub async fn api_skill_enabled(State(state): State<AppState>, headers: HeaderMap, Path(raw): Path<String>, body: axum::body::Bytes) -> Response {
     let Some(id) = int_param(&raw) else { return auth::html_status(StatusCode::NOT_FOUND) };
-    let session = match write_guard(&state, &headers).await {
+    let session = match write_guard(&state, &headers, &body).await {
         Err(r) => return r,
         Ok(s) => s,
     };
@@ -108,9 +108,9 @@ pub(crate) fn import_answer(r: Result<(u16, Value), sqlx::Error>) -> Response {
 }
 
 /// POST /api/skills/:id/sync - re-import a Git skill from its source
-pub async fn api_skill_sync(State(state): State<AppState>, headers: HeaderMap, Path(raw): Path<String>) -> Response {
+pub async fn api_skill_sync(State(state): State<AppState>, headers: HeaderMap, Path(raw): Path<String>, body: axum::body::Bytes) -> Response {
     let Some(id) = int_param(&raw) else { return auth::html_status(StatusCode::NOT_FOUND) };
-    let session = match write_guard(&state, &headers).await {
+    let session = match write_guard(&state, &headers, &body).await {
         Err(r) => return r,
         Ok(s) => s,
     };
@@ -190,7 +190,7 @@ pub async fn api_skill_import_zip(State(state): State<AppState>, headers: Header
 
 /// POST /api/skills/import-git - import the skills of a Git repository
 pub async fn api_skill_import_git(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
-    let session = match write_guard(&state, &headers).await {
+    let session = match write_guard(&state, &headers, &body).await {
         Err(r) => return r,
         Ok(s) => s,
     };

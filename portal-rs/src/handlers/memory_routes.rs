@@ -20,8 +20,8 @@ pub(crate) fn json_object(headers: &HeaderMap, body: &axum::body::Bytes) -> serd
 }
 
 /// CSRF then the session, for a JSON or raw-body write.
-pub(crate) async fn write_guard(state: &AppState, headers: &HeaderMap) -> Result<auth::SessionData, Response> {
-    csrf_then_viewer(state, headers).await
+pub(crate) async fn write_guard(state: &AppState, headers: &HeaderMap, body: &axum::body::Bytes) -> Result<auth::SessionData, Response> {
+    csrf_then_viewer(state, headers, body).await
 }
 
 /// Flask's `<int:edge_id>`: digits only, else the route does not match (404).
@@ -56,7 +56,7 @@ pub async fn api_memory(State(state): State<AppState>, headers: HeaderMap, Query
 
 /// POST /api/memory/settings - the two secondary switches
 pub async fn api_memory_settings(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
-    let session = match write_guard(&state, &headers).await {
+    let session = match write_guard(&state, &headers, &body).await {
         Err(r) => return r,
         Ok(s) => s,
     };
@@ -75,7 +75,7 @@ pub async fn api_memory_settings(State(state): State<AppState>, headers: HeaderM
 
 /// POST /api/memory/enabled - turn the memory on or off (erases nothing)
 pub async fn api_memory_enabled(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
-    let session = match write_guard(&state, &headers).await {
+    let session = match write_guard(&state, &headers, &body).await {
         Err(r) => return r,
         Ok(s) => s,
     };
@@ -89,7 +89,7 @@ pub async fn api_memory_enabled(State(state): State<AppState>, headers: HeaderMa
 
 /// POST /api/memory/facts - add a fact from the Memory page
 pub async fn api_memory_add(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
-    let session = match write_guard(&state, &headers).await {
+    let session = match write_guard(&state, &headers, &body).await {
         Err(r) => return r,
         Ok(s) => s,
     };
@@ -109,7 +109,7 @@ pub async fn api_memory_add(State(state): State<AppState>, headers: HeaderMap, b
 /// PATCH /api/memory/facts/:edge_id - correct a fact in place
 pub async fn api_memory_update(State(state): State<AppState>, headers: HeaderMap, Path(raw): Path<String>, body: axum::body::Bytes) -> Response {
     let Some(edge_id) = int_param(&raw) else { return auth::html_status(StatusCode::NOT_FOUND) };
-    let session = match write_guard(&state, &headers).await {
+    let session = match write_guard(&state, &headers, &body).await {
         Err(r) => return r,
         Ok(s) => s,
     };
@@ -123,9 +123,9 @@ pub async fn api_memory_update(State(state): State<AppState>, headers: HeaderMap
 }
 
 /// DELETE /api/memory/facts/:edge_id - forget a fact for good
-pub async fn api_memory_forget(State(state): State<AppState>, headers: HeaderMap, Path(raw): Path<String>) -> Response {
+pub async fn api_memory_forget(State(state): State<AppState>, headers: HeaderMap, Path(raw): Path<String>, body: axum::body::Bytes) -> Response {
     let Some(edge_id) = int_param(&raw) else { return auth::html_status(StatusCode::NOT_FOUND) };
-    let session = match write_guard(&state, &headers).await {
+    let session = match write_guard(&state, &headers, &body).await {
         Err(r) => return r,
         Ok(s) => s,
     };
@@ -137,8 +137,8 @@ pub async fn api_memory_forget(State(state): State<AppState>, headers: HeaderMap
 }
 
 /// POST /api/memory/purge - erase the viewer's whole memory
-pub async fn api_memory_purge(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let session = match write_guard(&state, &headers).await {
+pub async fn api_memory_purge(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let session = match write_guard(&state, &headers, &body).await {
         Err(r) => return r,
         Ok(s) => s,
     };
@@ -190,7 +190,7 @@ pub async fn api_memory_export_md(State(state): State<AppState>, headers: Header
 
 /// POST /api/memory/import - merge an exported JSON memory (the session is authoritative)
 pub async fn api_memory_import(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
-    let session = match write_guard(&state, &headers).await {
+    let session = match write_guard(&state, &headers, &body).await {
         Err(r) => return r,
         Ok(s) => s,
     };
@@ -244,7 +244,7 @@ pub async fn api_memory_import(State(state): State<AppState>, headers: HeaderMap
 
 /// POST /api/memory/import.md - merge facts read from a Markdown file
 pub async fn api_memory_import_md(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
-    let session = match write_guard(&state, &headers).await {
+    let session = match write_guard(&state, &headers, &body).await {
         Err(r) => return r,
         Ok(s) => s,
     };

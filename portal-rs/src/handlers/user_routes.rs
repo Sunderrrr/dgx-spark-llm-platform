@@ -166,8 +166,10 @@ pub async fn api_keys(State(state): State<AppState>, headers: HeaderMap) -> Resp
 
 /// Shared shape of the viewer's POST writes that take no body: CSRF first (as
 /// Flask's before_request does, 400 even without a session), then the session.
-pub(crate) async fn csrf_then_viewer(state: &AppState, headers: &HeaderMap) -> Result<auth::SessionData, Response> {
-    match auth::csrf_ok(headers, None, &state.db).await {
+pub(crate) async fn csrf_then_viewer(state: &AppState, headers: &HeaderMap, body: &axum::body::Bytes) -> Result<auth::SessionData, Response> {
+    // The token comes from the X-CSRFToken header or a form's csrf_token field, as in Flask.
+    let form = form_of(headers, body);
+    match auth::csrf_ok(headers, form.get("csrf_token").map(String::as_str), &state.db).await {
         Err(e) => return Err(e.into_response()),
         Ok(false) => return Err(auth::html_status(StatusCode::BAD_REQUEST)),
         Ok(true) => {}
@@ -176,8 +178,8 @@ pub(crate) async fn csrf_then_viewer(state: &AppState, headers: &HeaderMap) -> R
 }
 
 /// POST /api/notifications/seen - mark the bell's notifications as read
-pub async fn api_notifications_seen(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let session = match csrf_then_viewer(&state, &headers).await {
+pub async fn api_notifications_seen(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let session = match csrf_then_viewer(&state, &headers, &body).await {
         Err(r) => return r,
         Ok(s) => s,
     };
@@ -188,8 +190,8 @@ pub async fn api_notifications_seen(State(state): State<AppState>, headers: Head
 }
 
 /// POST /api/announcements/seen - mark the announcements as read up to the newest
-pub async fn api_announcements_seen(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let session = match csrf_then_viewer(&state, &headers).await {
+pub async fn api_announcements_seen(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let session = match csrf_then_viewer(&state, &headers, &body).await {
         Err(r) => return r,
         Ok(s) => s,
     };
@@ -593,5 +595,116 @@ pub async fn conversations_share(State(state): State<AppState>, headers: HeaderM
         Ok(Some(token)) => Json(json!({"ok": true, "token": token})).into_response(),
         Ok(None) => (StatusCode::NOT_FOUND, Json(json!({"ok": false, "error": "conversation introuvable"}))).into_response(),
         Err(_) => data_or_503(Err(sqlx::Error::PoolTimedOut)),
+    }
+}
+
+/// POST /api/onboarding/done - the onboarding is seen, once and for all
+pub async fn api_onboarding_done(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let session = match csrf_then_viewer(&state, &headers, &body).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    match sqlx::query("INSERT INTO user_prefs (username, onboarded) VALUES (?, 1) ON CONFLICT(username) DO UPDATE SET onboarded = 1")
+        .bind(&session.username)
+        .execute(state.db.pool())
+        .await
+    {
+        Ok(_) => Json(json!({"ok": true})).into_response(),
+        Err(_) => data_or_503(Err(sqlx::Error::PoolTimedOut)),
+    }
+}
+
+/// POST /discord/unlink - forget this account's Discord link, back to the home page
+pub async fn discord_unlink(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let form = form_of(&headers, &body);
+    match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
+        Err(e) => return e.into_response(),
+        Ok(false) => return auth::html_status(StatusCode::BAD_REQUEST),
+        Ok(true) => {}
+    }
+    let session = match viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    // A failure is swallowed, as in Flask: the redirect says « unlinked » either way.
+    let _ = sqlx::query("DELETE FROM discord_links WHERE username = ?").bind(&session.username).execute(state.db.pool()).await;
+    (
+        StatusCode::FOUND,
+        [
+            (axum::http::header::LOCATION, "/?discord=unlinked"),
+            (axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8"),
+        ],
+    )
+        .into_response()
+}
+
+/// POST /skills - a skill written in the interface: create, update, delete.
+/// Refusals answer 200 with `ok: false`, as Flask does; delete answers 204.
+pub async fn skills_form(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let form = form_of(&headers, &body);
+    match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
+        Err(e) => return e.into_response(),
+        Ok(false) => return auth::html_status(StatusCode::BAD_REQUEST),
+        Ok(true) => {}
+    }
+    let session = match viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    let user = session.username.as_str();
+    let pool = state.db.pool();
+    let field = |k: &str, n: usize| -> String {
+        form.get(k).map(String::as_str).unwrap_or("").trim_matches(memory::py_is_space).chars().take(n).collect()
+    };
+    let refuse = |msg: &str| Json(json!({"ok": false, "error": msg})).into_response();
+    let no_content = || (StatusCode::NO_CONTENT, [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")]).into_response();
+    let unique = |e: &sqlx::Error| matches!(e, sqlx::Error::Database(d) if d.is_unique_violation());
+    match form.get("action").map(String::as_str) {
+        Some("create") => {
+            let count: i64 = match sqlx::query_scalar("SELECT COUNT(*) FROM skills WHERE username = ?").bind(user).fetch_one(pool).await {
+                Ok(c) => c,
+                Err(_) => return data_or_503(Err(sqlx::Error::PoolTimedOut)),
+            };
+            if count >= skillstore::MAX_SKILLS {
+                return refuse(&format!("Maximum {} compétences par compte.", skillstore::MAX_SKILLS));
+            }
+            let (name, description, instructions) = (field("name", 60), field("description", 300), field("instructions", 20000));
+            if name.is_empty() || description.is_empty() || instructions.is_empty() {
+                return refuse("Nom, description et instructions requis.");
+            }
+            match sqlx::query("INSERT INTO skills (username, name, description, instructions, created_at) VALUES (?, ?, ?, ?, ?)")
+                .bind(user).bind(&name).bind(&description).bind(&instructions).bind(keys::iso(&chrono::Utc::now().naive_utc()))
+                .execute(pool).await
+            {
+                Ok(_) => Json(json!({"ok": true})).into_response(),
+                Err(e) if unique(&e) => refuse("Tu as déjà une compétence avec ce nom."),
+                Err(_) => data_or_503(Err(sqlx::Error::PoolTimedOut)),
+            }
+        }
+        Some("update") => {
+            let id = form.get("id").cloned().unwrap_or_default();
+            let (name, description, instructions) = (field("name", 60), field("description", 300), field("instructions", 20000));
+            if name.is_empty() || description.is_empty() || instructions.is_empty() {
+                return refuse("Nom, description et instructions requis.");
+            }
+            match sqlx::query("UPDATE skills SET name = ?, description = ?, instructions = ? WHERE id = ? AND username = ?")
+                .bind(&name).bind(&description).bind(&instructions).bind(&id).bind(user)
+                .execute(pool).await
+            {
+                Err(e) if unique(&e) => refuse("Tu as déjà une compétence avec ce nom."),
+                Err(_) => data_or_503(Err(sqlx::Error::PoolTimedOut)),
+                Ok(r) if r.rows_affected() == 0 => refuse("Compétence introuvable."),
+                Ok(_) => Json(json!({"ok": true})).into_response(),
+            }
+        }
+        Some("delete") => {
+            let id = form.get("id").cloned().unwrap_or_default();
+            let deleted = sqlx::query("DELETE FROM skills WHERE id = ? AND username = ?").bind(&id).bind(user).execute(pool).await;
+            if deleted.as_ref().is_ok_and(|r| r.rows_affected() > 0) {
+                let _ = sqlx::query("DELETE FROM skill_files WHERE skill_id = ? AND username = ?").bind(&id).bind(user).execute(pool).await;
+            }
+            no_content()
+        }
+        _ => no_content(),
     }
 }

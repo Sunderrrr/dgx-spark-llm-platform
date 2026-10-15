@@ -150,6 +150,24 @@ Not ported, on purpose:
   porting S3 access is a sub-project.
 - **`/api/video/status`**: it asks ComfyUI and persists the result.
 
+### Phase 4 — the small writes, routed
+
+`/api/onboarding/done`, `/discord/unlink` (302 to `/?discord=unlinked`) and
+`/skills` (a skill written in the interface: create, update, delete; refusals
+answer 200 with `ok: false` and the delete 204, as Flask does). Compared on
+the demo account, its state restored afterwards.
+
+The CSRF check reads the token from the `X-CSRFToken` header OR a form's
+`csrf_token` field, as Flask's `_csrf_protect` does, on every write — the first
+version of the shared helper only read the header and refused a form token
+(found by this comparison, fixed for every write).
+
+Still on Flask in phase 4, on purpose: `/mcp` (a live MCP connection, part of
+the MCP client of phase 7), `/keys` and `/request` (Next pages share their
+paths, see the routes file; `/keys` also issues LiteLLM keys and `/request`
+sends e-mails), the Discord OAuth link and callback, and the account password
+and deletion (phase 6).
+
 ### Skills: routed (`/api/skills`, its 7 routes)
 
 List, detail, download, enable, sync, and the .zip and Git imports

@@ -204,6 +204,22 @@ Two Flask defects found on the way:
 - a refused job slot (429) left its row « running » forever: Rust takes the
   slot before inserting the row.
 
+### Phase 4 — API key actions, routed (`POST /keys`)
+
+A routing entry may now name ONE method (`POST /keys` in
+`migration/rust-routes.txt`): the proxy (`lib/backend.ts`) then moves that
+method only, so a path that also answers GET elsewhere can move its writes
+alone; the inventory shows « Rust (POST) ».
+
+Create (the account envelope ensured first, then `/key/generate` with the
+account's `user_id`), revoke and rename (LiteLLM first, the key in the body,
+never in a URL) are ported. The budget request notifies the admin by Discord
+and e-mail: Rust relays that one action to Flask unchanged (cookie, CSRF,
+body), so the notifications stay where they live. Compared on the demo
+account: two keys created (one per backend) work against LiteLLM, the
+duplicate rename answers 409, revoked keys get 401 from LiteLLM afterwards,
+every refusal identical, the relay identical on a refused budget request.
+
 ### Phase 7 — MCP servers, routed (`/mcp`)
 
 Registering, updating, toggling and deleting the viewer's MCP servers. The

@@ -107,7 +107,7 @@ export async function proxySSE(request: Request, path: string): Promise<Response
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${backendFor(path)}${path}`, {
+    upstream = await fetch(`${backendFor(path, "POST")}${path}`, {
       method: "POST",
       headers: {
         "Content-Type": request.headers.get("content-type") || "application/json",

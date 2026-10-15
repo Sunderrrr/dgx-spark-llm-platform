@@ -28,22 +28,26 @@ function loadPrefixes(): string[] {
 const PREFIXES = loadPrefixes();
 
 /** Pure decision: `/api/ranking` covers `/api/ranking` and `/api/ranking/…`,
- *  never `/api/rankings`. */
-export function routeBackend(pathname: string, rustUrl: string, prefixes: string[], flaskUrl: string): string {
+ *  never `/api/rankings`. An entry may name ONE method first (`POST /keys`):
+ *  it then covers that method only — a path that is also a page (GET) can
+ *  move its writes without its page. */
+export function routeBackend(pathname: string, rustUrl: string, prefixes: string[], flaskUrl: string, method = "GET"): string {
   if (!rustUrl) return flaskUrl;
-  const hit = prefixes.some((p) => {
+  const hit = prefixes.some((entry) => {
+    const [only, p] = entry.includes(" ") ? entry.split(/\s+/, 2) : ["", entry];
+    if (only && only.toUpperCase() !== method.toUpperCase()) return false;
     const base = p.endsWith("/") ? p.slice(0, -1) : p;
     return pathname === base || pathname.startsWith(`${base}/`);
   });
   return hit ? rustUrl : flaskUrl;
 }
 
-/** The backend base URL for a request path. */
-export function backendFor(pathname: string): string {
-  return routeBackend(pathname, RUST_URL, PREFIXES, FLASK_URL);
+/** The backend base URL for a request path (and method). */
+export function backendFor(pathname: string, method = "GET"): string {
+  return routeBackend(pathname, RUST_URL, PREFIXES, FLASK_URL, method);
 }
 
-/** Is this path served by the Rust portal? */
-export function onRust(pathname: string): boolean {
-  return backendFor(pathname) !== FLASK_URL;
+/** Is this path (with this method) served by the Rust portal? */
+export function onRust(pathname: string, method = "GET"): boolean {
+  return backendFor(pathname, method) !== FLASK_URL;
 }

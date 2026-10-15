@@ -54,12 +54,12 @@ export async function proxy(request: NextRequest) {
   // Flask. Proxy runs before Next's own routing, so it can catch these by
   // method instead of maintaining a list of colliding paths.
   if (request.method !== "GET" && request.method !== "HEAD" && !OWN_ROUTE_HANDLERS.has(pathname)) {
-    return NextResponse.rewrite(new URL(pathname + request.nextUrl.search, backendFor(pathname)));
+    return NextResponse.rewrite(new URL(pathname + request.nextUrl.search, backendFor(pathname, request.method)));
   }
   // Rust migration: a prefix moved to the Rust portal is served there for
   // every method (lib/backend.ts) — the rewrites of next.config only know Flask.
-  if (onRust(pathname) && !OWN_ROUTE_HANDLERS.has(pathname)) {
-    return NextResponse.rewrite(new URL(pathname + request.nextUrl.search, backendFor(pathname)));
+  if (onRust(pathname, request.method) && !OWN_ROUTE_HANDLERS.has(pathname)) {
+    return NextResponse.rewrite(new URL(pathname + request.nextUrl.search, backendFor(pathname, request.method)));
   }
 
   // A logged-out visitor is sent to /login before any page markup goes out,

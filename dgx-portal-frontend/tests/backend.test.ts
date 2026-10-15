@@ -26,3 +26,12 @@ test("a trailing slash in the list changes nothing", () => {
 test("the list file: one prefix per line, comments and blanks ignored", () => {
   assert.deepEqual(parsePrefixes("# header\n\n/api/ranking\n  /healthz  \n# /admin\n"), ["/api/ranking", "/healthz"]);
 });
+
+test("an entry naming a method covers that method only", () => {
+  const p = ["POST /keys", "/api/memory"];
+  assert.equal(routeBackend("/keys", RUST, p, FLASK, "POST"), RUST);
+  assert.equal(routeBackend("/keys", RUST, p, FLASK, "GET"), FLASK);
+  assert.equal(routeBackend("/keys", RUST, p, FLASK), FLASK);
+  assert.equal(routeBackend("/keys/x", RUST, p, FLASK, "post"), RUST);
+  assert.equal(routeBackend("/api/memory", RUST, p, FLASK, "DELETE"), RUST);
+});

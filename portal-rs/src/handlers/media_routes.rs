@@ -98,7 +98,7 @@ async fn find_image(state: &AppState, safe: &str, idx: i64) -> Option<String> {
 }
 
 /// `login_required` on these page paths: signed out → 302 to the login page, not 401.
-async fn page_viewer(state: &AppState, headers: &HeaderMap, path: &str) -> Result<auth::SessionData, Response> {
+pub(crate) async fn page_viewer(state: &AppState, headers: &HeaderMap, path: &str) -> Result<auth::SessionData, Response> {
     match auth::require_session(headers, &state.db).await {
         Ok(s) => Ok(s),
         Err(auth::AuthError::Unauthorized) => Err(auth::login_redirect(path)),

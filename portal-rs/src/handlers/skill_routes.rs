@@ -169,7 +169,7 @@ pub async fn api_skill_import_zip(State(state): State<AppState>, headers: Header
     }
     match auth::csrf_ok(&headers, fields.get("csrf_token").map(String::as_str), &state.db).await {
         Err(e) => return e.into_response(),
-        Ok(false) => return auth::html_status(StatusCode::BAD_REQUEST),
+        Ok(false) => return auth::csrf_refused(),
         Ok(true) => {}
     }
     let session = match viewer(&state, &headers).await {

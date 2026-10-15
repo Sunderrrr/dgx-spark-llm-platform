@@ -12,10 +12,14 @@ mod memory_routes;
 mod skill_routes;
 mod user_routes;
 mod media_routes;
+mod support_routes;
+mod preview_routes;
 pub use memory_routes::*;
 pub use skill_routes::*;
 pub use user_routes::*;
 pub use media_routes::*;
+pub use support_routes::*;
+pub use preview_routes::*;
 
 use crate::{AppState, auth, s3, conversations, docs, health, hf, home, keys, media, memory, models, probes, ranking, sessions, settings, sharing, sidecars, skillstore, system, userdata};
 

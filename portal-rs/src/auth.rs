@@ -58,6 +58,12 @@ pub fn html_status(status: StatusCode) -> Response {
     (status, [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")], werkzeug_body(status)).into_response()
 }
 
+/// `abort(400, description='CSRF token manquant ou invalide.')` (auth.csrf_protect).
+pub fn csrf_refused() -> Response {
+    let body = "<!doctype html>\n<html lang=en>\n<title>400 Bad Request</title>\n<h1>Bad Request</h1>\n<p>CSRF token manquant ou invalide.</p>\n";
+    (StatusCode::BAD_REQUEST, [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")], body).into_response()
+}
+
 /// Werkzeug's default error page for the statuses the portal aborts with.
 pub fn werkzeug_body(status: StatusCode) -> String {
     let (title, text) = match status.as_u16() {

@@ -172,6 +172,26 @@ These are page paths for `login_required`: signed out, Flask answers 302 to
 body. `auth::html_status` now writes those bodies for 400/401/404/500, which
 also fixes the empty 401 body the routes moved earlier returned.
 
+### Phase 7 — the plain parts of the chat pages, routed
+
+`/api/support/thread` (the kept Support thread), `/support/thread/clear`,
+`/support/feedback` (vote parsed as Python's `int()`, fields as `str()`,
+audit line) and `/api/playground/data` (served models, context windows from
+`effective_ctx`, vision read from each entry's arguments, `has_key`).
+Compared with Flask on the demo account, written rows included. The chat
+streams themselves (`/playground/chat`, `/support/chat`), titles and
+summaries stay on Flask.
+
+The HTML preview (`/playground/preview`, create + show) is routed too: the
+page goes out with its own `sandbox` policy (opaque origin, `default-src
+'none'`, `form-action 'none'`), the error spy grafted after `<head>`, and
+`nosniff` / `no-store`; per-account and global caps purged in the same
+transaction as the insert. Byte-identical to Flask on the bench, headers
+included.
+
+CSRF refusals now carry Flask's exact 400 page (« CSRF token manquant ou
+invalide. »), on every Rust write route.
+
 ### Phase 4 — the small writes, routed
 
 `/api/onboarding/done`, `/discord/unlink` (302 to `/?discord=unlinked`) and

@@ -171,7 +171,7 @@ pub(crate) async fn csrf_then_viewer(state: &AppState, headers: &HeaderMap, body
     let form = form_of(headers, body);
     match auth::csrf_ok(headers, form.get("csrf_token").map(String::as_str), &state.db).await {
         Err(e) => return Err(e.into_response()),
-        Ok(false) => return Err(auth::html_status(StatusCode::BAD_REQUEST)),
+        Ok(false) => return Err(auth::csrf_refused()),
         Ok(true) => {}
     }
     viewer(state, headers).await
@@ -387,7 +387,7 @@ pub async fn api_account_sessions_revoke(
     };
     match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
         Err(e) => return e.into_response(),
-        Ok(false) => return auth::html_status(StatusCode::BAD_REQUEST),
+        Ok(false) => return auth::csrf_refused(),
         Ok(true) => {}
     }
     let session = match viewer(&state, &headers).await {
@@ -464,7 +464,7 @@ pub async fn settings_appearance(State(state): State<AppState>, headers: HeaderM
     let form = form_of(&headers, &body);
     match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
         Err(e) => return e.into_response(),
-        Ok(false) => return auth::html_status(StatusCode::BAD_REQUEST),
+        Ok(false) => return auth::csrf_refused(),
         Ok(true) => {}
     }
     let session = match viewer(&state, &headers).await {
@@ -494,7 +494,7 @@ pub async fn settings_avatar(State(state): State<AppState>, headers: HeaderMap, 
     let form = form_of(&headers, &body);
     match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
         Err(e) => return e.into_response(),
-        Ok(false) => return auth::html_status(StatusCode::BAD_REQUEST),
+        Ok(false) => return auth::csrf_refused(),
         Ok(true) => {}
     }
     let session = match viewer(&state, &headers).await {
@@ -521,7 +521,7 @@ pub async fn conversations_post(State(state): State<AppState>, headers: HeaderMa
     let form = form_of(&headers, &body);
     match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
         Err(e) => return e.into_response(),
-        Ok(false) => return auth::html_status(StatusCode::BAD_REQUEST),
+        Ok(false) => return auth::csrf_refused(),
         Ok(true) => {}
     }
     let session = match viewer(&state, &headers).await {
@@ -565,7 +565,7 @@ pub async fn conversations_share(State(state): State<AppState>, headers: HeaderM
     let form = form_of(&headers, &body);
     match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
         Err(e) => return e.into_response(),
-        Ok(false) => return auth::html_status(StatusCode::BAD_REQUEST),
+        Ok(false) => return auth::csrf_refused(),
         Ok(true) => {}
     }
     let session = match viewer(&state, &headers).await {
@@ -619,7 +619,7 @@ pub async fn discord_unlink(State(state): State<AppState>, headers: HeaderMap, b
     let form = form_of(&headers, &body);
     match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
         Err(e) => return e.into_response(),
-        Ok(false) => return auth::html_status(StatusCode::BAD_REQUEST),
+        Ok(false) => return auth::csrf_refused(),
         Ok(true) => {}
     }
     let session = match viewer(&state, &headers).await {
@@ -644,7 +644,7 @@ pub async fn skills_form(State(state): State<AppState>, headers: HeaderMap, body
     let form = form_of(&headers, &body);
     match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
         Err(e) => return e.into_response(),
-        Ok(false) => return auth::html_status(StatusCode::BAD_REQUEST),
+        Ok(false) => return auth::csrf_refused(),
         Ok(true) => {}
     }
     let session = match viewer(&state, &headers).await {

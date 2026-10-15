@@ -29,6 +29,8 @@ ROUTES['/runner/image/start'] = ROUTES['/runner/image/stop'] = {'detail': 'conta
 ROUTES['/litellm/model/info'] = {'data': [{'model_name': 'vllm-test', 'model_info': {'id': 'mid-7', 'db_model': True, 'mode': 'chat'},
                                            'litellm_params': {'model': 'openai/vllm-test'}}]}
 ROUTES['/litellm/model/delete'] = {'ok': True}
+for w in ('/runner/launch', '/runner/stop', '/runner/ocr/launch', '/runner/voice/launch'):
+    ROUTES[w] = {'status': 'starting'}
 for w in ('/discord/webhook', '/litellm/user/update', '/litellm/user/new', '/litellm/user/delete', '/litellm/key/update'):
     ROUTES[w] = {'ok': True}
 # Every call but the bench's own, for bench.py to compare the two backends' upstream traffic.
@@ -68,6 +70,17 @@ class H(BaseHTTPRequestHandler):
             hf = str((body or {}).get('hf_model_id', ''))
             code, out = (404, {'absent': True}) if 'absent' in hf else (500, {'error': 'disk busy'}) if 'busy' in hf else (200, {'bytes': 3 * 2**30 + 5})
             b = json.dumps(out).encode(); self.send_response(code); self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(b)
+            return
+        if p == '/runner/stream':
+            self.send_response(200); self.send_header('Content-Type', 'text/event-stream'); self.end_headers()
+            for line in ('INFO loading weights', '172.19.0.1 - "GET /v1/models HTTP/1.1" 200', 'ready é', '"GET /metrics HTTP/1.1"'):
+                self.wfile.write(('data: ' + json.dumps({'line': line}) + '\n\n').encode()); self.wfile.flush()
+            return
+        if p == '/runner/launch' and 'refuse' in str((body or {}).get('model_name', '')):
+            b = b'{"error": "flag not allowed: --x"}'; self.send_response(400); self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(b)
+            return
+        if p == '/runner/ocr/launch' and 'fail' in str((body or {}).get('hf_model_id', '')):
+            b = b'{"detail": "bad flag --y"}'; self.send_response(500); self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(b)
             return
         if p.startswith('/runner/image/'):
             b = json.dumps(ROUTES.get(p, {})).encode(); self.send_response(500); self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(b)

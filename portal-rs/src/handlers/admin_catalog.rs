@@ -181,3 +181,134 @@ pub async fn admin_model_delete(State(state): State<AppState>, Path(mid): Path<S
         json_ok(&message, json!({"warning": warnings.join(" ")}))
     }
 }
+
+/// POST /admin/model/launch - the chat model. A doubt (no answer in time)
+/// answers 202 and alerts nobody: the load may be under way.
+pub async fn admin_model_launch(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let (s, form) = match admin_form(&state, &headers, &body, "/admin/model/launch").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let name = field(&form, "model_name");
+    let pool = state.db.pool();
+    let cfg: Option<(String, String, Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT name, hf_model_id, vllm_args, engine FROM model_configs WHERE name=?").bind(&name).fetch_optional(pool).await.ok().flatten();
+    let Some((cname, hf_id, args, engine)) = cfg else {
+        return (StatusCode::NOT_FOUND, Json(json!({"ok": false, "error": "Modèle introuvable."}))).into_response();
+    };
+    let (ok, reason, uncertain) =
+        crate::launches::launch_chat(pool, &hf_id, &cname, args.as_deref().unwrap_or(""), engine.as_deref().filter(|e| !e.is_empty()).unwrap_or("vllm")).await;
+    if ok {
+        crate::sessions::log_audit(pool, &s.username, "model.launch", &format!("lancement de {name}")).await;
+        return json_ok(&format!("Lancement de {name} accepté — chargement en cours."), json!({}));
+    }
+    let how = if uncertain { " (délai dépassé, issue inconnue)" } else { " (refusé)" };
+    crate::sessions::log_audit(pool, &s.username, "model.launch_échec", &format!("lancement de {name} : {reason}{how}")).await;
+    if !uncertain {
+        let detail = if reason.is_empty() { "launch refused" } else { reason.as_str() };
+        crate::mailer::infra_alert(pool, "Chat model launch failed", &format!("{name}: {detail}")).await;
+    }
+    let msg = if reason.is_empty() { "Lancement refusé par le runner." } else { reason.as_str() };
+    (if uncertain { StatusCode::ACCEPTED } else { StatusCode::SERVICE_UNAVAILABLE }, Json(json!({"ok": false, "error": msg, "uncertain": uncertain}))).into_response()
+}
+
+/// POST /admin/model/stop - the chat model.
+pub async fn admin_model_stop(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let (s, _) = match admin_form(&state, &headers, &body, "/admin/model/stop").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let (ok, reason, uncertain) = crate::launches::stop_chat().await;
+    let line = if ok { "arrêt du modèle de chat".to_string() } else { format!("échec de l'arrêt : {reason}") };
+    crate::sessions::log_audit(state.db.pool(), &s.username, "model.stop", &line).await;
+    if ok {
+        return json_ok("Modèle arrêté.", json!({}));
+    }
+    let msg = if reason.is_empty() { "Échec de l'arrêt du modèle." } else { reason.as_str() };
+    (if uncertain { StatusCode::ACCEPTED } else { StatusCode::SERVICE_UNAVAILABLE }, Json(json!({"ok": false, "error": msg, "uncertain": uncertain}))).into_response()
+}
+
+/// The media launches' shared answer: audit, the infra alert on a failure.
+async fn media_launch_answer(state: &AppState, who: &str, audit: (&str, String, String), alert: (&str, String), failure: String, ok: bool) -> Response {
+    let pool = state.db.pool();
+    crate::sessions::log_audit(pool, who, audit.0, if ok { &audit.1 } else { &audit.2 }).await;
+    if !ok {
+        crate::mailer::infra_alert(pool, alert.0, &alert.1).await;
+    }
+    (if ok { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE }, Json(json!({"ok": ok, "error": (!ok).then_some(failure)}))).into_response()
+}
+
+/// POST /admin/ocr/catalog/launch - recreate the OCR container with a catalog model.
+pub async fn admin_ocr_launch(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let (s, form) = match admin_form(&state, &headers, &body, "/admin/ocr/catalog/launch").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let name = field(&form, "ocr_name");
+    let cfg: Option<(String, Option<String>)> = sqlx::query_as("SELECT hf_model_id, vllm_args FROM ocr_configs WHERE name=?").bind(&name).fetch_optional(state.db.pool()).await.ok().flatten();
+    let Some((hf_id, args)) = cfg else {
+        return (StatusCode::NOT_FOUND, Json(json!({"ok": false, "error": "Modèle OCR introuvable."}))).into_response();
+    };
+    if let Some(err) = crate::chat::tools::media::mem_guard("ocr") {
+        return (StatusCode::INSUFFICIENT_STORAGE, Json(json!({"ok": false, "error": err}))).into_response();
+    }
+    let (ok, detail) = crate::launches::launch_media("ocr", json!({"hf_model_id": hf_id, "vllm_args": args.unwrap_or_default()}), 90).await;
+    media_launch_answer(
+        &state,
+        &s.username,
+        ("ocr.launch", format!("lancement OCR {hf_id}"), format!("échec du lancement OCR : {detail}")),
+        ("OCR launch failed", format!("{hf_id}: {detail}")),
+        format!("Échec de la relance OCR : {detail}"),
+        ok,
+    )
+    .await
+}
+
+/// POST /admin/voice/catalog/launch - recreate the voice container with a catalog variant.
+pub async fn admin_voice_launch(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let (s, form) = match admin_form(&state, &headers, &body, "/admin/voice/catalog/launch").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let name = field(&form, "voice_name");
+    let cfg: Option<String> = sqlx::query_scalar("SELECT repo_id FROM voice_configs WHERE name=?").bind(&name).fetch_optional(state.db.pool()).await.ok().flatten();
+    let Some(repo_id) = cfg else {
+        return json_error("Modèle voix introuvable.", StatusCode::NOT_FOUND);
+    };
+    if let Some(err) = crate::chat::tools::media::mem_guard("voice") {
+        return json_error(&err, StatusCode::INSUFFICIENT_STORAGE);
+    }
+    let (ok, detail) = crate::launches::launch_media("voice", json!({"repo_id": repo_id}), 90).await;
+    let pool = state.db.pool();
+    crate::sessions::log_audit(pool, &s.username, "voice.launch", &if ok { format!("relance voix {repo_id}") } else { format!("échec relance voix : {detail}") }).await;
+    if !ok {
+        crate::mailer::infra_alert(pool, "Voice model launch failed", &format!("{name}: {detail}")).await;
+        return json_error(&format!("Échec de la relance voix : {detail}"), StatusCode::SERVICE_UNAVAILABLE);
+    }
+    json_ok(&format!("Relance voix avec {name} en cours…"), json!({}))
+}
+
+/// POST /admin/image/launch - recreate the image container with an allowed model.
+pub async fn admin_image_launch(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let (s, form) = match admin_form(&state, &headers, &body, "/admin/image/launch").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let model_id = field(&form, "model_id");
+    if model_id != "black-forest-labs/FLUX.2-klein-4B" {
+        return (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "error": "Modèle image inconnu."}))).into_response();
+    }
+    if let Some(err) = crate::chat::tools::media::mem_guard("image") {
+        return (StatusCode::INSUFFICIENT_STORAGE, Json(json!({"ok": false, "error": err}))).into_response();
+    }
+    let (ok, detail) = crate::launches::launch_media("image", json!({"model_id": model_id}), 180).await;
+    media_launch_answer(
+        &state,
+        &s.username,
+        ("image.launch", format!("lancement image {model_id}"), format!("échec du lancement image : {detail}")),
+        ("Image model launch failed", format!("{model_id}: {detail}")),
+        format!("Échec de la relance image : {detail}"),
+        ok,
+    )
+    .await
+}

@@ -98,6 +98,11 @@ pub(crate) async fn add_announcement(pool: &sqlx::SqlitePool, kind: &str, a: &st
     crate::discord::announce(pool, kind, a, b).await;
 }
 
+/// `add_announcement`, for the modules outside the handlers.
+pub async fn add_announcement_pub(pool: &sqlx::SqlitePool, kind: &str, a: &str, b: &str) {
+    add_announcement(pool, kind, a, b).await
+}
+
 /// POST /admin/announce
 pub async fn admin_announce(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
     let (s, form) = match admin_form(&state, &headers, &body, "/admin/announce").await {

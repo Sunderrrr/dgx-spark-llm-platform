@@ -335,6 +335,21 @@ Routed after the bench found them identical:
   failure, the dictation pin). Listed one by one in the routes file: a
   `/admin/*/stop` entry would also catch `/admin/model/stop`.
 
+- the chat models' catalog: `/admin/model/add`, `/edit/<id>` and
+  `/delete/<id>` (`portal-rs/src/litellm_models.rs` creates or refreshes the
+  LiteLLM route with the context split of the engine args, and puts the
+  previous route back when LiteLLM refuses the new one; the delete refuses
+  the served model and keeps weights another entry shares).
+
+- the launches (`portal-rs/src/launches.rs`): `/admin/model/launch` and
+  `/stop` (a refusal carries the runner's reason; a timeout is a doubt —
+  202, no alert, never retried; the LiteLLM route and `auto-model` follow an
+  accepted launch, and a background follow-up announces the model once it
+  serves or alerts when it never does), `/admin/ocr/catalog/launch`,
+  `/admin/voice/catalog/launch` and `/admin/image/launch` (memory guard,
+  infra alert on a failure). Only a launch's network failure differs: the
+  message carries reqwest's error text, not Python's.
+
 The fake upstream records the calls it receives (the probes left out), and
 `bench.py` compares each backend's sequence of upstream calls as well: a
 write that answers the same but deletes another key would not pass.
@@ -358,9 +373,8 @@ Found by the bench and fixed:
   the console's concurrent probes lost SYNs and waited 1 s. A bench artifact
   (the sidecars run uvicorn, backlog 2048), fixed in `fake.py`.
 
-Still on Flask: the model
-launches (chat, OCR, voice, image), `/admin/model/*` (LiteLLM registration, weight deletion),
-the directory-backed reads
+Still on Flask: `/admin/update/<id>`
+(it looks the requester's e-mail up in the directory), the directory-backed reads
 (`/api/admin/users`, `/admin/platform`, `/admin/users/<u>/detail`), the
 configuration (`/admin/config`, `/admin/validate`), and the storage.
 
@@ -547,11 +561,10 @@ The CSRF check reads the token from the `X-CSRFToken` header OR a form's
 version of the shared helper only read the header and refused a form token
 (found by this comparison, fixed for every write).
 
-Still on Flask in phase 4, on purpose: `/mcp` (a live MCP connection, part of
-the MCP client of phase 7), `/keys` and `/request` (Next pages share their
-paths, see the routes file; `/keys` also issues LiteLLM keys and `/request`
-sends e-mails), the Discord OAuth link and callback, and the account password
-and deletion (phase 6).
+`/mcp`, `POST /keys` and `POST /request` were left out of this step and moved
+later (their pages keep GET on Next through method entries, see above). Still
+on Flask: the Discord OAuth link and callback, and the account password and
+deletion (phase 6: they share `/login`'s attempt lock, which Rust relays).
 
 ### Skills: routed (`/api/skills`, its 7 routes)
 

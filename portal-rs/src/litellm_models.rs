@@ -114,3 +114,11 @@ pub async fn unregister(name: &str) -> bool {
     let (Some(id), _) = entry(name).await else { return true };
     post("/model/delete", &json!({"id": id}), 5).await.is_some_and(|r| r.status().as_u16() < 300)
 }
+
+/// `_point_auto_model(name, vllm_args, engine)`: the virtual `auto-model`
+/// follows the chat model just launched.
+pub async fn point_auto_model(name: &str, args: &str, engine: &str) -> bool {
+    let (max_input, max_output) = crate::health::ctx_split(args, engine);
+    let auto = std::env::var("AUTO_MODEL_NAME").unwrap_or_else(|_| "auto-model".into());
+    upsert(&auto, &upstream(name, engine), max_input, max_output).await
+}

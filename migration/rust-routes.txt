@@ -127,3 +127,11 @@ POST /admin/video/start
 POST /admin/video/stop
 POST /admin/voice/start
 POST /admin/voice/stop
+POST /admin/model/add
+POST /admin/model/edit
+POST /admin/model/delete
+POST /admin/model/launch
+POST /admin/model/stop
+POST /admin/ocr/catalog/launch
+POST /admin/voice/catalog/launch
+POST /admin/image/launch

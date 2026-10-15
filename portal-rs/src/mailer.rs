@@ -302,6 +302,24 @@ pub async fn media_request(pool: &SqlitePool, category: &str, username: &str, fu
     .await
 }
 
+/// `notify_infra_alert_email(kind, detail)`: an infra incident.
+pub async fn infra_alert(pool: &SqlitePool, kind: &str, detail: &str) -> bool {
+    let to = smtp_config(pool).await.admin_email;
+    send(
+        pool,
+        Mail {
+            to: &to,
+            subject: &format!("[DGX platform] Alert — {kind}"),
+            heading: "Platform alert",
+            rows: vec![("Kind", kind.to_string()), ("Detail", if detail.is_empty() { "—".into() } else { detail.to_string() })],
+            body: Some("Something went wrong on the platform. Please check the Admin dashboard."),
+            footnote: None,
+            cta_url: Some(admin_url()),
+        },
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

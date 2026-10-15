@@ -47,3 +47,6 @@
 /api/onboarding/done
 /discord/unlink
 /skills
+/image/file
+/ocr/image
+/voice/audio

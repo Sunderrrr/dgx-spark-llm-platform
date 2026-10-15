@@ -24,6 +24,7 @@ pub mod sharing;
 pub mod memnorm;
 pub mod memory;
 pub mod skillstore;
+pub mod s3;
 
 pub use db::Database;
 pub use error::ApiError;

@@ -145,10 +145,32 @@ Not ported, on purpose:
 - **Anything that creates or acts on a job** (generate, extract, speak,
   transcribe, cancel, delete, the voice chat): they write rows, call sidecars
   and spend budget. They move as whole flows, with their guards.
-- **Anything that returns a stored file** (`/image/file`, `/video/file`,
-  `/ocr/image`, `/voice/audio`): `media_store` may read the bucket, and
-  porting S3 access is a sub-project.
+- **`/video/file`**: on a cache miss it pulls the file from ComfyUI and
+  stores it into the bucket — a write, it moves with the video flow.
 - **`/api/video/status`**: it asks ComfyUI and persists the result.
+
+### Phase 3 — stored files, routed (`/image/file`, `/ocr/image`, `/voice/audio`)
+
+`portal-rs/src/s3.rs` is a minimal S3 reader (SigV4, path-style GET only):
+the files are read from the local volume first, then from the bucket with
+the browser's `Range` passed through (206 + `Content-Range`, streamed).
+Compared with Flask on the demo account: 4 jobs × 3 indexes × 4 Range forms
+plus the error cases, 72 of 72 identical (status, headers, SHA-256 of the
+body). OCR and voice files: the demo account owns none, so only their
+refusals were compared.
+
+Two things botocore does silently, and a bare client must do itself:
+- **the region redirect**: with the region setting empty, the signature
+  scope says `us-east-1`; Garage refuses it with `AuthorizationHeaderMalformed`
+  and names the region it expects. The client re-signs once with that
+  region and remembers it per endpoint.
+- **a User-Agent**: the proxy in front of the bucket rejects anonymous
+  clients (Cloudflare's error 1010) — a 403 that looks like a bad key.
+
+These are page paths for `login_required`: signed out, Flask answers 302 to
+`/login?next=<path>` (not 401), and its error pages carry werkzeug's HTML
+body. `auth::html_status` now writes those bodies for 400/401/404/500, which
+also fixes the empty 401 body the routes moved earlier returned.
 
 ### Phase 4 — the small writes, routed
 

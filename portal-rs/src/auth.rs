@@ -55,7 +55,65 @@ impl IntoResponse for AuthError {
 /// A bare error status typed like Flask's `abort()` pages (text/html): the
 /// clients read only the status, the type keeps both backends alike.
 pub fn html_status(status: StatusCode) -> Response {
-    (status, [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")], "").into_response()
+    (status, [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")], werkzeug_body(status)).into_response()
+}
+
+/// Werkzeug's default error page for the statuses the portal aborts with.
+pub fn werkzeug_body(status: StatusCode) -> String {
+    let (title, text) = match status.as_u16() {
+        400 => ("Bad Request", "The browser (or proxy) sent a request that this server could not understand."),
+        401 => (
+            "Unauthorized",
+            "The server could not verify that you are authorized to access the URL requested. You either supplied the wrong credentials (e.g. a bad password), or your browser doesn&#39;t understand how to supply the credentials required.",
+        ),
+        404 => (
+            "Not Found",
+            "The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.",
+        ),
+        500 => (
+            "Internal Server Error",
+            "The server encountered an internal error and was unable to complete your request. Either the server is overloaded or there is an error in the application.",
+        ),
+        _ => return String::new(),
+    };
+    format!("<!doctype html>\n<html lang=en>\n<title>{} {title}</title>\n<h1>{title}</h1>\n<p>{text}</p>\n", status.as_u16())
+}
+
+/// `login_required` on a page path: signed out → 302 to the login page with
+/// `next`, as werkzeug's `redirect(url_for('login', next=request.path))` writes it.
+pub fn login_redirect(path: &str) -> Response {
+    // request.path is the DECODED path; werkzeug re-encodes it, a space as '+'.
+    let raw = path.as_bytes();
+    let mut decoded = Vec::with_capacity(raw.len());
+    let mut i = 0;
+    while i < raw.len() {
+        let hex = |c: u8| (c as char).to_digit(16);
+        if raw[i] == b'%' && i + 2 < raw.len() {
+            if let (Some(h), Some(l)) = (hex(raw[i + 1]), hex(raw[i + 2])) {
+                decoded.push((h * 16 + l) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        decoded.push(raw[i]);
+        i += 1;
+    }
+    let mut next = String::new();
+    for b in decoded {
+        if b == b' ' {
+            next.push('+');
+        } else if b.is_ascii_alphanumeric() || b"-._~!$'()*,/:;?@".contains(&b) {
+            next.push(b as char);
+        } else {
+            next.push_str(&format!("%{b:02X}"));
+        }
+    }
+    let target = format!("/login?next={next}");
+    let escaped = target.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&#34;").replace('\'', "&#39;");
+    let body = format!(
+        "<!doctype html>\n<html lang=en>\n<title>Redirecting...</title>\n<h1>Redirecting...</h1>\n<p>You should be redirected automatically to the target URL: <a href=\"{escaped}\">{escaped}</a>. If not, click the link.\n"
+    );
+    (StatusCode::FOUND, [(axum::http::header::LOCATION, target), (axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8".to_string())], body).into_response()
 }
 
 /// Absolute session lifetime in seconds (SESSION_MAX_AGE, default 12 h).
@@ -179,6 +237,13 @@ pub async fn require_session(headers: &HeaderMap, db: &Database) -> Result<Sessi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn login_redirect_reencodes_the_decoded_path() {
+        let r = login_redirect("/image/file/a%20b/%C3%A9");
+        assert_eq!(r.headers()[axum::http::header::LOCATION], "/login?next=/image/file/a+b/%C3%A9");
+        assert_eq!(r.status(), StatusCode::FOUND);
+    }
     use crate::db::LocalAccount;
 
     #[test]

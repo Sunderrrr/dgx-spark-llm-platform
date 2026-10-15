@@ -4,7 +4,7 @@
     scripts/parity-bench/bench.py '[{"path": "/api/admin"}, ...]'
     scripts/parity-bench/bench.py cases.json
 
-A case: `path`, `m` (method, GET), `as` (admin | ops | stale | user | anon; admin — the owner; ops: another admin),
+A case: `path`, `m` (method, GET), `as` (admin | ops | stale | guest | user | anon; admin — the owner; ops: another admin),
 `csrf` (the token sent, the session's by default),
 `body` (str), `ctype`, `ignore` (JSON keys left out of the comparison).
 Status, redirect target and JSON body (else the raw body) must match, and
@@ -27,7 +27,8 @@ ADMIN = 'ADMINTOKEN' * 4 + 'ABC'
 USER = 'USERTOKEN' * 4 + 'ABCDEFG'
 OPS = 'OPSTOKEN' * 4 + 'ABCDEFGHIJK'    # bob: an admin through his group, not the owner
 STALE = 'STALETOKEN' * 4 + 'ABC'        # erin: her session predates her admin right
-CSRF = {ADMIN: 'csrf-admin', USER: 'csrf-user', OPS: 'csrf-ops', STALE: 'csrf-stale'}
+GUEST = 'GUESTTOKEN' * 4 + 'ABC'        # signed out, with a CSRF token (the login page)
+CSRF = {ADMIN: 'csrf-admin', USER: 'csrf-user', OPS: 'csrf-ops', STALE: 'csrf-stale', GUEST: 'csrf-guest'}
 BASES = {'flask': 'http://localhost:5000', 'rust': 'http://bench-rs:5100'}
 DBS = {'flask': '/app/data/portal.db', 'rust': '/bench/rs/portal.db'}
 # Rows that every request touches on its own (session refresh, rate limits).
@@ -132,7 +133,7 @@ def strip_host(loc):
 
 def compare(case):
     method = case.get('m', 'GET').upper()
-    tok = {'admin': ADMIN, 'ops': OPS, 'stale': STALE, 'user': USER, 'anon': None}[case.get('as', 'admin')]
+    tok = {'admin': ADMIN, 'ops': OPS, 'stale': STALE, 'guest': GUEST, 'user': USER, 'anon': None}[case.get('as', 'admin')]
     write = method != 'GET'
     if write:
         inside('restore', {'dbs': list(DBS.values()), 'sql': case.get('sql', [])})

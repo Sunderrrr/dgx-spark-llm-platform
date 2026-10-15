@@ -36,6 +36,33 @@ for w in ('/runner/launch', '/runner/stop', '/runner/ocr/launch', '/runner/voice
     ROUTES[w] = {'status': 'starting'}
 for w in ('/discord/webhook', '/litellm/user/update', '/litellm/user/new', '/litellm/user/delete', '/litellm/key/update'):
     ROUTES[w] = {'ok': True}
+# A bench OIDC provider: metadata, JWKS and a token endpoint signing RS256
+# id_tokens. The authorization `code` is base64url JSON naming what to issue
+# (nonce, sub, email, email_verified, groups): the bench plays the browser.
+from authlib.jose import JsonWebKey, jwt as _jwt
+OIDC = 'http://bench-fake:9000/oidc'
+_KEY = JsonWebKey.generate_key('RSA', 2048, {'kid': 'bench-1'}, is_private=True)
+ROUTES['/oidc/.well-known/openid-configuration'] = {
+    'issuer': OIDC, 'authorization_endpoint': OIDC + '/authorize', 'token_endpoint': OIDC + '/token',
+    'jwks_uri': OIDC + '/jwks', 'userinfo_endpoint': OIDC + '/userinfo'}
+ROUTES['/oidc/jwks'] = {'keys': [_KEY.as_dict(is_private=False)]}
+
+
+def oidc_token(form):
+    import base64
+    import time as _t
+    from urllib.parse import parse_qs
+    code = parse_qs(form).get('code', [''])[0]
+    ask = json.loads(base64.urlsafe_b64decode(code + '=' * (-len(code) % 4)))
+    now = int(_t.time())
+    claims = {'iss': OIDC, 'aud': 'cid', 'iat': now, 'exp': now + 300, 'nonce': ask['nonce'], 'sub': ask.get('sub', '')}
+    for k in ('email', 'email_verified', 'groups', 'name'):
+        if k in ask:
+            claims[k] = ask[k]
+    idt = _jwt.encode({'alg': 'RS256', 'kid': 'bench-1'}, claims, _KEY).decode()
+    return {'access_token': 'at-oidc', 'token_type': 'Bearer', 'expires_in': 300, 'id_token': idt}
+
+
 # Every call but the bench's own, for bench.py to compare the two backends' upstream traffic.
 CALLS = []
 
@@ -53,7 +80,7 @@ class H(BaseHTTPRequestHandler):
             body = json.loads(raw) if raw else None
         except ValueError:
             body = raw.decode('utf-8', 'replace')
-        if self.command != 'GET' or not p.endswith(('/status', '/health', '/model-info', '/models', '/logs', '/system_stats')):
+        if not p.startswith('/oidc/') and (self.command != 'GET' or not p.endswith(('/status', '/health', '/model-info', '/models', '/logs', '/system_stats'))):
             CALLS.append([self.command, self.path, body])
         if p == '/litellm/key/delete':
             ok = not any('fail' in k for k in (body or {}).get('keys', []))
@@ -73,6 +100,10 @@ class H(BaseHTTPRequestHandler):
             hf = str((body or {}).get('hf_model_id', ''))
             code, out = (404, {'absent': True}) if 'absent' in hf else (500, {'error': 'disk busy'}) if 'busy' in hf else (200, {'bytes': 3 * 2**30 + 5})
             b = json.dumps(out).encode(); self.send_response(code); self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(b)
+            return
+        if p == '/oidc/token':
+            b = json.dumps(oidc_token(raw.decode())).encode()
+            self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(b)
             return
         if p == '/runner/stream':
             self.send_response(200); self.send_header('Content-Type', 'text/event-stream'); self.end_headers()

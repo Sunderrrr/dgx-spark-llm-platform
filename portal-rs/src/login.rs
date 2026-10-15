@@ -101,7 +101,7 @@ pub async fn locked(pool: &sqlx::SqlitePool, key: &str) -> i64 {
 }
 
 /// `_record_user_source`: the cumulative sign-in sources of an account.
-async fn record_source(pool: &sqlx::SqlitePool, username: &str, source: &str, fullname: &str, is_admin: bool) {
+pub(crate) async fn record_source(pool: &sqlx::SqlitePool, username: &str, source: &str, fullname: &str, is_admin: bool) {
     let row: Option<Option<String>> = sqlx::query_scalar("SELECT sources FROM user_sources WHERE username=?").bind(username).fetch_optional(pool).await.ok().flatten();
     let mut srcs: std::collections::BTreeSet<String> = row.flatten().unwrap_or_default().split(',').filter(|s| !s.is_empty()).map(str::to_string).collect();
     srcs.insert(source.to_string());
@@ -115,7 +115,8 @@ async fn record_source(pool: &sqlx::SqlitePool, username: &str, source: &str, fu
     .execute(pool).await;
 }
 
-/// POST /login - a local account's sign-in; anything else is Flask's.
+/// POST /login - a local or LDAP account's sign-in; a blocked account and
+/// the passkey second factor are Flask's.
 pub async fn login(state: AppState, headers: HeaderMap, connect: Option<std::net::SocketAddr>, uri: axum::http::Uri, body: axum::body::Bytes) -> Response {
     let form = crate::handlers::form_of(&headers, &body);
     match crate::auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
@@ -148,9 +149,17 @@ pub async fn login(state: AppState, headers: HeaderMap, connect: Option<std::net
     let hash = row.as_ref().map_or(DUMMY_HASH.to_string(), |r| r.0.clone());
     let pw = password.clone();
     let ok = tokio::task::spawn_blocking(move || check_password_hash(&hash, &pw)).await.unwrap_or(false);
-    let Some((_, fullname)) = row.filter(|_| ok) else {
-        // Not a local account, or not its password: Flask tries the directory and counts the failure.
-        return relay(headers, body, uri).await;
+    // Local first (no dependency on the directory), then the directory.
+    let (source, fullname, ldap_admin, ldap_groups) = match row.filter(|_| ok) {
+        Some((_, fullname)) => ("local", fullname, false, None),
+        None => match crate::ldap::authenticate(pool, &username, &password).await {
+            Some((admin, name, groups)) => ("ldap", Some(name), admin, Some(groups)),
+            None => {
+                fail(pool, &key).await;
+                fail(pool, &ukey).await;
+                return (StatusCode::UNAUTHORIZED, [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")], "").into_response();
+            }
+        },
     };
     let facts = match state.db.get_account_facts(&username).await {
         Ok(f) => f,
@@ -161,48 +170,27 @@ pub async fn login(state: AppState, headers: HeaderMap, connect: Option<std::net
         // The refusal (and its audit line) and the second factor are Flask's.
         return relay(headers, body, uri).await;
     }
-    let is_admin = facts.local.is_some_and(|l| l.is_admin);
     let fullname = fullname.filter(|f| !f.is_empty()).unwrap_or_else(|| username.clone());
     for k in [&key, &ukey] {
         let _ = sqlx::query("DELETE FROM login_attempts WHERE key=?").bind(k).execute(pool).await;
     }
-    record_source(pool, &username, "local", &fullname, is_admin).await;
-    // `_apply_session`: a NEW session token, the client's CSRF token kept.
-    let old = crate::auth::get_session_token(&headers).filter(|t| !t.contains('.'));
-    let csrf = match &old {
-        Some(t) => state.db.get_session(t).await.ok().flatten().and_then(|d| d.get("csrf").and_then(serde_json::Value::as_str).map(str::to_string)),
-        None => None,
+    let is_admin = match ldap_groups {
+        None => facts.local.is_some_and(|l| l.is_admin),
+        // `_import_directory_groups`: the directory's groups come down with the
+        // login, and an admin group of the portal makes its members admins.
+        Some(groups) => {
+            crate::handlers::import_groups(pool, &username, "ldap", &groups).await;
+            ldap_admin || crate::handlers::rights_from_groups(&state, &username).await.0
+        }
     };
-    if let Some(t) = &old {
-        let _ = crate::session_store::delete(pool, t).await;
+    record_source(pool, &username, source, &fullname, is_admin).await;
+    if source == "ldap" {
+        crate::handlers::apply_group_quota(&state, &username).await;
     }
-    let (Some(token), Some(sid)) = (crate::session_store::new_token(), crate::session_store::new_token()) else {
-        return crate::auth::html_status(StatusCode::INTERNAL_SERVER_ERROR);
+    let token = match apply_session(&state, &headers, &ip, &username, &fullname, is_admin, false).await {
+        Ok(t) => t,
+        Err(r) => return r,
     };
-    let csrf = match csrf.or_else(crate::session_store::new_token) {
-        Some(c) => c,
-        None => return crate::auth::html_status(StatusCode::INTERNAL_SERVER_ERROR),
-    };
-    let auth_at = now() as i64;
-    let max_age: i64 = std::env::var("SESSION_MAX_AGE").ok().and_then(|v| v.parse().ok()).unwrap_or(12 * 3600);
-    let ua: String = headers.get(axum::http::header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or("").chars().take(400).collect();
-    if sqlx::query("INSERT INTO user_sessions (sid, username, auth_at, expires_at, revoked, created_at, ip, user_agent) VALUES (?, ?, ?, ?, 0, ?, ?, ?)")
-        .bind(&sid).bind(&username).bind(auth_at).bind(auth_at + max_age).bind(now()).bind(&ip).bind(&ua)
-        .execute(pool).await.is_err()
-    {
-        return crate::auth::html_status(StatusCode::INTERNAL_SERVER_ERROR);
-    }
-    let mut data = serde_json::Map::new();
-    data.insert("csrf".into(), serde_json::json!(csrf));
-    data.insert("username".into(), serde_json::json!(username));
-    data.insert("fullname".into(), serde_json::json!(fullname));
-    data.insert("is_admin".into(), serde_json::json!(is_admin));
-    data.insert("sso".into(), serde_json::json!(false));
-    data.insert("auth_at".into(), serde_json::json!(auth_at));
-    data.insert("sid".into(), serde_json::json!(sid));
-    if crate::session_store::save(pool, &token, &data).await.is_err() {
-        return crate::auth::html_status(StatusCode::INTERNAL_SERVER_ERROR);
-    }
     let next = safe_next(uri.query().and_then(|q| serde_urlencoded::from_str::<Vec<(String, String)>>(q).ok()).and_then(|v| v.into_iter().find(|(k, _)| k == "next").map(|(_, v)| v)).as_deref());
     (
         StatusCode::FOUND,
@@ -214,6 +202,50 @@ pub async fn login(state: AppState, headers: HeaderMap, connect: Option<std::net
         crate::auth::werkzeug_redirect_body(&next),
     )
         .into_response()
+}
+
+/// `_apply_session(username, fullname, is_admin, via_sso)`: a NEW session
+/// (token and registry row), the client's CSRF token kept. Returns the token
+/// for the cookie.
+pub async fn apply_session(state: &AppState, headers: &HeaderMap, ip: &str, username: &str, fullname: &str, is_admin: bool, via_sso: bool) -> Result<String, Response> {
+    let pool = state.db.pool();
+    // `_apply_session`: a NEW session token, the client's CSRF token kept.
+    let old = crate::auth::get_session_token(headers).filter(|t| !t.contains('.'));
+    let csrf = match &old {
+        Some(t) => state.db.get_session(t).await.ok().flatten().and_then(|d| d.get("csrf").and_then(serde_json::Value::as_str).map(str::to_string)),
+        None => None,
+    };
+    if let Some(t) = &old {
+        let _ = crate::session_store::delete(pool, t).await;
+    }
+    let (Some(token), Some(sid)) = (crate::session_store::new_token(), crate::session_store::new_token()) else {
+        return Err(crate::auth::html_status(StatusCode::INTERNAL_SERVER_ERROR));
+    };
+    let csrf = match csrf.or_else(crate::session_store::new_token) {
+        Some(c) => c,
+        None => return Err(crate::auth::html_status(StatusCode::INTERNAL_SERVER_ERROR)),
+    };
+    let auth_at = now() as i64;
+    let max_age: i64 = std::env::var("SESSION_MAX_AGE").ok().and_then(|v| v.parse().ok()).unwrap_or(12 * 3600);
+    let ua: String = headers.get(axum::http::header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or("").chars().take(400).collect();
+    if sqlx::query("INSERT INTO user_sessions (sid, username, auth_at, expires_at, revoked, created_at, ip, user_agent) VALUES (?, ?, ?, ?, 0, ?, ?, ?)")
+        .bind(&sid).bind(username).bind(auth_at).bind(auth_at + max_age).bind(now()).bind(ip).bind(&ua)
+        .execute(pool).await.is_err()
+    {
+        return Err(crate::auth::html_status(StatusCode::INTERNAL_SERVER_ERROR));
+    }
+    let mut data = serde_json::Map::new();
+    data.insert("csrf".into(), serde_json::json!(csrf));
+    data.insert("username".into(), serde_json::json!(username));
+    data.insert("fullname".into(), serde_json::json!(fullname));
+    data.insert("is_admin".into(), serde_json::json!(is_admin));
+    data.insert("sso".into(), serde_json::json!(via_sso));
+    data.insert("auth_at".into(), serde_json::json!(auth_at));
+    data.insert("sid".into(), serde_json::json!(sid));
+    if crate::session_store::save(pool, &token, &data).await.is_err() {
+        return Err(crate::auth::html_status(StatusCode::INTERNAL_SERVER_ERROR));
+    }
+    Ok(token)
 }
 
 /// `LOGIN_MAX_FAILS` / `LOGIN_WINDOW` / `LOGIN_LOCK`.

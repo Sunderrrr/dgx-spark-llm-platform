@@ -13,6 +13,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 B="${PARITY_BENCH_DIR:-$HOME/.cache/parity-bench}"
 FLASK_IMG=ai-platform-dgx-portal
 RS_IMG=ai-platform-portal-rs
+LDAP_IMG=osixia/openldap:1.5.0
 F=http://bench-fake:9000
 ENVS=(-e "VLLM_RUNNER_URL=$F/runner" -e RUNNER_TOKEN=t -e "VLLM_API_URL=$F/engine/v1"
       -e "LITELLM_URL=$F/litellm" -e LITELLM_MASTER_KEY=k -e "OCR_URL=$F/ocr/v1"
@@ -31,7 +32,7 @@ rs() {
 
 case "${1:-up}" in
   down)
-    docker rm -f bench-fake bench-flask bench-rs >/dev/null 2>&1 || true
+    docker rm -f bench-fake bench-flask bench-rs bench-ldap >/dev/null 2>&1 || true
     docker network rm bench-net >/dev/null 2>&1 || true
     exit 0 ;;
   rs) rs; echo "bench-rs up"; exit 0 ;;
@@ -68,6 +69,12 @@ if [ ! -s "$B/certs/server.pem" ]; then
 fi
 
 docker network create --internal bench-net >/dev/null
+# A real directory: osixia/openldap with the memberOf overlay, seeded by ldap.ldif.
+docker run -d --name bench-ldap --network bench-net -e LDAP_DOMAIN=bench.test -e LDAP_ADMIN_PASSWORD=admin \
+  -v "$HERE/ldap.ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom/50-bench.ldif:ro" \
+  "$LDAP_IMG" --copy-service >/dev/null
+# The backends read the directory at start: it must answer first.
+until docker exec bench-ldap ldapsearch -x -H ldap://localhost -b ou=users,dc=bench,dc=test -D cn=admin,dc=bench,dc=test -w admin "(cn=dave)" cn >/dev/null 2>&1; do sleep 1; done
 docker run -d --name bench-fake --network bench-net -v "$HERE/fake.py:/fake.py:ro" -v "$B/certs:/certs:ro" "$FLASK_IMG" python3 /fake.py >/dev/null
 docker run -d --name bench-flask --network bench-net -v "$B/data-flask:/app/data" \
   -v "$B/data-rs:/bench/rs" -v "$B/portal.seed.db:/bench/seed.db:ro" \

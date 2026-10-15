@@ -38,6 +38,8 @@ pub mod discord;
 pub mod mailer;
 pub mod litellm_models;
 pub mod launches;
+pub mod ldap;
+pub mod sso;
 
 pub use db::Database;
 pub use error::ApiError;

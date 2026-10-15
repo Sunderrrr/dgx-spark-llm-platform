@@ -70,14 +70,15 @@ fn hmac(key: &[u8], data: &str) -> Vec<u8> {
 /// The Authorization header of a GET with an empty payload (SigV4). Pure:
 /// checked against AWS's documented example in the tests.
 pub fn authorization(cfg: &Config, region: &str, host: &str, canonical_uri: &str, amz_date: &str) -> String {
-    signed(cfg, "GET", EMPTY_SHA256, region, host, canonical_uri, amz_date)
+    signed(cfg, "GET", EMPTY_SHA256, region, host, canonical_uri, "", amz_date)
 }
 
 /// SigV4 for any method; `payload_sha256` is the hex digest of the body.
-fn signed(cfg: &Config, method: &str, payload_sha256: &str, region: &str, host: &str, canonical_uri: &str, amz_date: &str) -> String {
+#[allow(clippy::too_many_arguments)]
+fn signed(cfg: &Config, method: &str, payload_sha256: &str, region: &str, host: &str, canonical_uri: &str, canonical_query: &str, amz_date: &str) -> String {
     let date = &amz_date[..8];
     let canonical = format!(
-        "{method}\n{canonical_uri}\n\nhost:{host}\nx-amz-content-sha256:{payload_sha256}\nx-amz-date:{amz_date}\n\nhost;x-amz-content-sha256;x-amz-date\n{payload_sha256}"
+        "{method}\n{canonical_uri}\n{canonical_query}\nhost:{host}\nx-amz-content-sha256:{payload_sha256}\nx-amz-date:{amz_date}\n\nhost;x-amz-content-sha256;x-amz-date\n{payload_sha256}"
     );
     let scope = format!("{date}/{region}/s3/aws4_request");
     let to_sign = format!("AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n{}", hex::encode(Sha256::digest(canonical.as_bytes())));
@@ -145,6 +146,43 @@ pub async fn delete(cfg: &Config, key: &str) -> Result<(), String> {
 }
 
 async fn send(cfg: &Config, method: reqwest::Method, key: &str, range: Option<&str>, body: Option<(Vec<u8>, String)>) -> Result<Get, String> {
+    send_q(cfg, method, key, &[], range, body).await
+}
+
+/// `object_store.list_keys(prefix)`: (key, size, last modified) of every
+/// object under the prefix (ListObjectsV2, followed page by page).
+pub async fn list_keys(cfg: &Config, prefix: &str) -> Result<Vec<(String, u64, String)>, String> {
+    fn tag<'a>(xml: &'a str, name: &str) -> Option<&'a str> {
+        xml.split_once(&format!("<{name}>"))?.1.split_once(&format!("</{name}>")).map(|(v, _)| v)
+    }
+    fn unescape(v: &str) -> String {
+        v.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
+    }
+    let mut out = Vec::new();
+    let mut token: Option<String> = None;
+    loop {
+        let mut q: Vec<(&str, String)> = vec![("list-type", "2".into()), ("prefix", prefix.to_string())];
+        if let Some(t) = &token {
+            q.push(("continuation-token", t.clone()));
+        }
+        let Get::Found(r) = send_q(cfg, reqwest::Method::GET, "", &q, None, None).await? else {
+            return Err("S3 listing refused".into());
+        };
+        let xml = r.text().await.map_err(|e| e.to_string())?;
+        for part in xml.split("<Contents>").skip(1) {
+            let c = part.split("</Contents>").next().unwrap_or("");
+            if let Some(k) = tag(c, "Key") {
+                out.push((unescape(k), tag(c, "Size").and_then(|v| v.trim().parse().ok()).unwrap_or(0), tag(c, "LastModified").unwrap_or("").to_string()));
+            }
+        }
+        token = (tag(&xml, "IsTruncated") == Some("true")).then(|| tag(&xml, "NextContinuationToken").map(unescape)).flatten();
+        if token.is_none() {
+            return Ok(out);
+        }
+    }
+}
+
+async fn send_q(cfg: &Config, method: reqwest::Method, key: &str, query: &[(&str, String)], range: Option<&str>, body: Option<(Vec<u8>, String)>) -> Result<Get, String> {
     let payload_sha256 = match &body {
         Some((data, _)) => hex::encode(Sha256::digest(data)),
         None => EMPTY_SHA256.to_string(),
@@ -154,9 +192,19 @@ async fn send(cfg: &Config, method: reqwest::Method, key: &str, range: Option<&s
     let base_path = cfg.endpoint.split_once("://").and_then(|(_, h)| h.split_once('/')).map(|(_, p)| p).unwrap_or("");
     let mut segments: Vec<String> = base_path.split('/').filter(|s| !s.is_empty()).map(uri_encode).collect();
     segments.push(uri_encode(&cfg.bucket));
-    segments.extend(key.split('/').map(uri_encode));
+    if !key.is_empty() {
+        segments.extend(key.split('/').map(uri_encode));
+    }
     let canonical_uri = format!("/{}", segments.join("/"));
-    let url = format!("{}{}", cfg.endpoint.split('/').take(3).collect::<Vec<_>>().join("/"), canonical_uri);
+    let mut pairs: Vec<(String, String)> = query.iter().map(|(k, v)| (uri_encode(k), uri_encode(v))).collect();
+    pairs.sort();
+    let canonical_query = pairs.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("&");
+    let url = format!(
+        "{}{}{}",
+        cfg.endpoint.split('/').take(3).collect::<Vec<_>>().join("/"),
+        canonical_uri,
+        if canonical_query.is_empty() { String::new() } else { format!("?{canonical_query}") }
+    );
     // A User-Agent is required: the proxy in front of the bucket may refuse
     // anonymous clients (Cloudflare's browser-integrity check, error 1010).
     let client = reqwest::Client::builder()
@@ -175,7 +223,7 @@ async fn send(cfg: &Config, method: reqwest::Method, key: &str, range: Option<&s
             .request(method.clone(), &url)
             .header("x-amz-date", &amz_date)
             .header("x-amz-content-sha256", &payload_sha256)
-            .header("authorization", signed(cfg, method.as_str(), &payload_sha256, &region, host_port, &canonical_uri, &amz_date));
+            .header("authorization", signed(cfg, method.as_str(), &payload_sha256, &region, host_port, &canonical_uri, &canonical_query, &amz_date));
         if let Some((data, content_type)) = &body {
             req = req.header(reqwest::header::CONTENT_TYPE, content_type).body(data.clone());
         }
@@ -217,6 +265,22 @@ async fn send(cfg: &Config, method: reqwest::Method, key: &str, range: Option<&s
             },
         }
         attempt += 1;
+    }
+}
+
+/// An object's size (`head(...)['ContentLength']`), read from the
+/// Content-Range of a one-byte ranged GET; None when it does not exist.
+pub async fn size(cfg: &Config, key: &str) -> Option<u64> {
+    match get(cfg, key, Some("bytes=0-0")).await.ok()? {
+        Get::Found(r) => r
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.rsplit('/').next())
+            .and_then(|v| v.trim().parse().ok())
+            .or_else(|| r.content_length()),
+        Get::Empty => Some(0),
+        Get::Missing => None,
     }
 }
 

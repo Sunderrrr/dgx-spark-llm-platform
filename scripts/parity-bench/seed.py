@@ -55,9 +55,15 @@ ins('user_groups', {'name': 'Famille', 'max_budget': None, 'is_admin': 0, 'sourc
 for u, g, src in (('dave', 'team', 'ldap'), ('erin', 'ops', 'sso'), ('erin', 'Famille', 'sso')):
     c.execute("INSERT INTO user_directory_groups (username, group_name, source, seen_at) VALUES (?,?,?,?)", (u, g, src, iso(now)))
 c.execute("UPDATE local_users SET group_name='team' WHERE username='carol'")
+# A signed-out visitor with a CSRF token: what /login receives.
+c.execute("INSERT INTO web_sessions (token_hash, data, expires_at, updated_at) VALUES (?,?,?,?)", (hashlib.sha256(('GUESTTOKEN' * 4 + 'ABC').encode()).hexdigest(), json.dumps({'csrf': 'csrf-guest'}), now + 7200, now))
 # SMTP: the fake upstream's server (fake.py).
 for k, v in (('smtp_host', 'bench-fake'), ('smtp_port', '2525'), ('smtp_user', 'bench'), ('smtp_pass', 'pw'),
              ('smtp_from', 'Bench Portal <noreply@bench.test>'), ('admin_email', 'ops@bench.test'),
-             ('discord_webhook_url', 'http://bench-fake:9000/discord/webhook')):
+             ('discord_webhook_url', 'http://bench-fake:9000/discord/webhook'),
+             ('ldap_uri', 'ldap://bench-ldap:389'), ('ldap_base', 'dc=bench,dc=test'),
+             ('ldap_bind_dn', 'cn=admin,dc=bench,dc=test'), ('ldap_bind_pw', 'admin'),
+             ('oidc_metadata_url', 'http://bench-fake:9000/oidc/.well-known/openid-configuration'),
+             ('oidc_client_id', 'cid'), ('oidc_client_secret', 'csec')):
     c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ('cfg_' + k, v))
 c.commit(); print('seeded')

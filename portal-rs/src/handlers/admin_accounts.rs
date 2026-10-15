@@ -1,7 +1,7 @@
 //! Local accounts managed by an admin (admin_users.py, user_lifecycle.py):
 //! create, update, delete, and the purge of a directory account's data.
-//! An update that sets a password is handed to Flask, which e-mails the
-//! account about it. Compared on the parity bench, LiteLLM calls included.
+//! A new password e-mails the account (its address comes from the
+//! directory). Compared on the parity bench, LiteLLM calls included.
 use super::*;
 use super::admin_groups::{local_admins_without, local_group, local_is_admin, locals, parse_budget, sync_local_budget, Local};
 use super::admin_writes::{admin_form, body_fields, field, json_error, owner_protected, revoke_account_keys, revoke_keys, username_ok};
@@ -172,10 +172,7 @@ pub async fn admin_users_update(State(state): State<AppState>, Path(uid): Path<S
     let (parts, body) = req.into_parts();
     let Ok(body) = axum::body::to_bytes(body, 4 * 1024 * 1024).await else { return auth::html_status(StatusCode::PAYLOAD_TOO_LARGE) };
     let headers = parts.headers.clone();
-    // A new password e-mails the account (notify_password_changed): Flask does it.
-    if form_of(&headers, &body).get("password").is_some_and(|p| !p.is_empty()) {
-        return crate::relay::to_flask(Request::from_parts(parts, axum::body::Body::from(body))).await;
-    }
+    drop(parts);
     let (s, form) = match admin_form(&state, &headers, &body, "/admin/users/update/x").await {
         Ok(v) => v,
         Err(r) => return r,
@@ -189,6 +186,15 @@ pub async fn admin_users_update(State(state): State<AppState>, Path(uid): Path<S
     }
     let mut sets: Vec<&str> = Vec::new();
     let mut vals: Vec<Value> = Vec::new();
+    let password = form.get("password").cloned().unwrap_or_default();
+    if !password.is_empty() {
+        if let Some(e) = password_policy_error(&password, Some(&row.username)) {
+            return bad(StatusCode::BAD_REQUEST, e);
+        }
+        let Some(hash) = password_hash(&password).await else { return auth::html_status(StatusCode::INTERNAL_SERVER_ERROR) };
+        sets.push("password_hash=?");
+        vals.push(json!(hash));
+    }
     if form.contains_key("group") {
         let group = Some(field(&form, "group")).filter(|g| !g.is_empty());
         let new_group = local_group(pool, group.as_deref()).await;
@@ -261,6 +267,11 @@ pub async fn admin_users_update(State(state): State<AppState>, Path(uid): Path<S
         revoked = sqlx::query("UPDATE user_sessions SET revoked=1 WHERE username=? AND revoked=0").bind(&updated.username).execute(pool).await.map(|r| r.rows_affected()).unwrap_or(0);
         keys_failed = revoke_account_keys(pool, &updated.username, &s.username, "désactivation du compte").await.1;
     }
+    if !password.is_empty() {
+        // A new password closes the account's sessions: a doubt about a stolen cookie is the usual reason.
+        let n = sqlx::query("UPDATE user_sessions SET revoked=1 WHERE username=? AND revoked=0").bind(&updated.username).execute(pool).await.map(|r| r.rows_affected()).unwrap_or(0);
+        revoked = revoked.max(n);
+    }
     // The quota is rewritten only when it may have changed: a resync would erase a running grant.
     let quota_ok = if form.contains_key("group") || form.contains_key("max_budget") || truthy_flag(form.get("enabled")) {
         sync_local_budget(&state, &updated).await
@@ -268,6 +279,9 @@ pub async fn admin_users_update(State(state): State<AppState>, Path(uid): Path<S
         true
     };
     let mut detail = format!("mise à jour de {}", updated.username);
+    if !password.is_empty() {
+        detail += &format!(" — mot de passe changé par l'admin, {revoked} session(s) fermée(s)");
+    }
     if disabled {
         detail += &format!(" — compte désactivé, {revoked} session(s) fermée(s)");
     }
@@ -278,6 +292,9 @@ pub async fn admin_users_update(State(state): State<AppState>, Path(uid): Path<S
         detail += " — QUOTA NON APPLIQUÉ";
     }
     crate::sessions::log_audit(pool, &s.username, "user.update", &detail).await;
+    if !password.is_empty() {
+        notify_password_changed(pool, &updated.username, true);
+    }
     let mut warnings = Vec::new();
     if !quota_ok {
         warnings.push("le quota n'a PAS pu être appliqué sur LiteLLM : redéfinis le budget du compte".to_string());
@@ -297,7 +314,7 @@ async fn count(pool: &SqlitePool, table: &str, username: &str) -> i64 {
 }
 
 /// `count_data(username)`: what a deletion will take, shown before confirming.
-async fn count_data(pool: &SqlitePool, username: &str) -> serde_json::Map<String, Value> {
+pub(crate) async fn count_data(pool: &SqlitePool, username: &str) -> serde_json::Map<String, Value> {
     let mut media = 0;
     for t in ["image_jobs", "ocr_jobs", "video_jobs", "voice_jobs"] {
         media += count(pool, t, username).await;
@@ -459,6 +476,190 @@ async fn management(pool: &SqlitePool, username: &str) -> (&'static str, bool) {
     (m, local)
 }
 
+/// `_verify_password_locked`: the password checked against the source that
+/// holds it, under the account's failure counter shared with /login (an SSO
+/// account has none the portal can check).
+async fn verify_password_locked(pool: &SqlitePool, username: &str, how: &str, password: &str) -> Result<(), Response> {
+    if how == "sso-provider" {
+        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Compte SSO : aucun mot de passe n'est géré par le portail, la vérification est impossible."}))).into_response());
+    }
+    let ukey = format!("user:{username}");
+    let wait = crate::login::locked(pool, &ukey).await;
+    if wait > 0 {
+        return Err((StatusCode::TOO_MANY_REQUESTS, Json(json!({"error": format!("Trop de tentatives. Réessaie dans {} min.", wait / 60 + 1)}))).into_response());
+    }
+    let local_ok = || async {
+        let hash: Option<String> = sqlx::query_scalar("SELECT password_hash FROM local_users WHERE username=? AND enabled=1").bind(username).fetch_optional(pool).await.ok().flatten();
+        let pw = password.to_string();
+        match hash {
+            Some(h) => tokio::task::spawn_blocking(move || crate::login::check_password_hash(&h, &pw)).await.unwrap_or(false),
+            None => false,
+        }
+    };
+    let ok = match how {
+        "portal" => local_ok().await,
+        "ldap-directory" => crate::ldap::authenticate(pool, username, password).await.is_some(),
+        _ => local_ok().await || crate::ldap::authenticate(pool, username, password).await.is_some(),
+    };
+    if !ok {
+        crate::login::fail(pool, &ukey).await;
+        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Mot de passe incorrect."}))).into_response());
+    }
+    crate::login::reset(pool, &ukey).await;
+    Ok(())
+}
+
+/// `notify_password_changed(username, by_admin)`: the account is told, off
+/// the request's path (the address comes from the directory, slow).
+pub(crate) fn notify_password_changed(pool: &SqlitePool, username: &str, by_admin: bool) {
+    let (pool, username) = (pool.clone(), username.to_string());
+    tokio::spawn(async move {
+        let Some(to) = crate::ldap::lookup_email(&pool, &username).await else {
+            eprintln!("[user_lifecycle] no known address for {username}, notification not sent");
+            return;
+        };
+        let author = if by_admin { "Un administrateur a réinitialisé" } else { "Ton mot de passe a été changé" };
+        let text = format!(
+            "{author} le mot de passe du compte « {username} » sur la plateforme DGX.\n\nSi tu n'es pas à l'origine de ce changement, contacte un administrateur immédiatement : toutes les autres sessions du compte ont été fermées, mais l'accès à l'API doit être vérifié."
+        );
+        crate::mailer::send_user(&pool, &to, "Mot de passe modifié — DGX platform", &text).await;
+    });
+}
+
+/// POST /api/account/password - one's own password (local accounts only),
+/// the current one checked under the shared failure counter; the other
+/// sessions are closed and the account is told.
+pub async fn api_account_password(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let form = form_of(&headers, &body);
+    match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
+        Err(e) => return e.into_response(),
+        Ok(false) => return auth::csrf_refused(),
+        Ok(true) => {}
+    }
+    let s = match auth::require_session(&headers, &state.db).await {
+        Ok(s) => s,
+        Err(e) => return e.into_response(),
+    };
+    let data = body_fields(&headers, &body);
+    let current = data.get("current").cloned().unwrap_or_default();
+    let new_value = data.get("new").cloned().unwrap_or_default();
+    let pool = state.db.pool();
+    if sqlx::query_scalar::<_, i64>("SELECT 1 FROM local_users WHERE username=?").bind(&s.username).fetch_optional(pool).await.ok().flatten().is_none() {
+        return bad(StatusCode::BAD_REQUEST, "Compte géré par l'annuaire (LDAP/SSO) : le mot de passe se change là-bas.");
+    }
+    let (how, _) = management(pool, &s.username).await;
+    if let Err(r) = verify_password_locked(pool, &s.username, how, &current).await {
+        crate::sessions::log_audit(pool, &s.username, "account.password.echec", "mot de passe actuel incorrect").await;
+        return r;
+    }
+    if new_value == current {
+        return bad(StatusCode::BAD_REQUEST, "Le nouveau mot de passe est identique à l'actuel.");
+    }
+    if let Some(e) = password_policy_error(&new_value, Some(&s.username)) {
+        return bad(StatusCode::BAD_REQUEST, e);
+    }
+    let Some(hash) = password_hash(&new_value).await else { return auth::html_status(StatusCode::INTERNAL_SERVER_ERROR) };
+    let _ = sqlx::query("UPDATE local_users SET password_hash=? WHERE username=?").bind(hash).bind(&s.username).execute(pool).await;
+    let n = sqlx::query("UPDATE user_sessions SET revoked=1 WHERE username=? AND sid<>? AND revoked=0")
+        .bind(&s.username)
+        .bind(s.sid.clone())
+        .execute(pool)
+        .await
+        .map(|r| r.rows_affected())
+        .unwrap_or(0);
+    crate::sessions::log_audit(pool, &s.username, "account.password", &format!("mot de passe changé, {n} session(s) fermée(s)")).await;
+    notify_password_changed(pool, &s.username, false);
+    Json(json!({"ok": true})).into_response()
+}
+
+/// `owner.setup_required()`: nothing administers the instance yet.
+async fn setup_required(state: &AppState) -> bool {
+    if state.db.get_setting_set("owner_username").await.is_some() {
+        return false;
+    }
+    let pool = state.db.pool();
+    let local = sqlx::query_scalar::<_, i64>(
+        "SELECT 1 FROM local_users u LEFT JOIN user_groups g ON g.name = u.group_name WHERE u.enabled = 1 AND (u.is_admin = 1 OR g.is_admin = 1) LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    let directory = sqlx::query_scalar::<_, i64>("SELECT 1 FROM user_sources WHERE last_is_admin = 1 LIMIT 1").fetch_optional(pool).await.ok().flatten();
+    local.is_none() && directory.is_none()
+}
+
+/// POST /api/setup - the OWNER of a fresh instance, gated by the setup token
+/// from the server's log; the owner is signed in.
+pub async fn api_setup(State(state): State<AppState>, connect: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let form = form_of(&headers, &body);
+    match auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
+        Err(e) => return e.into_response(),
+        Ok(false) => return auth::csrf_refused(),
+        Ok(true) => {}
+    }
+    if !setup_required(&state).await {
+        return bad(StatusCode::CONFLICT, "Cette instance a déjà un administrateur.");
+    }
+    let pool = state.db.pool();
+    let ip = auth::client_ip(&headers, connect.map(|c| c.0.ip()));
+    let key = format!("{ip}|setup");
+    let wait = crate::login::locked(pool, &key).await;
+    if wait > 0 {
+        return bad(StatusCode::TOO_MANY_REQUESTS, &format!("Trop d'essais. Réessaie dans {} min.", wait / 60 + 1));
+    }
+    let data = body_fields(&headers, &body);
+    let proposed = data.get("token").cloned().unwrap_or_default();
+    let token = state.db.get_setting("setup_token").await.ok().flatten().unwrap_or_default();
+    let proposed = crate::memory::py_strip(&proposed);
+    // hmac.compare_digest: no early exit on the first differing byte.
+    let same = !token.is_empty() && !proposed.is_empty() && token.len() == proposed.len() && token.bytes().zip(proposed.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0;
+    if !same {
+        crate::login::fail(pool, &key).await;
+        return (StatusCode::FORBIDDEN, Json(json!({"ok": false, "code": "invalid_token", "error": "Jeton de configuration invalide."}))).into_response();
+    }
+    let username = crate::memory::py_strip(data.get("username").map(String::as_str).unwrap_or("")).to_lowercase();
+    let password = data.get("password").cloned().unwrap_or_default();
+    let fullname: String = crate::memory::py_strip(data.get("fullname").map(String::as_str).unwrap_or("")).chars().take(120).collect();
+    let fullname = if fullname.is_empty() { username.clone() } else { fullname };
+    if !username_ok(&username) {
+        return bad(StatusCode::BAD_REQUEST, "Identifiant invalide (a-z, 0-9, . _ - , max 64).");
+    }
+    if let Some(e) = password_policy_error(&password, Some(&username)) {
+        return bad(StatusCode::BAD_REQUEST, e);
+    }
+    crate::login::reset(pool, &key).await;
+    // owner.create_owner
+    let Some(hash) = password_hash(&password).await else { return auth::html_status(StatusCode::INTERNAL_SERVER_ERROR) };
+    let exists = sqlx::query_scalar::<_, i64>("SELECT 1 FROM local_users WHERE username=?").bind(&username).fetch_optional(pool).await.ok().flatten().is_some();
+    let written = if exists {
+        sqlx::query("UPDATE local_users SET password_hash=?, fullname=?, is_admin=1, enabled=1 WHERE username=?").bind(&hash).bind(&fullname).bind(&username).execute(pool).await
+    } else {
+        sqlx::query("INSERT INTO local_users (username, password_hash, fullname, is_admin, group_name, max_budget, enabled, created_at) VALUES (?,?,?,1,NULL,NULL,1,?)")
+            .bind(&username)
+            .bind(&hash)
+            .bind(&fullname)
+            .bind(keys::iso(&chrono::Local::now().naive_local()))
+            .execute(pool)
+            .await
+    };
+    if written.is_err() {
+        return auth::html_status(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    let _ = sqlx::query("DELETE FROM settings WHERE key='setup_token'").execute(pool).await;
+    let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('owner_username', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(&username).execute(pool).await;
+    let _ = std::fs::remove_file(std::path::Path::new(&crate::media_store::root()).join("setup-token"));
+    if let Some(row) = locals(pool, "WHERE username=?", Some(&username)).await.first() {
+        sync_local_budget(&state, row).await;
+    }
+    crate::sessions::log_audit(pool, &username, "setup.owner", "compte propriétaire créé au premier lancement").await;
+    crate::login::record_source(pool, &username, "local", &fullname, true).await;
+    match crate::login::apply_session(&state, &headers, &ip, &username, &fullname, true, false).await {
+        Ok(token) => ([(axum::http::header::SET_COOKIE, crate::session_store::set_cookie(&token))], Json(json!({"ok": true}))).into_response(),
+        Err(r) => r,
+    }
+}
+
 /// POST /api/account/delete - one's own account. A local account goes
 /// entirely (keys, envelope, sessions, data), on its password; a directory
 /// account's data is purged (its access lives in the directory). An LDAP
@@ -479,9 +680,7 @@ pub async fn api_account_delete(State(state): State<AppState>, req: Request) -> 
     };
     let pool = state.db.pool();
     let (how, local) = management(pool, &s.username).await;
-    if how == "ldap-directory" {
-        return crate::relay::to_flask(Request::from_parts(parts, axum::body::Body::from(body))).await;
-    }
+    drop(parts);
     let data = body_fields(&headers, &body);
     if !data.get("confirm").is_some_and(|c| crate::memory::py_strip(c).to_uppercase() == "DELETE") {
         let counts = count_data(pool, &s.username).await;
@@ -494,27 +693,14 @@ pub async fn api_account_delete(State(state): State<AppState>, req: Request) -> 
     if local && s.is_admin && super::admin_writes::last_local_admin(pool, &s.username).await {
         return bad(StatusCode::CONFLICT, "Tu es le dernier administrateur local : nomme un autre administrateur avant de supprimer ton compte.");
     }
-    if how == "portal" {
+    if how == "portal" || how == "ldap-directory" {
         let password = data.get("password").cloned().unwrap_or_default();
         if password.is_empty() {
             return bad(StatusCode::BAD_REQUEST, "Mot de passe requis pour supprimer ton compte.");
         }
-        // `_verify_password_locked`: the account's counter, shared with /login.
-        let ukey = format!("user:{}", s.username);
-        let wait = crate::login::locked(pool, &ukey).await;
-        if wait > 0 {
-            return (StatusCode::TOO_MANY_REQUESTS, Json(json!({"error": format!("Trop de tentatives. Réessaie dans {} min.", wait / 60 + 1)}))).into_response();
+        if let Err(r) = verify_password_locked(pool, &s.username, how, &password).await {
+            return r;
         }
-        let hash: Option<String> = sqlx::query_scalar("SELECT password_hash FROM local_users WHERE username=? AND enabled=1").bind(&s.username).fetch_optional(pool).await.ok().flatten();
-        let ok = match hash {
-            Some(h) => tokio::task::spawn_blocking(move || crate::login::check_password_hash(&h, &password)).await.unwrap_or(false),
-            None => false,
-        };
-        if !ok {
-            crate::login::fail(pool, &ukey).await;
-            return (StatusCode::BAD_REQUEST, Json(json!({"error": "Mot de passe incorrect."}))).into_response();
-        }
-        crate::login::reset(pool, &ukey).await;
     }
     if local {
         let _ = sqlx::query("DELETE FROM local_users WHERE username=?").bind(&s.username).execute(pool).await;

@@ -367,6 +367,26 @@ Routed after the bench found them identical:
   `/login`; a directory account's data is purged). An LDAP account's
   password can only be checked by Flask: that request is handed over.
 
+- the directory (`portal-rs/src/ldap.rs`, the `ldap3` crate): an LDAP
+  account's password check (sign-in, account deletion), its e-mail address
+  (the password-change notice, a model request's « available » e-mail), and
+  the background snapshot of every account's state and groups (read at start,
+  then every two minutes when asked; the LDAP groups synced with it). Routed
+  with it: `POST /login` for LDAP accounts (only a blocked account and the
+  passkey second factor are still relayed), `/api/admin/users`,
+  `/admin/users/<u>/detail`, `/admin/platform` (portal-rs now mounts the
+  host monitor's and the backups' state read-only, as dgx-portal does),
+  `/admin/update/<id>`, `/api/account/password`, the admin's password reset
+  and the LDAP account's self-deletion (no longer relayed), `/admin/config`
+  and its « Tester » (LDAP, SSO, SMTP, Discord, S3: `s3.rs` gained a signed
+  ListObjectsV2), `/admin/validate` (+ `/state`) and `GET /admin/storage`.
+  The bench runs a real OpenLDAP (osixia/openldap, seeded by
+  `scripts/parity-bench/ldap.ldif`, memberOf overlay).
+- Two Flask behaviours Rust does not copy: each gunicorn worker keeps its own
+  directory snapshot (the Users page flips between states while they age),
+  and its own validation state (the panel's polling can land on a worker that
+  never started the run). portal-rs is one process: one snapshot, one state.
+
 The fake upstream records the calls it receives (the probes left out), and
 `bench.py` compares each backend's sequence of upstream calls as well: a
 write that answers the same but deletes another key would not pass.
@@ -392,11 +412,8 @@ Found by the bench and fixed:
   the console's concurrent probes lost SYNs and waited 1 s. A bench artifact
   (the sidecars run uvicorn, backlog 2048), fixed in `fake.py`.
 
-Still on Flask: `/admin/update/<id>`
-(it looks the requester's e-mail up in the directory), the directory-backed reads
-(`/api/admin/users`, `/admin/platform`, `/admin/users/<u>/detail`), the
-configuration (`/admin/config`, `/admin/validate`), and the storage page and
-migration.
+Still on Flask: the media migration (`/admin/storage/migrate`, a Flask
+background job).
 
 ### Phase 6 — local sign-in, routed (`POST /login`)
 
@@ -584,8 +601,7 @@ version of the shared helper only read the header and refused a form token
 `/mcp`, `POST /keys` and `POST /request` were left out of this step and moved
 later (their pages keep GET on Next through method entries, see above). The
 Discord OAuth link and callback moved later too (see the parity bench). Still
-on Flask: the account password change (its notice e-mail looks the address up
-in the directory).
+on Flask: nothing of this phase (the password change moved with the LDAP block).
 
 ### Skills: routed (`/api/skills`, its 7 routes)
 

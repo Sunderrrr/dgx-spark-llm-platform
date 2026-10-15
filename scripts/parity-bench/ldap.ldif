@@ -1,0 +1,43 @@
+# The bench directory (osixia/openldap, domain bench.test): accounts under
+# ou=users named by cn, the admin group, the memberOf overlay filling memberOf.
+dn: ou=users,dc=bench,dc=test
+objectClass: organizationalUnit
+ou: users
+
+dn: ou=groups,dc=bench,dc=test
+objectClass: organizationalUnit
+ou: groups
+
+dn: cn=dave,ou=users,dc=bench,dc=test
+objectClass: inetOrgPerson
+cn: dave
+sn: Bench
+displayName: Dave Bench
+mail: dave@bench.test
+userPassword: dave-pass
+
+dn: cn=erin,ou=users,dc=bench,dc=test
+objectClass: inetOrgPerson
+cn: erin
+uid: sub-erin
+sn: Bench
+mail: erin@bench.test
+userPassword: erin-pass
+
+dn: cn=frank,ou=users,dc=bench,dc=test
+objectClass: inetOrgPerson
+cn: frank
+sn: Bench
+displayName: Frank Ünïcode
+userPassword: frank-pass
+
+dn: cn=admins,ou=groups,dc=bench,dc=test
+objectClass: groupOfUniqueNames
+cn: admins
+uniqueMember: cn=erin,ou=users,dc=bench,dc=test
+
+dn: cn=team,ou=groups,dc=bench,dc=test
+objectClass: groupOfUniqueNames
+cn: team
+uniqueMember: cn=dave,ou=users,dc=bench,dc=test
+uniqueMember: cn=frank,ou=users,dc=bench,dc=test

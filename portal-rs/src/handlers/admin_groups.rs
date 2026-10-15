@@ -53,13 +53,13 @@ pub(crate) async fn local_is_admin(pool: &SqlitePool, row: &Local) -> bool {
 }
 
 /// `float(get_setting('default_key_budget', KEY_BUDGET))`.
-async fn default_budget(state: &AppState) -> f64 {
+pub(crate) async fn default_budget(state: &AppState) -> f64 {
     let fallback = super::admin_routes::key_budget_default().as_f64().unwrap_or(200_000_000.0);
     state.db.get_setting("default_key_budget").await.ok().flatten().and_then(|v| parse_py_float(&v)).unwrap_or(fallback)
 }
 
 /// `get_setting('default_key_duration', KEY_DURATION)`.
-async fn default_duration(state: &AppState) -> String {
+pub(crate) async fn default_duration(state: &AppState) -> String {
     match state.db.get_setting("default_key_duration").await.ok().flatten() {
         Some(v) => v,
         None => super::admin_routes::key_duration_default().as_str().unwrap_or("7d").to_string(),
@@ -99,7 +99,7 @@ async fn oidc_admin_group(state: &AppState) -> String {
 
 /// `rights_from_groups(username)`: (admin, most generous quota) the
 /// account's directory groups grant.
-async fn rights_from_groups(state: &AppState, username: &str) -> (bool, Option<f64>) {
+pub(crate) async fn rights_from_groups(state: &AppState, username: &str) -> (bool, Option<f64>) {
     let groups: Vec<(String, Option<f64>, Option<i64>)> = sqlx::query_as(
         "SELECT g.name, CAST(g.max_budget AS REAL), g.is_admin FROM user_groups g \
          WHERE g.name IN (SELECT group_name FROM user_directory_groups WHERE username=?) ORDER BY g.name",
@@ -116,7 +116,7 @@ async fn rights_from_groups(state: &AppState, username: &str) -> (bool, Option<f
 
 /// `apply_group_quota(username)`: the group quota as this directory
 /// account's cap, unless set by hand or a grant runs. Never fails.
-async fn apply_group_quota(state: &AppState, username: &str) {
+pub(crate) async fn apply_group_quota(state: &AppState, username: &str) {
     let pool = state.db.pool();
     if sqlx::query_scalar::<_, i64>("SELECT 1 FROM local_users WHERE username=?").bind(username).fetch_optional(pool).await.ok().flatten().is_some() {
         return;
@@ -299,6 +299,70 @@ pub async fn admin_groups_delete(State(state): State<AppState>, Path(name): Path
     }
     crate::sessions::log_audit(pool, &s.username, "group.delete", &detail).await;
     Json(json!({"ok": true, "members": members.len(), "quota_failures": failures})).into_response()
+}
+
+/// `import_groups(username, {source: values})`: this account's groups from
+/// one source, created or merged by name whatever the case.
+pub(crate) async fn import_groups(pool: &SqlitePool, username: &str, source: &str, values: &[String]) {
+    let now = keys::iso(&chrono::Local::now().naive_local());
+    let _ = sqlx::query("DELETE FROM user_directory_groups WHERE username=? AND source=?").bind(username).bind(source).execute(pool).await;
+    for name in crate::ldap::group_names(values) {
+        let name: String = name.chars().take(80).collect();
+        let found: Option<(String, Option<String>)> =
+            sqlx::query_as("SELECT name, sources FROM user_groups WHERE lower(name)=lower(?)").bind(&name).fetch_optional(pool).await.ok().flatten();
+        let canon = match found {
+            None => {
+                let _ = sqlx::query("INSERT INTO user_groups (name, max_budget, is_admin, created_at, sources) VALUES (?,?,?,?,?)")
+                    .bind(&name)
+                    .bind(None::<i64>)
+                    .bind(0i64)
+                    .bind(&now)
+                    .bind(source)
+                    .execute(pool)
+                    .await;
+                name
+            }
+            Some((canon, sources)) => {
+                let mut set: std::collections::BTreeSet<String> = sources.unwrap_or_default().split(',').filter(|s| !s.is_empty()).map(str::to_string).collect();
+                if set.insert(source.to_string()) {
+                    let joined = set.into_iter().collect::<Vec<_>>().join(",");
+                    let _ = sqlx::query("UPDATE user_groups SET sources=? WHERE name=?").bind(joined).bind(&canon).execute(pool).await;
+                }
+                canon
+            }
+        };
+        let _ = sqlx::query("INSERT OR REPLACE INTO user_directory_groups (username, group_name, source, seen_at) VALUES (?,?,?,?)")
+            .bind(username)
+            .bind(&canon)
+            .bind(source)
+            .bind(&now)
+            .execute(pool)
+            .await;
+    }
+}
+
+/// `sync_ldap_groups(groups_by_login)`: the background directory read's groups
+/// applied to the directory accounts the portal knows, then their admin right
+/// and group quota when they changed.
+pub async fn sync_ldap_groups(state: &AppState, groups_by_login: &std::collections::HashMap<String, Vec<String>>) {
+    let pool = state.db.pool();
+    let accounts: Vec<String> = sqlx::query_scalar("SELECT s.username FROM user_sources s LEFT JOIN local_users l ON l.username = s.username WHERE l.username IS NULL")
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+    for u in accounts {
+        let Some(names) = groups_by_login.get(&u.to_lowercase()) else { continue };
+        let before: Vec<String> = sqlx::query_scalar("SELECT group_name FROM user_directory_groups WHERE username=? AND source='ldap'").bind(&u).fetch_all(pool).await.unwrap_or_default();
+        let a: std::collections::BTreeSet<String> = before.iter().map(|n| n.to_lowercase()).collect();
+        let b: std::collections::BTreeSet<String> = names.iter().map(|n| n.to_lowercase()).collect();
+        if a == b {
+            continue;
+        }
+        import_groups(pool, &u, "ldap", names).await;
+        let (is_admin, _) = rights_from_groups(state, &u).await;
+        let _ = sqlx::query("UPDATE user_sources SET last_is_admin=? WHERE username=?").bind(i64::from(is_admin)).bind(&u).execute(pool).await;
+        apply_group_quota(state, &u).await;
+    }
 }
 
 #[cfg(test)]

@@ -141,3 +141,11 @@ POST /admin/storage$
 /discord/link
 /discord/callback
 /api/account/delete
+/api/admin/users
+GET /admin/users/*/detail
+/admin/platform
+POST /admin/update
+/admin/config
+/admin/validate
+GET /admin/storage$
+/api/account/password

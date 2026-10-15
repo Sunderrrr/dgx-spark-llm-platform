@@ -194,6 +194,11 @@ pub async fn send(pool: &SqlitePool, mail: Mail<'_>) -> bool {
     }
 }
 
+/// `send_user_email(to, subject, body)`: one person, the caller's text.
+pub async fn send_user(pool: &SqlitePool, to: &str, subject: &str, body: &str) -> bool {
+    send(pool, Mail { to, subject, heading: subject, rows: vec![], body: Some(body), footnote: None, cta_url: None }).await
+}
+
 /// `notify_maintenance_email(enabled, by_username, by_fullname)`.
 pub async fn maintenance(pool: &SqlitePool, enabled: bool, by_username: &str, by_fullname: &str) -> bool {
     let to = smtp_config(pool).await.admin_email;

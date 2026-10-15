@@ -32,6 +32,13 @@ async fn main() -> anyhow::Result<()> {
         spend: portal_rs::spend::pool_from_env(),
     };
 
+    // The directory snapshot's first read starts now, so the first visit of
+    // the Users page already has the LDAP states (directory_states_for([]) at
+    // Flask's start). Same seam as the background jobs.
+    if std::env::var("DGX_NO_REAPER").as_deref() != Ok("1") {
+        let _ = portal_rs::ldap::states_for(&state, &[]);
+    }
+
     info!("Portal Rust starting on 0.0.0.0:{}", port);
 
     // Build router
@@ -147,10 +154,23 @@ async fn main() -> anyhow::Result<()> {
         .route("/admin/maintenance/toggle", post(handlers::admin_maintenance_toggle))
         .route("/admin/email/test", post(handlers::admin_email_test))
         .route("/api/account/delete", post(handlers::api_account_delete))
+        .route("/api/account/password", post(handlers::api_account_password))
+        .route("/api/setup", post(handlers::api_setup))
+        .route("/login/sso", get(handlers::login_sso))
+        .route("/api/oauth2-redirect", get(handlers::oauth_callback))
+        .route("/admin/storage/migrate", post(handlers::admin_storage_migrate))
+        .route("/api/admin/users", get(handlers::api_admin_users))
+        .route("/admin/users/:username/detail", get(handlers::admin_user_detail))
+        .route("/admin/platform", get(handlers::admin_platform))
+        .route("/admin/update/:id", post(handlers::admin_update_request))
+        .route("/admin/config", get(handlers::admin_config_get).post(handlers::admin_config_post))
+        .route("/admin/config/test/:part", post(handlers::admin_config_test))
+        .route("/admin/validate", post(handlers::admin_validate))
+        .route("/admin/validate/state", get(handlers::admin_validate_state))
         .route("/discord/link", get(handlers::discord_link))
         .route("/discord/callback", get(handlers::discord_callback))
         .route("/admin/branding", post(handlers::admin_branding))
-        .route("/admin/storage", post(handlers::admin_storage_save))
+        .route("/admin/storage", get(handlers::admin_storage).post(handlers::admin_storage_save))
         .route("/admin/runner/stream", get(handlers::admin_runner_stream))
         .route("/admin/model/add", post(handlers::admin_model_add))
         .route("/admin/model/launch", post(handlers::admin_model_launch))

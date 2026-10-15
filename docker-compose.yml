@@ -436,6 +436,12 @@ services:
       - portal_data:/app/data
       # The LiteLLM callback's in-flight requests, READ-ONLY as for dgx-portal.
       - ./runtime:/run/dgx:ro
+      # The validation run's request file and log (admin_config.rs), the host
+      # monitor's state and the backups' state (admin_directory.rs): the same
+      # mounts as dgx-portal's.
+      - ./runtime/validation:/run/dgx/validation
+      - /var/lib/dgx-monitor:/var/lib/dgx-monitor:ro
+      - /var/backups/dgx:/var/backups/dgx:ro
       # ComfyUI's output directory, READ-ONLY as for dgx-portal: past videos
       # are served from disk even while ComfyUI is stopped.
       - /root/ComfyUI/output:/comfyui-output:ro

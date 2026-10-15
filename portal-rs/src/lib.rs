@@ -33,6 +33,8 @@ pub mod mcp;
 pub mod chat;
 pub mod relay;
 pub mod login;
+pub mod rowjson;
+pub mod discord;
 
 pub use db::Database;
 pub use error::ApiError;

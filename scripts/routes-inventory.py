@@ -93,6 +93,18 @@ def routes():
     return sorted(out, key=lambda r: (r['phase'] or 99, r['rule'], r['methods']))
 
 
+def covers(entry, rule):
+    """dgx-portal-frontend/lib/backend.ts routeBackend: a prefix covers its
+    sub-paths, a trailing `$` that exact path only, a `*` segment any one
+    segment (a Flask `<converter>` here)."""
+    exact = entry.endswith('$')
+    want = (entry[:-1] if exact else entry).rstrip('/').split('/')
+    got = rule.split('/')
+    if (len(got) != len(want)) if exact else (len(got) < len(want)):
+        return False
+    return all(w == g or (w == '*' and g) for w, g in zip(want, got))
+
+
 def render(items, rust):
     def served(rule, methods):
         # An entry may name one method (`POST /keys`): the route is on Rust for
@@ -100,7 +112,7 @@ def render(items, rust):
         moved = set()
         for entry in rust:
             only, _, prefix = entry.rpartition(' ')
-            if rule.startswith(prefix):
+            if covers(prefix, rule):
                 moved |= {only.upper()} if only else set(methods.split('/'))
         mine = set(methods.split('/'))
         if not moved & mine:

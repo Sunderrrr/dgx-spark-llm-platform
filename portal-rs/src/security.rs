@@ -43,6 +43,15 @@ pub fn apply(headers: &mut HeaderMap) {
 /// The middleware: run the route, then add what is missing.
 pub async fn layer(req: Request, next: Next) -> Response {
     let mut resp = next.run(req).await;
+    // The router's own 405 (a known path, another method) is empty; werkzeug's
+    // carries its error page.
+    if resp.status() == axum::http::StatusCode::METHOD_NOT_ALLOWED && !resp.headers().contains_key(axum::http::header::CONTENT_TYPE) {
+        let allow = resp.headers().get(axum::http::header::ALLOW).cloned();
+        resp = crate::auth::html_status(axum::http::StatusCode::METHOD_NOT_ALLOWED);
+        if let Some(a) = allow {
+            resp.headers_mut().insert(axum::http::header::ALLOW, a);
+        }
+    }
     apply(resp.headers_mut());
     resp
 }

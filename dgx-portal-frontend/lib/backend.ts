@@ -30,14 +30,19 @@ const PREFIXES = loadPrefixes();
 /** Pure decision: `/api/ranking` covers `/api/ranking` and `/api/ranking/…`,
  *  never `/api/rankings`. An entry may name ONE method first (`POST /keys`):
  *  it then covers that method only — a path that is also a page (GET) can
- *  move its writes without its page. */
+ *  move its writes without its page. A trailing `$` (`/api/admin$`) covers
+ *  that exact path only, not its sub-paths; a `*` segment
+ *  (`/admin/users/* /unblock`, without the space) matches any one segment. */
 export function routeBackend(pathname: string, rustUrl: string, prefixes: string[], flaskUrl: string, method = "GET"): string {
   if (!rustUrl) return flaskUrl;
   const hit = prefixes.some((entry) => {
     const [only, p] = entry.includes(" ") ? entry.split(/\s+/, 2) : ["", entry];
     if (only && only.toUpperCase() !== method.toUpperCase()) return false;
-    const base = p.endsWith("/") ? p.slice(0, -1) : p;
-    return pathname === base || pathname.startsWith(`${base}/`);
+    const exact = p.endsWith("$");
+    const want = (exact ? p.slice(0, -1) : p).replace(/\/$/, "").split("/");
+    const got = pathname.split("/");
+    if (exact ? got.length !== want.length : got.length < want.length) return false;
+    return want.every((seg, i) => seg === got[i] || (seg === "*" && got[i] !== ""));
   });
   return hit ? rustUrl : flaskUrl;
 }

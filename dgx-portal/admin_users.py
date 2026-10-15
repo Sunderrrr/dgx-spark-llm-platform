@@ -768,7 +768,9 @@ def approve_budget(req_id):
         return _json_error("Demande introuvable ou déjà traitée.", 404)
     try:
         amount_val = float(amount)
-        if amount_val <= 0:
+        # `not > 0`, not `<= 0`: NaN fails every comparison, so it passed both
+        # this check and the 1e12 guard below and reached LiteLLM.
+        if not amount_val > 0:
             raise ValueError
     except ValueError:
         return _json_error("Le montant à ajouter doit être un nombre positif.")
@@ -877,7 +879,7 @@ def set_user_budget(username):
     raw = request.form.get('budget', '').strip()
     try:
         value = float(raw)
-        if value <= 0:
+        if not value > 0:                # NaN too (see approve_budget)
             raise ValueError
     except ValueError:
         return _json_error(

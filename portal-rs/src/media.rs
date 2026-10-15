@@ -117,10 +117,7 @@ pub(crate) fn sidecar_url(name: &str, default: &str) -> String {
 }
 
 async fn sidecar_model_info(url: &str, timeout: Duration) -> Value {
-    let Ok(c) = reqwest::Client::builder().timeout(timeout).build() else {
-        return Value::Null;
-    };
-    match c.get(format!("{url}/api/model-info")).send().await {
+    match crate::sidecars::http().get(format!("{url}/api/model-info")).timeout(timeout).send().await {
         Ok(r) if r.status().is_success() => r.json::<Value>().await.unwrap_or(Value::Null),
         _ => Value::Null,
     }

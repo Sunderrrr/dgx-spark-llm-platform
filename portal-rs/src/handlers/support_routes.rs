@@ -90,7 +90,7 @@ pub(crate) fn py_str_field(data: &serde_json::Map<String, Value>, key: &str, lim
 }
 
 /// Python's `repr(float)` for the usual finite values.
-fn py_float(f: f64) -> String {
+pub(crate) fn py_float(f: f64) -> String {
     if f.fract() == 0.0 && f.abs() < 1e16 {
         format!("{f:.1}")
     } else {

@@ -23,6 +23,10 @@ mod dictation_routes;
 mod ocr_routes;
 mod mcp_routes;
 mod key_routes;
+mod admin_routes;
+mod admin_writes;
+mod admin_budget;
+mod admin_groups;
 pub use memory_routes::*;
 pub use skill_routes::*;
 pub use user_routes::*;
@@ -38,6 +42,10 @@ pub use dictation_routes::*;
 pub use ocr_routes::*;
 pub use mcp_routes::*;
 pub use key_routes::*;
+pub use admin_routes::*;
+pub use admin_writes::*;
+pub use admin_budget::*;
+pub use admin_groups::*;
 
 use crate::{AppState, auth, guards, s3, conversations, docs, health, hf, home, keys, media, memory, models, probes, ranking, sessions, settings, sharing, sidecars, skillstore, system, userdata};
 
@@ -579,7 +587,7 @@ pub async fn docs(
     match auth::require_session(&headers, &state.db).await {
         Ok(_session) => {
             let platform = state.db.get_setting_set("platform_name").await.unwrap_or_else(|| "DGX".to_string());
-            let public_api = std::env::var("PUBLIC_API_URL").unwrap_or_default();
+            let public_api = crate::probes::public_api_url();
             let auto = std::env::var("AUTO_MODEL_NAME")
                 .ok()
                 .filter(|v| !v.is_empty())

@@ -58,7 +58,11 @@ phase is measured against them (RSS, CPU, p50/p95 latency of its routes).
    `scripts/validate.sh`. Rolling back is the same in reverse.
 
 A prefix covers itself and its sub-paths (`/api/ranking` covers
-`/api/ranking/activity`, not `/api/rankings`). The switch was checked live on
+`/api/ranking/activity`, not `/api/rankings`). An entry may name one method
+first (`POST /keys`), end with `$` to cover that exact path only
+(`GET /api/admin$` leaves `/api/admin/users` on Flask), and use `*` for any
+one segment (`POST /admin/users/*/unblock`). The matcher is compiled into the
+frontend: changing it (not the list) needs a frontend rebuild. The switch was checked live on
 2026-10-14 with a throwaway stand-in on an unused prefix: GET and POST reached
 it, a look-alike path and the rest of the portal stayed on Flask.
 
@@ -273,6 +277,61 @@ back (SSE included; checked against a fake upstream). Covered:
 `/api/home`, `/system/stats`, `/api/ranking*`, `/support/chat`,
 `/support/confirm`. The first three were already ported and compared for the
 demo account (identical); they are now routed, admins staying on Flask.
+
+### The parity bench: admin routes and writes
+
+No real admin session may be used for tests, and a write compared live would
+change real data. `scripts/parity-bench/` runs the stack's two images side by
+side on an internal Docker network (`up.sh`): a synthetic database made by
+Flask's own schema plus `seed.py` (an owner, an admin through a group, plain,
+disabled and directory accounts, sessions with known tokens), and a fake
+upstream (`fake.py`) standing in for the runner, the engines, LiteLLM and the
+sidecars. Each backend has its own copy of the database. `bench.py` sends the
+same request to both and compares status, redirect and JSON; for a write it
+first restores both databases from the seed, then diffs every table
+(timestamps masked). Nothing leaves the bench network.
+
+Routed after the bench found them identical:
+
+- admin reads: `/api/admin`, `/admin/audit`, `/admin/support/feedback`,
+  `/admin/email/config`, `/admin/consumption`, `/admin/runner/logs`,
+  `/admin/sidecar-logs/<kind>`;
+- admin writes on the database only: `/admin/announce` (the card, then the
+  Discord DMs of `portal-rs/src/discord.rs`), `/admin/settings` (the global
+  key cap), the OCR and voice catalogs (add, delete),
+  `/admin/users/<u>/revoke-sessions`, `/unblock` and `/block` (sessions cut,
+  API keys revoked at LiteLLM — the fake upstream refuses one key, to compare
+  the failure report too).
+
+- budgets: `/admin/users/<u>/budget/set` (the exact cap) and
+  `/admin/budget/approve|reject/<id>` (permanent raise, temporary grant,
+  stacking on a running grant, LiteLLM refusing the write).
+
+The fake upstream records the calls it receives (the probes left out), and
+`bench.py` compares each backend's sequence of upstream calls as well: a
+write that answers the same but deletes another key would not pass.
+
+Found by the bench and fixed:
+
+- A session whose role changed (a group granted or withdrew the admin right)
+  was read with the new role by Rust, but the session was not rewritten and
+  the `session.role_rafraichi` audit line not written, as Flask does.
+- The router's own 405 had an empty body; it now carries werkzeug's page.
+- Flask accepted `nan` as a budget amount (`nan <= 0` and `nan > 1e12` are
+  both false) and sent it to LiteLLM as the account's cap; both backends now
+  refuse it (`not v > 0`).
+- The sidecar probes (0.3 s) timed out on a cold start: they built an HTTP
+  client per call. They now share one, built before serving.
+- The fake upstream's first version listened with Python's default backlog (5):
+  the console's concurrent probes lost SYNs and waited 1 s. A bench artifact
+  (the sidecars run uvicorn, backlog 2048), fixed in `fake.py`.
+
+Still on Flask: user create/update/delete and the groups (they sync quotas
+to LiteLLM and recompute directory members), the model
+launches and stops, `/admin/model/*` (LiteLLM registration, weight deletion),
+the maintenance toggle (its e-mail), the directory-backed reads
+(`/api/admin/users`, `/admin/platform`, `/admin/users/<u>/detail`), the
+configuration (`/admin/config`, `/admin/validate`), and the storage.
 
 ### Phase 6 — local sign-in, routed (`POST /login`)
 

@@ -311,6 +311,15 @@ class QuotasTest(BaseAdmin):
         self.assertEqual(r.status_code, 400)
         self.assertIn('blocage', r.get_json()['error'])
 
+    def test_budget_nan_refused(self):
+        """NaN fails every comparison: it passed `<= 0` and the 1e12 guard and
+        reached LiteLLM as the account's cap."""
+        c = self._client(ADMIN1)
+        with patch.object(admin_users, 'litellm_update_user_budget') as update:
+            r = self._post(c, f'/admin/users/{SIMPLE}/budget/set', {'budget': 'nan'})
+        self.assertEqual(r.status_code, 400)
+        update.assert_not_called()
+
     def test_grant_kept_if_rollback_fails(self):
         with portal.app.app_context():
             db = portal.get_db()

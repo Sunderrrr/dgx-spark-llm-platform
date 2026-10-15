@@ -42,3 +42,10 @@ pub async fn probe_runner() -> bool {
 pub async fn probe_litellm() -> bool {
     reachable(&format!("{}/health/liveliness", litellm_url()), &[200]).await
 }
+
+/// `config.PUBLIC_API_URL`: the env value, else `DGX_API` + `/v1`.
+pub fn public_api_url() -> String {
+    std::env::var("PUBLIC_API_URL").unwrap_or_else(|_| {
+        format!("{}/v1", std::env::var("DGX_API").unwrap_or_else(|_| "https://api.example.org".into()).trim_end_matches('/'))
+    })
+}

@@ -73,10 +73,15 @@ pub fn werkzeug_body(status: StatusCode) -> String {
             "Unauthorized",
             "The server could not verify that you are authorized to access the URL requested. You either supplied the wrong credentials (e.g. a bad password), or your browser doesn&#39;t understand how to supply the credentials required.",
         ),
+        403 => (
+            "Forbidden",
+            "You don&#39;t have the permission to access the requested resource. It is either read-protected or not readable by the server.",
+        ),
         404 => (
             "Not Found",
             "The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.",
         ),
+        405 => ("Method Not Allowed", "The method is not allowed for the requested URL."),
         500 => (
             "Internal Server Error",
             "The server encountered an internal error and was unable to complete your request. Either the server is overloaded or there is an error in the application.",
@@ -251,7 +256,17 @@ pub async fn require_session(headers: &HeaderMap, db: &Database) -> Result<Sessi
         drop_session(db, &token).await;
         return Err(AuthError::Unauthorized);
     };
-    let session_admin = data.get("is_admin").and_then(Value::as_bool).unwrap_or(false);
+    let session_admin = data.get("is_admin").is_some_and(crate::keys::truthy);
+    // `_revalidate_session`: a role that changed is rewritten in the session
+    // (the ONE authority on is_admin) and audited.
+    if let Some(r) = role.filter(|r| *r != session_admin) {
+        let py = |b: bool| if b { "True" } else { "False" };
+        crate::sessions::log_audit(db.pool(), &username, "session.role_rafraichi", &format!("is_admin {} -> {}", py(session_admin), py(r))).await;
+        if let Some(mut map) = data.as_object().cloned() {
+            map.insert("is_admin".into(), Value::Bool(r));
+            let _ = crate::session_store::save(db.pool(), &token, &map).await;
+        }
+    }
 
     Ok(SessionData {
         username,

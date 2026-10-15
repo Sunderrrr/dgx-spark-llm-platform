@@ -12,7 +12,7 @@ fn litellm() -> (String, String) {
     )
 }
 
-async fn litellm_post(path: &str, body: Value, secs: u64) -> Option<reqwest::Response> {
+pub(crate) async fn litellm_post(path: &str, body: Value, secs: u64) -> Option<reqwest::Response> {
     let (base, key) = litellm();
     let c = reqwest::Client::builder().timeout(std::time::Duration::from_secs(secs)).build().ok()?;
     c.post(format!("{base}{path}")).bearer_auth(key).json(&body).send().await.ok()
@@ -24,7 +24,7 @@ pub(crate) fn key_alias(raw: &str) -> String {
 }
 
 /// `_ensure_litellm_user`: the account envelope exists and carries a budget.
-async fn ensure_user(username: &str, max_budget: f64, duration: &str) {
+pub(crate) async fn ensure_user(username: &str, max_budget: f64, duration: &str) {
     let info = keys::account_info(username).await;
     if info.exists {
         if info.max_budget.is_none() {

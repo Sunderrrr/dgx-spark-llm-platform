@@ -452,7 +452,7 @@ pub async fn index_data(db: &Database, pool: Option<&PgPool>, username: &str, is
     json!({
         "running_models": running,
         "my_requests": my_requests,
-        "public_api_url": std::env::var("PUBLIC_API_URL").unwrap_or_default(),
+        "public_api_url": crate::probes::public_api_url(),
         "auto_model": std::env::var("AUTO_MODEL_NAME").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| "auto-model".to_string()),
         "usage": usage,
         "usage_by_model": by_model,

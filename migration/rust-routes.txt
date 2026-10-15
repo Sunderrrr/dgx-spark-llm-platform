@@ -6,10 +6,11 @@
 # /memory, /search…), or the page itself would be sent to the Rust portal.
 # Phase 3 (media), read-only routes only: the routes that create or act on jobs,
 # and those that return a stored file (media_store may read S3), stay on Flask.
-# Not routed yet, on purpose: /api/home, /system/stats and /api/ranking, whose
-# ADMIN branches are ported but not compared to Flask (the bench account is not
-# an admin); /api/latency, which measures the Flask process itself; and the
-# root page /, which would catch every path.
+# Not routed yet, on purpose: /api/latency, which measures the Flask process
+# itself; and the root page /, which would catch every path.
+#
+# A trailing `$` names one exact path, not its sub-paths; a `*` segment matches
+# any one segment (`/admin/users/*/unblock`).
 /api/config
 /healthz
 /api/session
@@ -82,3 +83,27 @@ GET /api/security
 /support/chat
 /support/confirm
 POST /login
+# Admin reads, compared to Flask on the parity bench (docs/rust-migration.md).
+# /admin is a page: only these exact sub-paths move; `$` keeps
+# /api/admin/users (LDAP) on Flask.
+GET /api/admin$
+GET /admin/audit
+GET /admin/support/feedback
+GET /admin/email/config
+GET /admin/consumption
+GET /admin/runner/logs
+GET /admin/sidecar-logs
+# Admin writes on the database only, compared on the parity bench (both
+# databases diffed after each request).
+POST /admin/announce
+POST /admin/settings
+POST /admin/ocr/catalog/add
+POST /admin/ocr/catalog/delete
+POST /admin/voice/catalog/add
+POST /admin/voice/catalog/delete
+POST /admin/users/*/revoke-sessions
+POST /admin/users/*/unblock
+POST /admin/users/*/block
+POST /admin/users/*/budget/set
+POST /admin/budget/approve
+POST /admin/budget/reject

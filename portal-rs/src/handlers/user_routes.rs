@@ -159,7 +159,7 @@ pub async fn api_keys(State(state): State<AppState>, headers: HeaderMap) -> Resp
         "model_limits": model_limits,
         "running_models": running,
         "auto_model": auto_name,
-        "public_api_url": std::env::var("PUBLIC_API_URL").unwrap_or_default(),
+        "public_api_url": crate::probes::public_api_url(),
     }))
     .into_response()
 }

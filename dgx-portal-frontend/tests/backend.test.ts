@@ -35,3 +35,20 @@ test("an entry naming a method covers that method only", () => {
   assert.equal(routeBackend("/keys/x", RUST, p, FLASK, "post"), RUST);
   assert.equal(routeBackend("/api/memory", RUST, p, FLASK, "DELETE"), RUST);
 });
+
+test("a trailing $ covers the exact path, not its sub-paths", () => {
+  const p = ["GET /api/admin$", "/admin/audit"];
+  assert.equal(routeBackend("/api/admin", RUST, p, FLASK), RUST);
+  assert.equal(routeBackend("/api/admin/users", RUST, p, FLASK), FLASK);
+  assert.equal(routeBackend("/api/admin", RUST, p, FLASK, "POST"), FLASK);
+  assert.equal(routeBackend("/admin/audit", RUST, p, FLASK), RUST);
+});
+
+test("a * segment matches any one segment", () => {
+  const p = ["POST /admin/users/*/unblock"];
+  assert.equal(routeBackend("/admin/users/alice/unblock", RUST, p, FLASK, "POST"), RUST);
+  assert.equal(routeBackend("/admin/users/alice/block", RUST, p, FLASK, "POST"), FLASK);
+  assert.equal(routeBackend("/admin/users//unblock", RUST, p, FLASK, "POST"), FLASK);
+  assert.equal(routeBackend("/admin/users/a/b/unblock", RUST, p, FLASK, "POST"), FLASK);
+  assert.equal(routeBackend("/api/rankings", RUST, ["/api/ranking"], FLASK), FLASK);
+});

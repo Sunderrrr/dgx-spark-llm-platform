@@ -34,9 +34,15 @@ fn comfyui_url() -> String {
     env_url("COMFYUI_URL", "http://host.docker.internal:8188")
 }
 
+/// One HTTP client for every probe: building one per call (TLS roots loaded,
+/// no pooled connection) cost more than a 0.3 s probe allows on a cold start.
+pub fn http() -> &'static reqwest::Client {
+    static C: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    C.get_or_init(reqwest::Client::new)
+}
+
 async fn get_json(url: &str, timeout: Duration, bearer: Option<&str>) -> Option<Value> {
-    let c = reqwest::Client::builder().timeout(timeout).build().ok()?;
-    let mut req = c.get(url);
+    let mut req = http().get(url).timeout(timeout);
     if let Some(t) = bearer {
         req = req.bearer_auth(t);
     }
@@ -148,8 +154,7 @@ pub async fn comfyui_up() -> bool {
         return v.as_bool().unwrap_or(false);
     }
     let up = async {
-        let c = reqwest::Client::builder().timeout(PROBE).build().ok()?;
-        Some(c.get(format!("{}/system_stats", comfyui_url())).send().await.ok()?.status().is_success())
+        Some(http().get(format!("{}/system_stats", comfyui_url())).timeout(PROBE).send().await.ok()?.status().is_success())
     }
     .await
     .unwrap_or(false);

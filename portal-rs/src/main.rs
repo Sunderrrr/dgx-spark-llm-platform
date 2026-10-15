@@ -21,6 +21,10 @@ async fn main() -> anyhow::Result<()> {
     let port = std::env::var("PORTAL_RUST_PORT").unwrap_or_else(|_| "5100".to_string());
     let port: u16 = port.parse()?;
 
+    // The probes' shared HTTP client, built before serving: its first build
+    // (TLS roots) would otherwise stall the first requests' 0.3 s probes.
+    let _ = portal_rs::sidecars::http();
+
     // Initialize database
     let db = Database::new(&db_url).await?;
     let state = AppState {
@@ -116,6 +120,26 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/csrf", get(handlers::api_csrf))
         .route("/logout", post(handlers::logout))
         .route("/login", post(handlers::login))
+        .route("/api/admin", get(handlers::api_admin))
+        .route("/admin/audit", get(handlers::admin_audit))
+        .route("/admin/support/feedback", get(handlers::admin_support_feedback))
+        .route("/admin/email/config", get(handlers::admin_email_config))
+        .route("/admin/consumption", get(handlers::admin_consumption))
+        .route("/admin/runner/logs", get(handlers::admin_runner_logs))
+        .route("/admin/sidecar-logs/:kind", get(handlers::admin_sidecar_logs))
+        .route("/admin/announce", post(handlers::admin_announce))
+        .route("/admin/settings", post(handlers::admin_settings))
+        .route("/admin/ocr/catalog/add", post(handlers::admin_ocr_catalog_add))
+        .route("/admin/voice/catalog/add", post(handlers::admin_voice_catalog_add))
+        .route("/admin/:kind/catalog/delete/:cid", post(handlers::admin_catalog_delete))
+        .route("/admin/users/:username/revoke-sessions", post(handlers::admin_revoke_sessions))
+        .route("/admin/users/:username/unblock", post(handlers::admin_unblock))
+        .route("/admin/users/:username/block", post(handlers::admin_block))
+        .route("/admin/users/:username/budget/set", post(handlers::admin_budget_set))
+        .route("/admin/budget/approve/:id", post(handlers::admin_budget_approve))
+        .route("/admin/budget/reject/:id", post(handlers::admin_budget_reject))
+        .route("/admin/groups/create", post(handlers::admin_groups_create))
+        .route("/admin/groups/delete/:name", post(handlers::admin_groups_delete))
         .route("/api/voice/generate", post(handlers::api_voice_generate))
         .route("/api/playground/title", post(handlers::api_playground_title))
         .route("/api/playground/summarize", post(handlers::api_playground_summarize))

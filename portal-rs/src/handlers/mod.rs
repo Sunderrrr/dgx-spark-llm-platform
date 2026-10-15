@@ -21,6 +21,7 @@ mod chat_routes;
 mod video_routes;
 mod dictation_routes;
 mod ocr_routes;
+mod mcp_routes;
 pub use memory_routes::*;
 pub use skill_routes::*;
 pub use user_routes::*;
@@ -34,6 +35,7 @@ pub use chat_routes::*;
 pub use video_routes::*;
 pub use dictation_routes::*;
 pub use ocr_routes::*;
+pub use mcp_routes::*;
 
 use crate::{AppState, auth, guards, s3, conversations, docs, health, hf, home, keys, media, memory, models, probes, ranking, sessions, settings, sharing, sidecars, skillstore, system, userdata};
 

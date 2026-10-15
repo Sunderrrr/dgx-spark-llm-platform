@@ -204,6 +204,20 @@ Two Flask defects found on the way:
 - a refused job slot (429) left its row « running » forever: Rust takes the
   slot before inserting the row.
 
+### Phase 7 — MCP servers, routed (`/mcp`)
+
+Registering, updating, toggling and deleting the viewer's MCP servers. The
+live check (`initialize` + `tools/list`, JSON-RPC over HTTP, SSE answers
+read) goes through the skills import's SSRF guard: https only, every resolved
+address public, the first one pinned for the connection, no redirect. The
+`rl-mcp` bucket bounds the outbound connections. Compared with Flask on the
+demo account: every refusal identical (missing fields, name, http, internal
+host, private address, unknown host, a server answering 405), and a real
+key-less server (DeepWiki) registered through both, 3 tools each; update,
+key set then cleared, toggle and delete behave as Flask's. Flask keeps a
+120 s per-process tools cache that a Rust update does not clear — the same
+staleness Flask's other workers already have.
+
 ### Phase 3 — OCR extraction, routed (`/api/ocr/extract`)
 
 The image is stored first, then the OCR container's SSE answer is relayed

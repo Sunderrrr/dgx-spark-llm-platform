@@ -123,6 +123,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/voice/chat/start", post(handlers::api_voice_chat_start))
         .route("/api/voice/speak", post(handlers::api_voice_speak))
         .route("/api/ocr/extract", post(handlers::api_ocr_extract))
+        .route("/mcp", post(handlers::mcp_form))
         .route("/playground/preview", post(handlers::playground_preview_create))
         .route("/playground/preview/:pid", get(handlers::playground_preview_show))
         .route("/api/conversations/:client_id", get(handlers::api_conversation))

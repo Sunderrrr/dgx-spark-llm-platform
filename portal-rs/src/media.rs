@@ -112,7 +112,7 @@ fn store(cache: &Cache, v: &Value) {
     *cache.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), v.clone()));
 }
 
-fn sidecar_url(name: &str, default: &str) -> String {
+pub(crate) fn sidecar_url(name: &str, default: &str) -> String {
     std::env::var(name).ok().filter(|v| !v.is_empty()).unwrap_or_else(|| default.to_string()).trim_end_matches('/').to_string()
 }
 
@@ -127,7 +127,7 @@ async fn sidecar_model_info(url: &str, timeout: Duration) -> Value {
 }
 
 /// voice_routes._voice_model_info: the voice sidecar's model-info, cached 30 s.
-async fn voice_model_info() -> Value {
+pub(crate) async fn voice_model_info() -> Value {
     if let Some(v) = cached(&VOICE_INFO, Duration::from_secs(30)) {
         return v;
     }

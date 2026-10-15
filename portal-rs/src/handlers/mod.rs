@@ -16,6 +16,7 @@ mod support_routes;
 mod preview_routes;
 mod image_routes;
 mod auth_routes;
+mod voice_routes;
 pub use memory_routes::*;
 pub use skill_routes::*;
 pub use user_routes::*;
@@ -24,6 +25,7 @@ pub use support_routes::*;
 pub use preview_routes::*;
 pub use image_routes::*;
 pub use auth_routes::*;
+pub use voice_routes::*;
 
 use crate::{AppState, auth, guards, s3, conversations, docs, health, hf, home, keys, media, memory, models, probes, ranking, sessions, settings, sharing, sidecars, skillstore, system, userdata};
 

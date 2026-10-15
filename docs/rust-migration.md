@@ -206,6 +206,16 @@ Two Flask defects found on the way:
 - a refused job slot (429) left its row « running » forever: Rust takes the
   slot before inserting the row.
 
+### Phase 3 — voice cloning, routed (`/api/voice/generate`)
+
+Both cloning protocols are ported (Qwen3-TTS: one multipart POST;
+Chatterbox: upload the reference under a random name, then generate by
+that name, the refusal read from the upload's body whatever its status),
+the language fallback, the WAV duration (`wave`'s rules: PCM only) and the
+history trim that removes the evicted clips' files. Live, the loaded engine
+is Kyutai, which cannot clone: only the refusals were compared with Flask
+(identical); the two protocols are covered by a test against fake sidecars.
+
 ### Phase 3 — stored files, routed (`/image/file`, `/ocr/image`, `/voice/audio`)
 
 `portal-rs/src/s3.rs` is a minimal S3 reader (SigV4, path-style GET only):

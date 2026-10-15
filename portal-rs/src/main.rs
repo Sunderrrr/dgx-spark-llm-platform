@@ -112,6 +112,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/image/delete/:prompt_id/:idx", post(handlers::api_image_delete))
         .route("/api/csrf", get(handlers::api_csrf))
         .route("/logout", post(handlers::logout))
+        .route("/api/voice/generate", post(handlers::api_voice_generate))
         .route("/playground/preview", post(handlers::playground_preview_create))
         .route("/playground/preview/:pid", get(handlers::playground_preview_show))
         .route("/api/conversations/:client_id", get(handlers::api_conversation))

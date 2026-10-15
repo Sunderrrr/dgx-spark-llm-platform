@@ -29,6 +29,8 @@ hex = "0.4"
 serde_urlencoded = "0.7"
 base64 = "0.21"
 getrandom = "0.2"
+unicode-normalization = "0.1"
+unicode-properties = "0.1"
 
 [dev-dependencies]
 tokio-test = "0.4"

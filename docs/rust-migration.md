@@ -150,6 +150,17 @@ Not ported, on purpose:
   porting S3 access is a sub-project.
 - **`/api/video/status`**: it asks ComfyUI and persists the result.
 
+### Memory: name normalization verified, the rest not ported
+
+`portal-rs/src/memnorm.rs` reproduces `_mem_norm` (memory_routes.py). It is
+checked against 1 527 reference outputs produced by the Python function
+(`portal-rs/tests/fixtures/mem_norm.json`): random mixes of latin with accents,
+combining marks, kana, Cyrillic, CJK, full-width forms, emoji, punctuation and
+whitespace, plus compatibility and edge cases. Python's `\w` is reproduced as
+letters Lm/Lt/Lu/Ll/Lo, numbers Nd/Nl/No and the underscore. Nothing routes
+to it yet: `/api/memory` also carries the graph reads, the writes, the import
+and the export, and a prefix captures all of them.
+
 ### Phase 4 — state (user data, read-only part)
 
 Ported and compared (bench, demo account): `/api/pending-count` and the

@@ -274,6 +274,23 @@ back (SSE included; checked against a fake upstream). Covered:
 `/support/confirm`. The first three were already ported and compared for the
 demo account (identical); they are now routed, admins staying on Flask.
 
+### Phase 6 — local sign-in, routed (`POST /login`)
+
+`portal-rs/src/login.rs` signs a LOCAL account in: werkzeug's `scrypt:` and
+`pbkdf2:` hashes checked (fixture from `generate_password_hash`), the lock
+keys shared with Flask (`<ip>|<user>`, `user:<user>`), the source recorded,
+then `_apply_session` — a NEW session token, the client's CSRF token kept,
+a fresh `sid` in `user_sessions`, `?next=` restricted to a local path.
+Everything else is handed to Flask unchanged: a directory account, a wrong
+password (Flask tries the directory and counts the failure once), a blocked
+account (its refusal and audit line), an account with a passkey (the second
+factor). An unknown account still pays a scrypt round in Rust, so the
+response time tells nothing either way. Compared with Flask on the demo
+account, directly and through the proxy: success, CSRF kept, old token
+dead, `next` honoured and an open redirect refused, wrong password and
+unknown account (same 401 and counter), malformed name, a success resetting
+the counters. `GET /login` stays the Next page.
+
 ### Phase 7 — the Support assistant, routed (`/support/chat`, `/support/confirm`)
 
 `chat/support.rs` and `chat/support_tools.rs` port the non-admin Support:

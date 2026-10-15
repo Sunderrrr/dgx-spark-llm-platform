@@ -81,3 +81,4 @@ GET /api/security
 /api/ranking
 /support/chat
 /support/confirm
+POST /login

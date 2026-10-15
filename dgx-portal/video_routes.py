@@ -173,7 +173,9 @@ def api_video_cancel(prompt_id):
         abort(404)
     if row['status'] in ('done', 'cancelled'):
         return jsonify({'ok': True})
-    if row['status'] != 'running':
+    # A job is inserted « pending » (the column default) and only its END is
+    # ever written back: requiring « running » refused every cancel.
+    if row['status'] not in ('pending', 'running'):
         return jsonify({'error': "Ce job n'est plus actif."}), 400
     comfyui_cancel(prompt_id)
     db.execute("UPDATE video_jobs SET status='cancelled' WHERE prompt_id=? AND username=?",

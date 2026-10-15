@@ -16,12 +16,9 @@ pub(crate) async fn serve_media(state: &AppState, headers: &HeaderMap, kind: &st
     if !valid_media_name(kind, name) {
         return None;
     }
-    let local = crate::media_store::local_path(kind, name);
-    if let Ok(meta) = tokio::fs::metadata(&local).await {
-        if meta.is_file() && meta.len() > 0 {
-            let data = tokio::fs::read(&local).await.ok()?;
-            return Some(([(axum::http::header::CONTENT_TYPE, mime.to_string())], data).into_response());
-        }
+    let local = std::path::PathBuf::from(crate::media_store::local_path(kind, name));
+    if tokio::fs::metadata(&local).await.is_ok_and(|m| m.is_file() && m.len() > 0) {
+        return serve_local_file(headers, &local, mime, "no-cache").await;
     }
     let cfg = s3::Config::load(&state.db).await?;
     let range = headers
@@ -55,6 +52,77 @@ pub(crate) async fn serve_media(state: &AppState, headers: &HeaderMap, kind: &st
         builder = builder.header(axum::http::header::CONTENT_RANGE, cr);
     }
     builder.body(axum::body::Body::from_stream(resp.bytes_stream())).ok().map(IntoResponse::into_response)
+}
+
+/// Flask's `send_file(conditional=True)` on a local file: the whole file, or the
+/// one byte range the browser asked for (206), so a <video> can seek.
+pub(crate) async fn serve_local_file(headers: &HeaderMap, path: &std::path::Path, mime: &str, cache: &str) -> Option<Response> {
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    let meta = tokio::fs::metadata(path).await.ok()?;
+    let size = meta.len();
+    let range = headers.get(axum::http::header::RANGE).and_then(|v| v.to_str().ok()).and_then(|r| parse_range(r, size));
+    let mut builder = axum::http::Response::builder()
+        .header(axum::http::header::CONTENT_TYPE, mime)
+        .header(axum::http::header::ACCEPT_RANGES, "bytes")
+        .header(axum::http::header::CACHE_CONTROL, cache);
+    if let Ok(modified) = meta.modified() {
+        builder = builder.header(axum::http::header::LAST_MODIFIED, httpdate(modified));
+    }
+    let mut file = tokio::fs::File::open(path).await.ok()?;
+    let (status, start, len) = match range {
+        Some((a, b)) => {
+            builder = builder.header(axum::http::header::CONTENT_RANGE, format!("bytes {a}-{b}/{size}"));
+            (StatusCode::PARTIAL_CONTENT, a, b - a + 1)
+        }
+        None => (StatusCode::OK, 0, size),
+    };
+    file.seek(std::io::SeekFrom::Start(start)).await.ok()?;
+    let stream = tokio_util::io::ReaderStream::new(file.take(len));
+    builder
+        .status(status)
+        .header(axum::http::header::CONTENT_LENGTH, len.to_string())
+        .body(axum::body::Body::from_stream(stream))
+        .ok()
+        .map(IntoResponse::into_response)
+}
+
+/// One `bytes=a-b` / `bytes=a-` / `bytes=-n` range inside the file, inclusive.
+pub(crate) fn parse_range(header: &str, size: u64) -> Option<(u64, u64)> {
+    let spec = header.trim().strip_prefix("bytes=")?;
+    if spec.contains(',') || size == 0 {
+        return None;
+    }
+    let (a, b) = spec.split_once('-')?;
+    let (a, b) = (a.trim(), b.trim());
+    let (start, end) = if a.is_empty() {
+        let n: u64 = b.parse().ok()?;
+        (size.saturating_sub(n), size - 1)
+    } else {
+        let start: u64 = a.parse().ok()?;
+        let end = if b.is_empty() { size - 1 } else { b.parse::<u64>().ok()?.min(size - 1) };
+        (start, end)
+    };
+    (start <= end && start < size).then_some((start, end))
+}
+
+fn httpdate(t: std::time::SystemTime) -> String {
+    chrono::DateTime::<chrono::Utc>::from(t).format("%a, %d %b %Y %H:%M:%S GMT").to_string()
+}
+
+#[cfg(test)]
+mod range_tests {
+    use super::parse_range;
+
+    #[test]
+    fn single_ranges_like_werkzeug() {
+        assert_eq!(parse_range("bytes=0-99", 1000), Some((0, 99)));
+        assert_eq!(parse_range("bytes=900-", 1000), Some((900, 999)));
+        assert_eq!(parse_range("bytes=-100", 1000), Some((900, 999)));
+        assert_eq!(parse_range("bytes=0-5000", 1000), Some((0, 999)));
+        assert_eq!(parse_range("bytes=1000-", 1000), None);
+        assert_eq!(parse_range("bytes=0-1,5-6", 1000), None);
+        assert_eq!(parse_range("items=0-1", 1000), None);
+    }
 }
 
 /// IMAGE_EXT values, in Flask's order, and their types.

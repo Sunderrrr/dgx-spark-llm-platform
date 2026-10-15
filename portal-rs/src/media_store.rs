@@ -49,6 +49,20 @@ pub async fn save(db: &Database, kind: &str, name: &str, data: Vec<u8>, content_
     Ok("local")
 }
 
+/// `exists`: on the volume, else in the bucket.
+pub async fn exists(db: &Database, kind: &str, name: &str) -> bool {
+    if !valid_name(kind, name) {
+        return false;
+    }
+    if tokio::fs::metadata(local_path(kind, name)).await.is_ok_and(|m| m.is_file()) {
+        return true;
+    }
+    match s3::Config::load(db).await {
+        Some(cfg) => s3::exists(&cfg, &cfg.key(&["media", kind, name])).await,
+        None => false,
+    }
+}
+
 /// `delete`: removes the file wherever it is. Never fails: a leftover is swept later.
 pub async fn delete(db: &Database, kind: &str, name: &str) {
     if !valid_name(kind, name) {

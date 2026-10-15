@@ -26,7 +26,7 @@ fn voice_url() -> String {
 type Upload = (String, String, Vec<u8>);
 
 /// `request.form` + `request.files` of a multipart body (first value of each name).
-async fn multipart_parts(state: &AppState, req: Request) -> (HashMap<String, String>, HashMap<String, Upload>) {
+pub(crate) async fn multipart_parts(state: &AppState, req: Request) -> (HashMap<String, String>, HashMap<String, Upload>) {
     let mut fields = HashMap::new();
     let mut files = HashMap::new();
     let is_multipart = req

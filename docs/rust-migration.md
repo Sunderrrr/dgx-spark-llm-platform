@@ -145,8 +145,6 @@ Not ported, on purpose:
 - **Anything that creates or acts on a job** (generate, extract, speak,
   transcribe, cancel, delete, the voice chat): they write rows, call sidecars
   and spend budget. They move as whole flows, with their guards.
-- **`/video/file`**: on a cache miss it pulls the file from ComfyUI and
-  stores it into the bucket — a write, it moves with the video flow.
 - **`/api/video/status`**: it asks ComfyUI and persists the result.
 
 ### Phase 6 — first session routes, routed (`/api/csrf`, `/logout`)
@@ -205,6 +203,30 @@ Two Flask defects found on the way:
   tool's jobs.
 - a refused job slot (429) left its row « running » forever: Rust takes the
   slot before inserting the row.
+
+### Phase 3 — video, routed (`/api/video/generate`, `status`, `cancel`, `/video/file`)
+
+The ComfyUI client is ported: the two MiniMax H3 graphs (compiled in from
+`dgx-portal/workflows/`, text-only or with a reference image uploaded
+first), the history/queue reading, the cancel (queued: deleted by id;
+running: interrupt), and the result chain of `/video/file` — the stored
+copy, else ComfyUI's output directory (now mounted read-only into portal-rs
+too, traversal refused), else pulled from ComfyUI and cached. Local files
+are served with a byte range (Flask's `send_file(conditional=True)`), which
+the earlier media routes lacked for the volume.
+
+Tested end to end on the demo account: a real 2 s text-to-video generated
+through Rust (151 s), cached to the bucket, served identically to Flask with
+and without `Range`; a second job cancelled while running (ComfyUI's queue
+emptied). Refusals compared with Flask: identical.
+
+Found on the way:
+- Flask's cancel required « running », a status no row ever has (jobs are
+  inserted « pending » and only their end is written back): every cancel
+  answered « Ce job n'est plus actif. ». Fixed on both sides, tested.
+- `comfyui-relay.service` (172.19.0.1:8188 → ComfyUI) was disabled and
+  stopped on the host: the portal could not reach ComfyUI at all. Started
+  for the test; enabling it at boot is the operator's call.
 
 ### Phase 3 — voice cloning, routed (`/api/voice/generate`)
 

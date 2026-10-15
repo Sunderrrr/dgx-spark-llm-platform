@@ -428,6 +428,9 @@ services:
       - portal_data:/app/data
       # The LiteLLM callback's in-flight requests, READ-ONLY as for dgx-portal.
       - ./runtime:/run/dgx:ro
+      # ComfyUI's output directory, READ-ONLY as for dgx-portal: past videos
+      # are served from disk even while ComfyUI is stopped.
+      - /root/ComfyUI/output:/comfyui-output:ro
       # Hugging Face token for the model search, read-only; same rule as
       # dgx-portal: missing file = anonymous search, no error.
       - ./secrets/hf_token:/run/secrets/hf_token:ro

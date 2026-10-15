@@ -1243,6 +1243,22 @@ class MediaCancelTest(unittest.TestCase):
         c = portal.app.test_client(); self._login(c)
         self.assertTrue(c.post("/api/video/cancel/v1", headers=self._headers()).get_json()["ok"])
 
+    def test_video_cancel_accepts_a_job_as_inserted(self):
+        # The generate route inserts with the column default « pending » and
+        # only the END is written back: a cancel requiring « running » was
+        # always refused (« Ce job n'est plus actif. »).
+        with portal.app.app_context():
+            portal.get_db().execute(
+                "INSERT INTO video_jobs (username,prompt_id,prompt,created_at,req_duration_s) "
+                "VALUES ('demo','v2','x','2025-01-01',5)")
+            portal.get_db().commit()
+        c = portal.app.test_client(); self._login(c)
+        self.assertTrue(c.post("/api/video/cancel/v2", headers=self._headers()).get_json()["ok"])
+        with portal.app.app_context():
+            st = portal.get_db().execute(
+                "SELECT status FROM video_jobs WHERE prompt_id='v2'").fetchone()["status"]
+        self.assertEqual(st, "cancelled")
+
 
 class ShareConversationTest(unittest.TestCase):
     """Sharing a conversation: read-only link, RESERVED TO LOGGED-IN USERS

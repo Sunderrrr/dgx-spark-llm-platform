@@ -708,3 +708,39 @@ pub async fn skills_form(State(state): State<AppState>, headers: HeaderMap, body
         _ => no_content(),
     }
 }
+
+/// GET /api/security - the passkey state of the viewer's account and its keys
+pub async fn api_security(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let session = match viewer(&state, &headers).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    let pool = state.db.pool();
+    let user = &session.username;
+    let read = async {
+        let creds: Vec<(i64, Option<String>, Option<String>, Option<f64>)> = sqlx::query_as(
+            "SELECT id, credential_id, label, created_at FROM webauthn_credentials WHERE username=? ORDER BY created_at DESC",
+        )
+        .bind(user)
+        .fetch_all(pool)
+        .await?;
+        let enabled: Option<Option<i64>> = sqlx::query_scalar("SELECT enabled FROM user_security WHERE username=?").bind(user).fetch_optional(pool).await?;
+        Ok::<_, sqlx::Error>((creds, enabled.flatten().unwrap_or(0) != 0))
+    };
+    let Ok((creds, enabled)) = read.await else { return auth::html_status(StatusCode::INTERNAL_SERVER_ERROR) };
+    let management = match state.db.get_password_management(user).await {
+        Ok(m) => m,
+        Err(_) => return auth::html_status(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+    let credentials: Vec<Value> = creds
+        .into_iter()
+        .map(|(id, cid, label, created)| json!({"id": id, "credential_id": cid, "label": label, "created_at": created}))
+        .collect();
+    Json(json!({
+        "enabled": enabled,
+        "password_managed_by": management.management,
+        "passkey_possible": management.passkey,
+        "credentials": credentials,
+    }))
+    .into_response()
+}

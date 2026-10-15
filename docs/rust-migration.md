@@ -220,6 +220,10 @@ account: two keys created (one per backend) work against LiteLLM, the
 duplicate rename answers 409, revoked keys get 401 from LiteLLM afterwards,
 every refusal identical, the relay identical on a refused budget request.
 
+`GET /api/security` (the passkey state and the account's keys) moves the
+same way: its sub-paths are all WebAuthn POSTs, which stay on Flask.
+Compared on the demo account, which has no passkey: identical.
+
 ### Phase 7 — MCP servers, routed (`/mcp`)
 
 Registering, updating, toggling and deleting the viewer's MCP servers. The

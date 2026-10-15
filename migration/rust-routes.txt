@@ -74,3 +74,4 @@
 /api/ocr/extract
 /mcp
 POST /keys
+GET /api/security

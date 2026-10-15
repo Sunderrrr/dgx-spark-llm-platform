@@ -59,3 +59,5 @@
 /api/image/generate
 /api/image/cancel
 /api/image/delete
+/api/csrf
+/logout

@@ -149,6 +149,30 @@ Not ported, on purpose:
   stores it into the bucket — a write, it moves with the video flow.
 - **`/api/video/status`**: it asks ComfyUI and persists the result.
 
+### Phase 6 — first session routes, routed (`/api/csrf`, `/logout`)
+
+Sessions are server-side since phase 0, so Rust can write them:
+`portal-rs/src/session_store.rs` keeps the format of
+`dgx-portal/session_store.py` (token `token_urlsafe(32)`, row keyed by its
+SHA-256, data as sorted compact JSON, 12 h with an account and 2 h without,
+the 2 % sweep) and Flask's cookie attributes (`Secure; HttpOnly; Path=/;
+SameSite=Lax`, no Expires; the deletion with `Max-Age=0`).
+- `/api/csrf` creates the token lazily, as Flask does: an existing token
+  comes back with no write and no cookie.
+- `/logout` checks CSRF, revokes the `sid` in `user_sessions`, deletes the
+  row and the cookie, then redirects to `/login` — or to the identity
+  provider's end-session after an SSO login.
+Checked: a Rust-minted session is read by Flask (its login keeps the
+token), and the whole flow through the proxy — token from Rust, login on
+Flask, logout on Rust, 401 afterwards.
+
+Not ported: the conversion of a legacy signed cookie (a `.` in the value).
+Those predate phase 0 and are past their 12 h; `/api/csrf` opens a new
+session for one.
+
+The login itself (`/login`, local + LDAP + SSO, WebAuthn, the lockout
+counter, the setup token) stays on Flask.
+
 ### Phase 3 — image generation, routed (`/api/image/generate`, `cancel`, `delete`)
 
 The job runs in a tokio task: one sidecar call per variation, the

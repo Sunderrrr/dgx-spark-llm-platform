@@ -6,7 +6,6 @@ in the state directory. Both runners, same stand-ins, isolated network.
     tools/run_isolated.sh python3 tools/watchdog_parity.py <runner.py> <vllm-runner>
 """
 import json
-import os
 import sys
 import time
 from pathlib import Path

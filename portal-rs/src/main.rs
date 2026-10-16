@@ -81,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/conversations", get(handlers::api_conversations))
         .route("/api/discord/status", get(handlers::api_discord_status))
         .route("/api/keys", get(handlers::api_keys))
+        .route("/api/security", get(handlers::api_security))
         .route("/api/settings", get(handlers::api_settings))
         .route("/api/account/sessions", get(handlers::api_account_sessions))
         .route("/api/account/sessions/revoke", post(handlers::api_account_sessions_revoke))

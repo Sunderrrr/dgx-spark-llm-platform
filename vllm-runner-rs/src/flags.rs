@@ -185,3 +185,20 @@ pub static EXL3_VALUE_FLAGS: &[&str] = &[
 pub static TRUST_RC_MODELS: &[&str] = &[
 ];
 
+/// (flag, env var, value)
+pub static ENV_FLAG_VARS: &[(&str, &str, &str)] = &[
+    ("--cute-dsl-arch-sm121a", "CUTE_DSL_ARCH", "sm_121a"),
+    ("--force-fp8-marlin", "VLLM_TEST_FORCE_FP8_MARLIN", "1"),
+];
+
+/// (flag, env var, default binary)
+pub static BIN_FLAG_PATHS: &[(&str, &str, &str)] = &[
+    ("--llama-k2", "LLAMA_BIN_K2", "/root/llama-cpp-k2horizon/build/bin/llama-server"),
+    ("--llama-next", "LLAMA_BIN_NEXT", "/root/llama-cpp-upstream/build/bin/llama-server"),
+    ("--llama-prism", "LLAMA_BIN_PRISM", "/root/llama-prism-cuda/build/bin/llama-server"),
+    ("--vllm-025", "VLLM_BIN_025", "/root/venvs/vllm025/bin/vllm"),
+    ("--vllm-027", "VLLM_BIN_027", "/root/venvs/vllm-next/bin/vllm"),
+    ("--vllm-028", "VLLM_BIN_028", "/root/venvs/vllm-028/bin/vllm"),
+    ("--vllm-nightly", "VLLM_BIN_NIGHTLY", "/root/venvs/vllm-nightly/bin/vllm"),
+];
+

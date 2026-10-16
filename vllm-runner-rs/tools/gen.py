@@ -25,6 +25,11 @@ ENGINES = ["vllm", "llamacpp", "ds4", "exllamav3", "ocr"]
 
 
 def load(path):
+    # the binary defaults are read with their env vars unset (the generator's
+    # environment must not change the fixtures)
+    for var in ("VLLM_BIN_025", "VLLM_BIN_027", "VLLM_BIN_028", "VLLM_BIN_NIGHTLY",
+                "LLAMA_BIN_NEXT", "LLAMA_BIN_K2", "LLAMA_BIN_PRISM"):
+        os.environ.pop(var, None)
     # runner.py reads its token at import and imports Flask; its own state
     # (logs, last model) goes to a scratch directory, never the real one.
     scratch = tempfile.mkdtemp(prefix="runner-gen-")
@@ -50,6 +55,18 @@ def main(path):
     for name in SETS:
         out.append(rust_list(name.lstrip("_"), set(getattr(r, name))))
         out.append("\n")
+    # pseudo-flags: an env var set for one model, and a binary chosen for one launch
+    env_flags = sorted(getattr(r, "_ENV_FLAGS").items())
+    out.append("/// (flag, env var, value)\npub static ENV_FLAG_VARS: &[(&str, &str, &str)] = &[\n")
+    out += [f'    ("{f}", "{v}", "{val}"),\n' for f, (v, val) in env_flags]
+    out.append("];\n\n")
+    bin_flags = sorted(getattr(r, "_BIN_FLAGS").items())
+    # the binary of each flag: runner.py reads its env var, else the default in its source
+    out.append("/// (flag, env var, default binary)\npub static BIN_FLAG_PATHS: &[(&str, &str, &str)] = &[\n")
+    for f, path in bin_flags:
+        var = [k for k in vars(r) if k.isupper() and getattr(r, k) == path and k.startswith(("VLLM_BIN", "LLAMA_BIN"))][0]
+        out.append(f'    ("{f}", "{var}", "{path}"),\n')
+    out.append("];\n\n")
     (HERE / "src" / "flags.rs").write_text("".join(out))
 
     cases = []

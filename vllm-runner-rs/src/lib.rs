@@ -3,6 +3,10 @@
 //! the repository identity, the token check. Process supervision follows.
 pub mod build;
 pub mod flags;
+pub mod launch_env;
+pub mod service;
+pub mod supervisor;
+pub mod state;
 pub mod validate;
 
 /// `_check_auth`: the Bearer token, compared in constant time.

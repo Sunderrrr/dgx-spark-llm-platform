@@ -66,27 +66,28 @@ frontend: changing it (not the list) needs a frontend rebuild. The switch was ch
 2026-10-14 with a throwaway stand-in on an unused prefix: GET and POST reached
 it, a look-alike path and the rest of the portal stayed on Flask.
 
-## Phase 1 — the runner (vllm-runner-rs), in progress
+## Phase 1 — the runner (vllm-runner-rs): ported, cutover pending
 
-`vllm-runner-rs/` ports `vllm-runner/runner.py`, the host service that launches
-and stops the served model. Its cutover restarts the runner, which stops the
-served model: it waits for an explicit go-ahead and a maintenance window.
+`vllm-runner-rs/` is the whole of `vllm-runner/runner.py`: the argument rules,
+the command construction, the launch environment, the supervisor (process
+group, output, readiness, memory guard, stop), the watchdog (auto-resume,
+memory floor, persisted failure counter), and the HTTP surface on :8001.
 
-Done, parity-tested against runner.py itself:
-- the argument allow-lists of every engine, generated from runner.py by
-  `tools/gen.py` (`src/flags.rs`, never hand-copied);
-- the argument validation `_validate_vllm_args` and the engine dispatch
-  `_flags_for`: 1 156 cases with runner.py's own answers, the refusal wording
-  included (`tests/parity.rs`);
-- the repository identity `_repo_id_of`;
-- the Bearer token check of `_check_auth`, in constant time.
+Verified, against runner.py itself:
+- allow-lists generated from runner.py (`tools/gen.py`), never copied by hand;
+- 1 156 argument cases, 1 584 command cases, 32 environment cases: identical;
+- the process stop takes the whole group down (real processes in the tests);
+- the HTTP surface: 61 steps identical (`tools/http_parity.py`), the watchdog's
+  auto-resume and the memory-floor refusal identical (`tools/watchdog_parity.py`);
+- the harness runs in an isolated network namespace (`tools/run_isolated.sh`):
+  the production runner listens on :8001 and must never be reached from a test.
 
-Not yet ported (the rest of runner.py, roughly 1 000 lines): the command
-construction `_build_cmd` and the resolvers (templates, mmproj, exllamav3
-layout, GGUF), the process supervision (`_start_process`, `_kill`, the memory
-guards and waits, the health watch, the watchdog with its auto-resume and
-persisted retry counter), the logs, the metrics, and the HTTP endpoints
-(about 45 routes) served on port 8001.
+The cutover is NOT done. The unit `vllm-runner.service` has
+`KillMode=control-group`: stopping it stops the served model, and the reload
+takes minutes. It waits for an explicit go-ahead and a maintenance window.
+Runbook: install the release binary, point ExecStart at it with the same
+EnvironmentFile and User, `systemctl daemon-reload`, restart. The watchdog
+resumes the last model on its own (state file and failure counter are shared).
 
 ## Phases
 

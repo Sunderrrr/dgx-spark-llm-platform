@@ -90,8 +90,9 @@ EXL3_PY   = os.environ.get("EXL3_PY", "/root/venvs/exl3/bin/python")
 # _exl3_served_layout). Under its HOME: the only place it can write.
 EXL3_RUN_DIR = os.path.join(os.environ.get("HOME", "/var/lib/vllm-runner"), "exl3")
 TABBY_DIR = os.environ.get("TABBY_DIR", "/root/tabbyAPI")
-ENGINES = ("vllm", "llamacpp", "ds4", "exllamav3")
+ENGINES = ("vllm", "llamacpp", "ds4", "exllamav3", "vllm-docker")
 _ENGINE_BIN = {"vllm": VLLM_BIN, "llamacpp": LLAMA_BIN, "ds4": DS4_BIN,
+               "vllm-docker": "/usr/bin/docker",
                "exllamav3": os.path.join(TABBY_DIR, "main.py")}
 
 # Persist the last successful launch so it can be resumed automatically after a
@@ -157,6 +158,7 @@ def _check_auth():
 # --download-dir / --chat-template / --tokenizer (arbitrary file read /
 # Jinja2 SSTI), --model / --host / --port / --served-model-name / --api-key
 # (already set by the runner, must not be overridable).
+
 _BOOL_FLAGS = {
     "--enable-auto-tool-choice", "--enforce-eager",
     "--disable-log-requests", "--disable-log-stats",
@@ -310,9 +312,9 @@ _DS4_VALUE_FLAGS = {
 # opening. Listing a model here is a security decision — launching that model runs
 # the Python code of its repository.
 _TRUST_RC_MODELS = {
-    # Empty: no active exception. K2-Horizon was listed here on 2026-09-07 then
-    # removed along with the model — keeping an approval for a model we no longer
-    # serve widens the surface without bringing anything.
+    # Empty: no active exception. Nemotron-3.5-Super-VL was approved on
+    # 2026-10-16 then removed along with the model — keeping an approval for a
+    # model we do not serve widens the surface without bringing anything.
 }
 
 
@@ -861,6 +863,38 @@ def _build_cmd(hf_id, name, extra_tokens, engine, bin_override=None):
                "--model-dir", mdir]
         if "--draft-model-name" in toks:
             cmd += ["--draft-model-dir", ddir]
+        return cmd + toks
+    if engine == "vllm-docker":
+        # vLLM 0.32 is not on PyPI — NVIDIA ships it as a container only (the
+        # Nemotron 3.5 Super VL card says so explicitly). Same OpenAI API on
+        # :8000, so nothing downstream changes. --gpus all and --ipc=host are
+        # what the card's own run command uses; the weights are read from the
+        # host HF cache so they are not downloaded twice.
+        img = os.environ.get("VLLM_DOCKER_IMAGE", "vllm/vllm-openai:nightly-3f1bcfd82bb2e93fcd364fc7a5491718453a77e2")
+        cache = os.path.expanduser("~/.cache/huggingface")
+        cmd = ["docker", "run", "--rm", "--gpus", "all", "--ipc=host",
+               "-p", "127.0.0.1:8000:8000",
+               "-e", "HF_TOKEN", "-e", "FLASHINFER_DISABLE_VERSION_CHECK=1",
+               "-v", f"{cache}:/root/.cache/huggingface",
+               "--entrypoint", "vllm", img, "serve", hf_id,
+               "--host", "0.0.0.0", "--port", "8000",
+               "--served-model-name", name]
+        return cmd + extra_tokens
+    if engine == "vllm-docker":
+        # vLLM 0.32 is not on PyPI — NVIDIA ships it as a container only (the
+        # Nemotron 3.5 Super VL card says so explicitly). Same OpenAI API on
+        # :8000, so nothing downstream changes. --gpus all and --ipc=host are
+        # what the card's own run command uses; the weights are read from the
+        # host HF cache so they are not downloaded twice.
+        img = os.environ.get("VLLM_DOCKER_IMAGE", "vllm/vllm-openai:nightly-3f1bcfd82bb2e93fcd364fc7a5491718453a77e2")
+        cache = os.path.expanduser("~/.cache/huggingface")
+        cmd = ["docker", "run", "--rm", "--gpus", "all", "--ipc=host",
+               "-p", "127.0.0.1:8000:8000",
+               "-e", "HF_TOKEN", "-e", "FLASHINFER_DISABLE_VERSION_CHECK=1",
+               "-v", f"{cache}:/root/.cache/huggingface",
+               "--entrypoint", "vllm", img, "serve", hf_id,
+               "--host", "0.0.0.0", "--port", "8000",
+               "--served-model-name", name]
         return cmd + toks
     if engine == "ds4":
         # ds4-server takes a local GGUF; --cuda is required for the GPU.

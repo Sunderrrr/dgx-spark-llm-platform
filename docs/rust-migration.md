@@ -66,7 +66,7 @@ frontend: changing it (not the list) needs a frontend rebuild. The switch was ch
 2026-10-14 with a throwaway stand-in on an unused prefix: GET and POST reached
 it, a look-alike path and the rest of the portal stayed on Flask.
 
-## Phase 1 — the runner (vllm-runner-rs): ported, cutover pending
+## Phase 1 — the runner (vllm-runner-rs): in service since 2026-10-16
 
 `vllm-runner-rs/` is the whole of `vllm-runner/runner.py`: the argument rules,
 the command construction, the launch environment, the supervisor (process
@@ -82,12 +82,30 @@ Verified, against runner.py itself:
 - the harness runs in an isolated network namespace (`tools/run_isolated.sh`):
   the production runner listens on :8001 and must never be reached from a test.
 
-The cutover is NOT done. The unit `vllm-runner.service` has
-`KillMode=control-group`: stopping it stops the served model, and the reload
-takes minutes. It waits for an explicit go-ahead and a maintenance window.
-Runbook: install the release binary, point ExecStart at it with the same
-EnvironmentFile and User, `systemctl daemon-reload`, restart. The watchdog
-resumes the last model on its own (state file and failure counter are shared).
+Cutover (2026-10-16, in a maintenance window): the release binary is
+installed as `/usr/local/bin/vllm-runner`; the unit's `ExecStart` points at it
+and its `WorkingDirectory` is `/var/lib/vllm-runner` (the service user cannot
+traverse `/root`). The watchdog resumed the served model on its own. Rollback:
+restore the Python unit, `systemctl daemon-reload`, restart — a restart stops
+the served model (`KillMode=control-group`).
+
+## Retiring Flask (dgx-portal)
+
+Every route is served by portal-rs. What still tied the stack to the Flask
+container, and what replaced it:
+- the host monitor read its data counters and the SMTP settings by running
+  Python inside `dgx-portal`; it now asks `portal-rs` (`portal monitor-counters`,
+  `portal monitor-smtp`, `src/monitor_read.rs`, read-only) and probes the
+  `portal-rs` container instead;
+- the frontend's default backend (`BACKEND_URL`, set in `docker-compose.yml`)
+  is the Rust portal, so a path no migrated prefix covers is answered there;
+  the build-time fallback rewrite of `next.config.ts` is gone (an unknown path
+  gets Next's 404);
+- `dgx-portal` sits behind the compose profile `flask`: it no longer starts by
+  default. Rollback: `docker compose --profile flask up -d dgx-portal`, with
+  `BACKEND_URL=http://dgx-portal:5000` on the frontend.
+The Flask source stays in the repository for now: its test suite still runs in
+the gates, and `dgx-portal/litellm_inflight.py` is LiteLLM's callback.
 
 ## Phases
 

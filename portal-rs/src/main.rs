@@ -18,6 +18,10 @@ async fn main() -> anyhow::Result<()> {
     
     // Get config from env
     let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:/app/data/portal.db".to_string());
+    // The host monitor's read-only questions, answered without starting the server.
+    if let Some(code) = portal_rs::monitor_read::run_from_args(&db_url).await {
+        std::process::exit(code);
+    }
     let port = std::env::var("PORTAL_RUST_PORT").unwrap_or_else(|_| "5100".to_string());
     let port: u16 = port.parse()?;
 

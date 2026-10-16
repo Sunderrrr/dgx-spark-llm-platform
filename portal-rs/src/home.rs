@@ -184,10 +184,14 @@ pub fn thousands(x: f64) -> String {
     format!("{sign}{out}")
 }
 
-/// app._budget_remaining: (used, remaining) real tokens over the budget window, cached 60 s.
+/// app._budget_remaining: (used, remaining) real tokens over the budget window.
+/// Only the consumption is cached (60 s): the callers pass different budgets
+/// (/api/home the envelope's, /api/keys the default), so a cached `remaining`
+/// answered with whichever budget came first.
 pub(crate) async fn budget_remaining(pool: Option<&PgPool>, username: &str, budget: f64, days: i64) -> (i64, i64) {
     if let Some(v) = cached(&BUDGET, username, Duration::from_secs(60)) {
-        return (v[0].as_i64().unwrap_or(0), v[1].as_i64().unwrap_or(0));
+        let used = v[0].as_i64().unwrap_or(0);
+        return (used, ((budget - used as f64) as i64).max(0));
     }
     let mut used = 0i64;
     if let Some(pool) = pool {
@@ -212,7 +216,7 @@ pub(crate) async fn budget_remaining(pool: Option<&PgPool>, username: &str, budg
         }
     }
     let remaining = ((budget - used as f64) as i64).max(0);
-    store(&BUDGET, username, &json!([used, remaining]));
+    store(&BUDGET, username, &json!([used]));
     (used, remaining)
 }
 

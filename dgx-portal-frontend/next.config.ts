@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 import path from "node:path";
 
-const BACKEND_URL = process.env.BACKEND_URL || "http://dgx-portal:5000";
+// Read at BUILD time (rewrites are baked into the image). Flask is retired and
+// every backend path is routed at run time by proxy.ts (lib/backend.ts), so
+// the fallback rewrite only exists when a build asks for it.
+const BACKEND_URL = process.env.BACKEND_URL || "";
 
 // Content-Security-Policy is set per-request in proxy.ts instead of here: it
 // needs a fresh nonce on script-src for every render, which a static header
@@ -47,7 +50,7 @@ const nextConfig: NextConfig = {
     // (JSON API, /login POST, /playground/chat SSE, /admin/*, etc.) is passed
     // as-is to Flask, reachable internally over the docker-compose network.
     return {
-      fallback: [{ source: "/:path*", destination: `${BACKEND_URL}/:path*` }],
+      fallback: BACKEND_URL ? [{ source: "/:path*", destination: `${BACKEND_URL}/:path*` }] : [],
     };
   },
   async headers() {

@@ -10,7 +10,7 @@ What is probed (always supposed to be up):
   - traefik              → container (docker inspect)
   - litellm              → container (docker inspect)
   - litellm-postgres     → container (docker inspect)
-  - dgx-portal           → container (docker inspect)
+  - portal-rs            → container (docker inspect)
   - dgx-portal-frontend  → container (docker inspect)
 
 What is NOT probed: vLLM (:8000) and the media sidecars (OCR/voice/
@@ -50,7 +50,7 @@ SERVICES = [
     ("traefik", "container", "traefik", None),
     ("litellm", "container", "litellm", None),
     ("litellm-postgres", "container", "litellm-postgres", None),
-    ("dgx-portal", "container", "dgx-portal", None),
+    ("portal-rs", "container", "portal-rs", None),
     ("dgx-portal-frontend", "container", "dgx-portal-frontend", None),
 ]
 
@@ -65,7 +65,7 @@ BACKUP_MAX_AGE_H = 26  # dgx-backup runs at 03:00 → under 26 h = always fresh
 PORTAL_DB = "/var/lib/docker/volumes/ai-platform_portal_data/_data/portal.db"
 # Kept for documentation: this is the REAL path of the database, but the unit
 # cannot open it (0700 uid 10001 volume, monitor without CAP_DAC_OVERRIDE).
-# Any read must go through COMPTEURS_CODE, below.
+# Any read must go through PORTAL_READ, below.
 DATA_DROP_RATIO = 0.4   # alert below 40 % of the watermark
 DATA_FLOOR = 20         # never an alert while the watermark is < 20
 
@@ -76,19 +76,16 @@ DATA_FLOOR = 20         # never an alert while the watermark is < 20
 # precisely the failure it exists to catch (silent reset of 04/09/2026,
 # unnoticed for three days). The container, on the other hand, owns the
 # database.
-COUNTERS_CODE = (
-    "import sqlite3;c=sqlite3.connect('file:/app/data/portal.db?mode=ro',uri=True);"
-    "print(c.execute('SELECT COUNT(*) FROM conversations').fetchone()[0],"
-    "sum(c.execute('SELECT COUNT(*) FROM '+t).fetchone()[0]"
-    " for t in ('image_jobs','video_jobs')))"
-)
+# The portal binary answers these read-only questions itself
+# (portal-rs/src/monitor_read.rs) and opens the database read-only.
+PORTAL_READ = ["docker", "exec", "portal-rs", "portal"]
 
 
 def _data_intact(watermark):
     """(up, detail, counters): conversations + media jobs vs watermark."""
     import subprocess
     try:
-        r = subprocess.run(["docker", "exec", "dgx-portal", "python3", "-c", COUNTERS_CODE],
+        r = subprocess.run(PORTAL_READ + ["monitor-counters"],
                            capture_output=True, text=True, timeout=15)
         if r.returncode != 0:
             raise RuntimeError((r.stderr or "").strip()[:200] or f"docker exec rc={r.returncode}")
@@ -243,11 +240,6 @@ _SMTP_KEYS = {"SMTP_HOST": "cfg_smtp_host", "SMTP_PORT": "cfg_smtp_port",
               "SMTP_USER": "cfg_smtp_user", "SMTP_PASSWORD": "cfg_smtp_pass",
               "SMTP_FROM": "cfg_smtp_from", "ADMIN_EMAIL": "cfg_admin_email"}
 SMTP_CACHE = "/var/lib/dgx-monitor/smtp.json"     # 0600, root
-SMTP_CODE = (
-    "import json,sqlite3;c=sqlite3.connect('file:/app/data/portal.db?mode=ro',uri=True);"
-    "print(json.dumps(dict(c.execute(\"SELECT key,value FROM settings WHERE key IN "
-    + "(" + ",".join("'%s'" % v for v in _SMTP_KEYS.values()) + ")" + "\").fetchall())))"
-)
 
 
 def _smtp_settings():
@@ -258,7 +250,7 @@ def _smtp_settings():
     vals = {k: env.get(k, "") for k in _SMTP_KEYS}
     read_count = None
     try:
-        r = subprocess.run(["docker", "exec", "dgx-portal", "python3", "-c", SMTP_CODE],
+        r = subprocess.run(PORTAL_READ + ["monitor-smtp"],
                            capture_output=True, text=True, timeout=15)
         if r.returncode == 0:
             read_count = json.loads(r.stdout)

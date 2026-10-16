@@ -8,6 +8,8 @@
 // DGX_RUST_URL every path stays on Flask, whatever the file says.
 import { readFileSync } from "node:fs";
 
+// The default backend: what no migrated prefix covers. Flask is retired, so
+// docker-compose.yml sets BACKEND_URL to the Rust portal (docs/rust-migration.md).
 export const FLASK_URL = process.env.BACKEND_URL || "http://dgx-portal:5000";
 const RUST_URL = process.env.DGX_RUST_URL || "";
 const PREFIX_FILE = process.env.DGX_RUST_PREFIX_FILE || "/app/migration/rust-routes.txt";

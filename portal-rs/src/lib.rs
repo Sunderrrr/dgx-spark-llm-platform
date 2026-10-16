@@ -4,6 +4,7 @@ pub mod db;
 pub mod error;
 pub mod auth;
 pub mod probes;
+pub mod monitor_read;
 pub mod ranking;
 pub mod models;
 pub mod spend;

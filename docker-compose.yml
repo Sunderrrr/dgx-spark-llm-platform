@@ -152,6 +152,10 @@ services:
   # → To go back to the old UI: put `ports: ["5000:5000"]` back here AND give
   #   dgx-portal-frontend its port 3002 back below.
   dgx-portal:
+    # Retired: every route is served by portal-rs (docs/rust-migration.md).
+    # Kept behind a profile for a rollback: `docker compose --profile flask
+    # up -d dgx-portal`, then BACKEND_URL=http://dgx-portal:5000 on the frontend.
+    profiles: ["flask"]
     logging: *logging
     build: ./dgx-portal
     container_name: dgx-portal
@@ -328,6 +332,9 @@ services:
       # Empty: every route stays on Flask. The migrated prefixes are the
       # mounted migration/rust-routes.txt below (lib/backend.ts).
       DGX_RUST_URL: ${DGX_RUST_URL:-}
+      # The default backend (lib/backend.ts): Flask is retired, so what no
+      # migrated prefix covers goes to the Rust portal as well.
+      BACKEND_URL: ${DGX_RUST_URL:-http://portal-rs:${PORTAL_RUST_PORT:-5100}}
     volumes:
       - ./migration/rust-routes.txt:/app/migration/rust-routes.txt:ro
     security_opt:

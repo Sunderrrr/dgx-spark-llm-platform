@@ -1,6 +1,7 @@
 //! The vllm-runner's rules, ported from runner.py (phase 1 of the Rust
 //! migration). Pure logic first: the argument allow-lists and their validation,
 //! the repository identity, the token check. Process supervision follows.
+pub mod build;
 pub mod flags;
 pub mod validate;
 

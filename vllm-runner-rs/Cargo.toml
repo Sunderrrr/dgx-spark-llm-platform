@@ -3,6 +3,10 @@ name = "vllm-runner-rs"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "runner_rs"
+path = "src/lib.rs"
+
 [[bin]]
 name = "vllm-runner"
 path = "src/main.rs"
@@ -23,5 +27,6 @@ clap = { version = "4", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 libc = "0.2"
 nix = { version = "0.27", features = ["process"] }
+regex = "1"
 
 [dev-dependencies]

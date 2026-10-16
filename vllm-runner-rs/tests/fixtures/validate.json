@@ -1,0 +1,9602 @@
+[
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--max-model-len 4096",
+  "ok": true,
+  "result": [
+   "--max-model-len",
+   "4096"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": true,
+  "result": [
+   "--enable-auto-tool-choice",
+   "--tool-call-parser",
+   "qwen3_coder"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--trust-remote-code",
+  "ok": false,
+  "result": "flag not allowed: --trust-remote-code"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": false,
+  "result": "flag not allowed: --ctx-size"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag not allowed: --parallel"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": false,
+  "result": "flag not allowed: --n-predict"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": false,
+  "result": "flag not allowed: --mmproj"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": false,
+  "result": "flag not allowed: --max-seq-len"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag not allowed: --draft-mode"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--cute-dsl-arch-sm121a",
+  "ok": true,
+  "result": [
+   "--cute-dsl-arch-sm121a"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--disable-log-requests",
+  "ok": true,
+  "result": [
+   "--disable-log-requests"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--disable-log-stats",
+  "ok": true,
+  "result": [
+   "--disable-log-stats"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--enable-auto-tool-choice",
+  "ok": true,
+  "result": [
+   "--enable-auto-tool-choice"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--enforce-eager",
+  "ok": true,
+  "result": [
+   "--enforce-eager"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--force-fp8-marlin",
+  "ok": true,
+  "result": [
+   "--force-fp8-marlin"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--language-model-only",
+  "ok": true,
+  "result": [
+   "--language-model-only"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--skip-mm-profiling",
+  "ok": true,
+  "result": [
+   "--skip-mm-profiling"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--vllm-025",
+  "ok": true,
+  "result": [
+   "--vllm-025"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--vllm-027",
+  "ok": true,
+  "result": [
+   "--vllm-027"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--vllm-028",
+  "ok": true,
+  "result": [
+   "--vllm-028"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--vllm-nightly",
+  "ok": true,
+  "result": [
+   "--vllm-nightly"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--attention-backend 7",
+  "ok": true,
+  "result": [
+   "--attention-backend",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--attention-backend",
+  "ok": false,
+  "result": "flag --attention-backend requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--block-size 7",
+  "ok": true,
+  "result": [
+   "--block-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--block-size",
+  "ok": false,
+  "result": "flag --block-size requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--default-chat-template-kwargs 7",
+  "ok": true,
+  "result": [
+   "--default-chat-template-kwargs",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--default-chat-template-kwargs",
+  "ok": false,
+  "result": "flag --default-chat-template-kwargs requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--dtype 7",
+  "ok": true,
+  "result": [
+   "--dtype",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--dtype",
+  "ok": false,
+  "result": "flag --dtype requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--gpu-memory-utilization 7",
+  "ok": true,
+  "result": [
+   "--gpu-memory-utilization",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--gpu-memory-utilization",
+  "ok": false,
+  "result": "flag --gpu-memory-utilization requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--kv-cache-dtype 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-dtype",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--kv-cache-dtype",
+  "ok": false,
+  "result": "flag --kv-cache-dtype requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--limit-mm-per-prompt 7",
+  "ok": true,
+  "result": [
+   "--limit-mm-per-prompt",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--limit-mm-per-prompt",
+  "ok": false,
+  "result": "flag --limit-mm-per-prompt requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--max-model-len 7",
+  "ok": true,
+  "result": [
+   "--max-model-len",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--max-num-batched-tokens 7",
+  "ok": true,
+  "result": [
+   "--max-num-batched-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--max-num-batched-tokens",
+  "ok": false,
+  "result": "flag --max-num-batched-tokens requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--max-num-seqs 7",
+  "ok": true,
+  "result": [
+   "--max-num-seqs",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--max-num-seqs",
+  "ok": false,
+  "result": "flag --max-num-seqs requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--pipeline-parallel-size 7",
+  "ok": true,
+  "result": [
+   "--pipeline-parallel-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--pipeline-parallel-size",
+  "ok": false,
+  "result": "flag --pipeline-parallel-size requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--quantization 7",
+  "ok": true,
+  "result": [
+   "--quantization",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--quantization",
+  "ok": false,
+  "result": "flag --quantization requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--reasoning-parser 7",
+  "ok": true,
+  "result": [
+   "--reasoning-parser",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--reasoning-parser",
+  "ok": false,
+  "result": "flag --reasoning-parser requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--speculative-config 7",
+  "ok": true,
+  "result": [
+   "--speculative-config",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--speculative-config",
+  "ok": false,
+  "result": "flag --speculative-config requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--swap-space 7",
+  "ok": true,
+  "result": [
+   "--swap-space",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--swap-space",
+  "ok": false,
+  "result": "flag --swap-space requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--tensor-parallel-size 7",
+  "ok": true,
+  "result": [
+   "--tensor-parallel-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--tensor-parallel-size",
+  "ok": false,
+  "result": "flag --tensor-parallel-size requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--tokenizer-mode 7",
+  "ok": true,
+  "result": [
+   "--tokenizer-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--tokenizer-mode",
+  "ok": false,
+  "result": "flag --tokenizer-mode requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--tool-call-parser 7",
+  "ok": true,
+  "result": [
+   "--tool-call-parser",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--tool-call-parser",
+  "ok": false,
+  "result": "flag --tool-call-parser requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--uvicorn-log-level 7",
+  "ok": true,
+  "result": [
+   "--uvicorn-log-level",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/plain",
+  "args": "--uvicorn-log-level",
+  "ok": false,
+  "result": "flag --uvicorn-log-level requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len 4096",
+  "ok": true,
+  "result": [
+   "--max-model-len",
+   "4096"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": true,
+  "result": [
+   "--enable-auto-tool-choice",
+   "--tool-call-parser",
+   "qwen3_coder"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--trust-remote-code",
+  "ok": false,
+  "result": "flag not allowed: --trust-remote-code"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": false,
+  "result": "flag not allowed: --ctx-size"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag not allowed: --parallel"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": false,
+  "result": "flag not allowed: --n-predict"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": false,
+  "result": "flag not allowed: --mmproj"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": false,
+  "result": "flag not allowed: --max-seq-len"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag not allowed: --draft-mode"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--cute-dsl-arch-sm121a",
+  "ok": true,
+  "result": [
+   "--cute-dsl-arch-sm121a"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--disable-log-requests",
+  "ok": true,
+  "result": [
+   "--disable-log-requests"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--disable-log-stats",
+  "ok": true,
+  "result": [
+   "--disable-log-stats"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--enable-auto-tool-choice",
+  "ok": true,
+  "result": [
+   "--enable-auto-tool-choice"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--enforce-eager",
+  "ok": true,
+  "result": [
+   "--enforce-eager"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--force-fp8-marlin",
+  "ok": true,
+  "result": [
+   "--force-fp8-marlin"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--language-model-only",
+  "ok": true,
+  "result": [
+   "--language-model-only"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--skip-mm-profiling",
+  "ok": true,
+  "result": [
+   "--skip-mm-profiling"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--vllm-025",
+  "ok": true,
+  "result": [
+   "--vllm-025"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--vllm-027",
+  "ok": true,
+  "result": [
+   "--vllm-027"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--vllm-028",
+  "ok": true,
+  "result": [
+   "--vllm-028"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--vllm-nightly",
+  "ok": true,
+  "result": [
+   "--vllm-nightly"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--attention-backend 7",
+  "ok": true,
+  "result": [
+   "--attention-backend",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--attention-backend",
+  "ok": false,
+  "result": "flag --attention-backend requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--block-size 7",
+  "ok": true,
+  "result": [
+   "--block-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--block-size",
+  "ok": false,
+  "result": "flag --block-size requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--default-chat-template-kwargs 7",
+  "ok": true,
+  "result": [
+   "--default-chat-template-kwargs",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--default-chat-template-kwargs",
+  "ok": false,
+  "result": "flag --default-chat-template-kwargs requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--dtype 7",
+  "ok": true,
+  "result": [
+   "--dtype",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--dtype",
+  "ok": false,
+  "result": "flag --dtype requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--gpu-memory-utilization 7",
+  "ok": true,
+  "result": [
+   "--gpu-memory-utilization",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--gpu-memory-utilization",
+  "ok": false,
+  "result": "flag --gpu-memory-utilization requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-cache-dtype 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-dtype",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-cache-dtype",
+  "ok": false,
+  "result": "flag --kv-cache-dtype requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--limit-mm-per-prompt 7",
+  "ok": true,
+  "result": [
+   "--limit-mm-per-prompt",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--limit-mm-per-prompt",
+  "ok": false,
+  "result": "flag --limit-mm-per-prompt requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len 7",
+  "ok": true,
+  "result": [
+   "--max-model-len",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-num-batched-tokens 7",
+  "ok": true,
+  "result": [
+   "--max-num-batched-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-num-batched-tokens",
+  "ok": false,
+  "result": "flag --max-num-batched-tokens requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-num-seqs 7",
+  "ok": true,
+  "result": [
+   "--max-num-seqs",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-num-seqs",
+  "ok": false,
+  "result": "flag --max-num-seqs requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--pipeline-parallel-size 7",
+  "ok": true,
+  "result": [
+   "--pipeline-parallel-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--pipeline-parallel-size",
+  "ok": false,
+  "result": "flag --pipeline-parallel-size requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--quantization 7",
+  "ok": true,
+  "result": [
+   "--quantization",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--quantization",
+  "ok": false,
+  "result": "flag --quantization requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--reasoning-parser 7",
+  "ok": true,
+  "result": [
+   "--reasoning-parser",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--reasoning-parser",
+  "ok": false,
+  "result": "flag --reasoning-parser requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--speculative-config 7",
+  "ok": true,
+  "result": [
+   "--speculative-config",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--speculative-config",
+  "ok": false,
+  "result": "flag --speculative-config requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--swap-space 7",
+  "ok": true,
+  "result": [
+   "--swap-space",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--swap-space",
+  "ok": false,
+  "result": "flag --swap-space requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--tensor-parallel-size 7",
+  "ok": true,
+  "result": [
+   "--tensor-parallel-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--tensor-parallel-size",
+  "ok": false,
+  "result": "flag --tensor-parallel-size requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--tokenizer-mode 7",
+  "ok": true,
+  "result": [
+   "--tokenizer-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--tokenizer-mode",
+  "ok": false,
+  "result": "flag --tokenizer-mode requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--tool-call-parser 7",
+  "ok": true,
+  "result": [
+   "--tool-call-parser",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--tool-call-parser",
+  "ok": false,
+  "result": "flag --tool-call-parser requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--uvicorn-log-level 7",
+  "ok": true,
+  "result": [
+   "--uvicorn-log-level",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--uvicorn-log-level",
+  "ok": false,
+  "result": "flag --uvicorn-log-level requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len 4096",
+  "ok": true,
+  "result": [
+   "--max-model-len",
+   "4096"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": true,
+  "result": [
+   "--enable-auto-tool-choice",
+   "--tool-call-parser",
+   "qwen3_coder"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--trust-remote-code",
+  "ok": false,
+  "result": "flag not allowed: --trust-remote-code"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": false,
+  "result": "flag not allowed: --ctx-size"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag not allowed: --parallel"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": false,
+  "result": "flag not allowed: --n-predict"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": false,
+  "result": "flag not allowed: --mmproj"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": false,
+  "result": "flag not allowed: --max-seq-len"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag not allowed: --draft-mode"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--cute-dsl-arch-sm121a",
+  "ok": true,
+  "result": [
+   "--cute-dsl-arch-sm121a"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--disable-log-requests",
+  "ok": true,
+  "result": [
+   "--disable-log-requests"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--disable-log-stats",
+  "ok": true,
+  "result": [
+   "--disable-log-stats"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--enable-auto-tool-choice",
+  "ok": true,
+  "result": [
+   "--enable-auto-tool-choice"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--enforce-eager",
+  "ok": true,
+  "result": [
+   "--enforce-eager"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--force-fp8-marlin",
+  "ok": true,
+  "result": [
+   "--force-fp8-marlin"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--language-model-only",
+  "ok": true,
+  "result": [
+   "--language-model-only"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--skip-mm-profiling",
+  "ok": true,
+  "result": [
+   "--skip-mm-profiling"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--vllm-025",
+  "ok": true,
+  "result": [
+   "--vllm-025"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--vllm-027",
+  "ok": true,
+  "result": [
+   "--vllm-027"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--vllm-028",
+  "ok": true,
+  "result": [
+   "--vllm-028"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--vllm-nightly",
+  "ok": true,
+  "result": [
+   "--vllm-nightly"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--attention-backend 7",
+  "ok": true,
+  "result": [
+   "--attention-backend",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--attention-backend",
+  "ok": false,
+  "result": "flag --attention-backend requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--block-size 7",
+  "ok": true,
+  "result": [
+   "--block-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--block-size",
+  "ok": false,
+  "result": "flag --block-size requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--default-chat-template-kwargs 7",
+  "ok": true,
+  "result": [
+   "--default-chat-template-kwargs",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--default-chat-template-kwargs",
+  "ok": false,
+  "result": "flag --default-chat-template-kwargs requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--dtype 7",
+  "ok": true,
+  "result": [
+   "--dtype",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--dtype",
+  "ok": false,
+  "result": "flag --dtype requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--gpu-memory-utilization 7",
+  "ok": true,
+  "result": [
+   "--gpu-memory-utilization",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--gpu-memory-utilization",
+  "ok": false,
+  "result": "flag --gpu-memory-utilization requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-cache-dtype 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-dtype",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-cache-dtype",
+  "ok": false,
+  "result": "flag --kv-cache-dtype requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--limit-mm-per-prompt 7",
+  "ok": true,
+  "result": [
+   "--limit-mm-per-prompt",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--limit-mm-per-prompt",
+  "ok": false,
+  "result": "flag --limit-mm-per-prompt requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len 7",
+  "ok": true,
+  "result": [
+   "--max-model-len",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-num-batched-tokens 7",
+  "ok": true,
+  "result": [
+   "--max-num-batched-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-num-batched-tokens",
+  "ok": false,
+  "result": "flag --max-num-batched-tokens requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-num-seqs 7",
+  "ok": true,
+  "result": [
+   "--max-num-seqs",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-num-seqs",
+  "ok": false,
+  "result": "flag --max-num-seqs requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--pipeline-parallel-size 7",
+  "ok": true,
+  "result": [
+   "--pipeline-parallel-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--pipeline-parallel-size",
+  "ok": false,
+  "result": "flag --pipeline-parallel-size requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--quantization 7",
+  "ok": true,
+  "result": [
+   "--quantization",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--quantization",
+  "ok": false,
+  "result": "flag --quantization requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--reasoning-parser 7",
+  "ok": true,
+  "result": [
+   "--reasoning-parser",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--reasoning-parser",
+  "ok": false,
+  "result": "flag --reasoning-parser requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--speculative-config 7",
+  "ok": true,
+  "result": [
+   "--speculative-config",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--speculative-config",
+  "ok": false,
+  "result": "flag --speculative-config requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--swap-space 7",
+  "ok": true,
+  "result": [
+   "--swap-space",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--swap-space",
+  "ok": false,
+  "result": "flag --swap-space requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--tensor-parallel-size 7",
+  "ok": true,
+  "result": [
+   "--tensor-parallel-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--tensor-parallel-size",
+  "ok": false,
+  "result": "flag --tensor-parallel-size requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--tokenizer-mode 7",
+  "ok": true,
+  "result": [
+   "--tokenizer-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--tokenizer-mode",
+  "ok": false,
+  "result": "flag --tokenizer-mode requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--tool-call-parser 7",
+  "ok": true,
+  "result": [
+   "--tool-call-parser",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--tool-call-parser",
+  "ok": false,
+  "result": "flag --tool-call-parser requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--uvicorn-log-level 7",
+  "ok": true,
+  "result": [
+   "--uvicorn-log-level",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--uvicorn-log-level",
+  "ok": false,
+  "result": "flag --uvicorn-log-level requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len 4096",
+  "ok": true,
+  "result": [
+   "--max-model-len",
+   "4096"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": true,
+  "result": [
+   "--enable-auto-tool-choice",
+   "--tool-call-parser",
+   "qwen3_coder"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--trust-remote-code",
+  "ok": false,
+  "result": "flag not allowed: --trust-remote-code"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": false,
+  "result": "flag not allowed: --ctx-size"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag not allowed: --parallel"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": false,
+  "result": "flag not allowed: --n-predict"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": false,
+  "result": "flag not allowed: --mmproj"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": false,
+  "result": "flag not allowed: --max-seq-len"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag not allowed: --draft-mode"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--cute-dsl-arch-sm121a",
+  "ok": true,
+  "result": [
+   "--cute-dsl-arch-sm121a"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--disable-log-requests",
+  "ok": true,
+  "result": [
+   "--disable-log-requests"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--disable-log-stats",
+  "ok": true,
+  "result": [
+   "--disable-log-stats"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--enable-auto-tool-choice",
+  "ok": true,
+  "result": [
+   "--enable-auto-tool-choice"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--enforce-eager",
+  "ok": true,
+  "result": [
+   "--enforce-eager"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--force-fp8-marlin",
+  "ok": true,
+  "result": [
+   "--force-fp8-marlin"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--language-model-only",
+  "ok": true,
+  "result": [
+   "--language-model-only"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--skip-mm-profiling",
+  "ok": true,
+  "result": [
+   "--skip-mm-profiling"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--vllm-025",
+  "ok": true,
+  "result": [
+   "--vllm-025"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--vllm-027",
+  "ok": true,
+  "result": [
+   "--vllm-027"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--vllm-028",
+  "ok": true,
+  "result": [
+   "--vllm-028"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--vllm-nightly",
+  "ok": true,
+  "result": [
+   "--vllm-nightly"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--attention-backend 7",
+  "ok": true,
+  "result": [
+   "--attention-backend",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--attention-backend",
+  "ok": false,
+  "result": "flag --attention-backend requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--block-size 7",
+  "ok": true,
+  "result": [
+   "--block-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--block-size",
+  "ok": false,
+  "result": "flag --block-size requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--default-chat-template-kwargs 7",
+  "ok": true,
+  "result": [
+   "--default-chat-template-kwargs",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--default-chat-template-kwargs",
+  "ok": false,
+  "result": "flag --default-chat-template-kwargs requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--dtype 7",
+  "ok": true,
+  "result": [
+   "--dtype",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--dtype",
+  "ok": false,
+  "result": "flag --dtype requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--gpu-memory-utilization 7",
+  "ok": true,
+  "result": [
+   "--gpu-memory-utilization",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--gpu-memory-utilization",
+  "ok": false,
+  "result": "flag --gpu-memory-utilization requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--kv-cache-dtype 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-dtype",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--kv-cache-dtype",
+  "ok": false,
+  "result": "flag --kv-cache-dtype requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--limit-mm-per-prompt 7",
+  "ok": true,
+  "result": [
+   "--limit-mm-per-prompt",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--limit-mm-per-prompt",
+  "ok": false,
+  "result": "flag --limit-mm-per-prompt requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len 7",
+  "ok": true,
+  "result": [
+   "--max-model-len",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--max-num-batched-tokens 7",
+  "ok": true,
+  "result": [
+   "--max-num-batched-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--max-num-batched-tokens",
+  "ok": false,
+  "result": "flag --max-num-batched-tokens requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--max-num-seqs 7",
+  "ok": true,
+  "result": [
+   "--max-num-seqs",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--max-num-seqs",
+  "ok": false,
+  "result": "flag --max-num-seqs requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--pipeline-parallel-size 7",
+  "ok": true,
+  "result": [
+   "--pipeline-parallel-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--pipeline-parallel-size",
+  "ok": false,
+  "result": "flag --pipeline-parallel-size requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--quantization 7",
+  "ok": true,
+  "result": [
+   "--quantization",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--quantization",
+  "ok": false,
+  "result": "flag --quantization requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--reasoning-parser 7",
+  "ok": true,
+  "result": [
+   "--reasoning-parser",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--reasoning-parser",
+  "ok": false,
+  "result": "flag --reasoning-parser requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--speculative-config 7",
+  "ok": true,
+  "result": [
+   "--speculative-config",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--speculative-config",
+  "ok": false,
+  "result": "flag --speculative-config requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--swap-space 7",
+  "ok": true,
+  "result": [
+   "--swap-space",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--swap-space",
+  "ok": false,
+  "result": "flag --swap-space requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--tensor-parallel-size 7",
+  "ok": true,
+  "result": [
+   "--tensor-parallel-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--tensor-parallel-size",
+  "ok": false,
+  "result": "flag --tensor-parallel-size requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--tokenizer-mode 7",
+  "ok": true,
+  "result": [
+   "--tokenizer-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--tokenizer-mode",
+  "ok": false,
+  "result": "flag --tokenizer-mode requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--tool-call-parser 7",
+  "ok": true,
+  "result": [
+   "--tool-call-parser",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--tool-call-parser",
+  "ok": false,
+  "result": "flag --tool-call-parser requires a value"
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--uvicorn-log-level 7",
+  "ok": true,
+  "result": [
+   "--uvicorn-log-level",
+   "7"
+  ]
+ },
+ {
+  "engine": "vllm",
+  "hf_id": "unknown/model",
+  "args": "--uvicorn-log-level",
+  "ok": false,
+  "result": "flag --uvicorn-log-level requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--max-model-len 4096",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": false,
+  "result": "flag not allowed: --enable-auto-tool-choice"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--trust-remote-code",
+  "ok": false,
+  "result": "flag not allowed: --trust-remote-code"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": true,
+  "result": [
+   "--ctx-size",
+   "32768",
+   "--jinja"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag --flash-attn requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": true,
+  "result": [
+   "--n-predict",
+   "8192",
+   "--n-gpu-layers",
+   "999"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": true,
+  "result": [
+   "--mmproj",
+   "a.gguf",
+   "--jinja"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": false,
+  "result": "flag not allowed: --max-seq-len"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag not allowed: --draft-mode"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--cont-batching",
+  "ok": true,
+  "result": [
+   "--cont-batching"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--context-shift",
+  "ok": true,
+  "result": [
+   "--context-shift"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--jinja",
+  "ok": true,
+  "result": [
+   "--jinja"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--kv-unified",
+  "ok": true,
+  "result": [
+   "--kv-unified"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--llama-k2",
+  "ok": true,
+  "result": [
+   "--llama-k2"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--llama-next",
+  "ok": true,
+  "result": [
+   "--llama-next"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--llama-prism",
+  "ok": true,
+  "result": [
+   "--llama-prism"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--metrics",
+  "ok": true,
+  "result": [
+   "--metrics"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--mlock",
+  "ok": true,
+  "result": [
+   "--mlock"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--no-context-shift",
+  "ok": true,
+  "result": [
+   "--no-context-shift"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--no-kv-offload",
+  "ok": true,
+  "result": [
+   "--no-kv-offload"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--no-kv-unified",
+  "ok": true,
+  "result": [
+   "--no-kv-unified"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--no-mmap",
+  "ok": true,
+  "result": [
+   "--no-mmap"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--no-warmup",
+  "ok": true,
+  "result": [
+   "--no-warmup"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--batch-size 7",
+  "ok": true,
+  "result": [
+   "--batch-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--batch-size",
+  "ok": false,
+  "result": "flag --batch-size requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--cache-type-k 7",
+  "ok": true,
+  "result": [
+   "--cache-type-k",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--cache-type-k",
+  "ok": false,
+  "result": "flag --cache-type-k requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--cache-type-v 7",
+  "ok": true,
+  "result": [
+   "--cache-type-v",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--cache-type-v",
+  "ok": false,
+  "result": "flag --cache-type-v requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--chat-template-file 7",
+  "ok": true,
+  "result": [
+   "--chat-template-file",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--chat-template-file",
+  "ok": false,
+  "result": "flag --chat-template-file requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--chat-template-kwargs 7",
+  "ok": true,
+  "result": [
+   "--chat-template-kwargs",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--chat-template-kwargs",
+  "ok": false,
+  "result": "flag --chat-template-kwargs requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--ctx-size 7",
+  "ok": true,
+  "result": [
+   "--ctx-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--ctx-size",
+  "ok": false,
+  "result": "flag --ctx-size requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--defrag-thold 7",
+  "ok": true,
+  "result": [
+   "--defrag-thold",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--defrag-thold",
+  "ok": false,
+  "result": "flag --defrag-thold requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--flash-attn 7",
+  "ok": true,
+  "result": [
+   "--flash-attn",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--flash-attn",
+  "ok": false,
+  "result": "flag --flash-attn requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--kv-unified-per-slot 7",
+  "ok": true,
+  "result": [
+   "--kv-unified-per-slot",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--kv-unified-per-slot",
+  "ok": false,
+  "result": "flag --kv-unified-per-slot requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--log-verbosity 7",
+  "ok": true,
+  "result": [
+   "--log-verbosity",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--log-verbosity",
+  "ok": false,
+  "result": "flag --log-verbosity requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--main-gpu 7",
+  "ok": true,
+  "result": [
+   "--main-gpu",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--main-gpu",
+  "ok": false,
+  "result": "flag --main-gpu requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--mmproj 7",
+  "ok": true,
+  "result": [
+   "--mmproj",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--mmproj",
+  "ok": false,
+  "result": "flag --mmproj requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--n-gpu-layers 7",
+  "ok": true,
+  "result": [
+   "--n-gpu-layers",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--n-gpu-layers",
+  "ok": false,
+  "result": "flag --n-gpu-layers requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--n-predict 7",
+  "ok": true,
+  "result": [
+   "--n-predict",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--n-predict",
+  "ok": false,
+  "result": "flag --n-predict requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--parallel 7",
+  "ok": true,
+  "result": [
+   "--parallel",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--parallel",
+  "ok": false,
+  "result": "flag --parallel requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--reasoning-format 7",
+  "ok": true,
+  "result": [
+   "--reasoning-format",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--reasoning-format",
+  "ok": false,
+  "result": "flag --reasoning-format requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--rope-freq-base 7",
+  "ok": true,
+  "result": [
+   "--rope-freq-base",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--rope-freq-base",
+  "ok": false,
+  "result": "flag --rope-freq-base requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--rope-freq-scale 7",
+  "ok": true,
+  "result": [
+   "--rope-freq-scale",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--rope-freq-scale",
+  "ok": false,
+  "result": "flag --rope-freq-scale requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--rope-scaling 7",
+  "ok": true,
+  "result": [
+   "--rope-scaling",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--rope-scaling",
+  "ok": false,
+  "result": "flag --rope-scaling requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--seed 7",
+  "ok": true,
+  "result": [
+   "--seed",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--seed",
+  "ok": false,
+  "result": "flag --seed requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--split-mode 7",
+  "ok": true,
+  "result": [
+   "--split-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--split-mode",
+  "ok": false,
+  "result": "flag --split-mode requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--threads 7",
+  "ok": true,
+  "result": [
+   "--threads",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--threads",
+  "ok": false,
+  "result": "flag --threads requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--threads-batch 7",
+  "ok": true,
+  "result": [
+   "--threads-batch",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--threads-batch",
+  "ok": false,
+  "result": "flag --threads-batch requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--ubatch-size 7",
+  "ok": true,
+  "result": [
+   "--ubatch-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/plain",
+  "args": "--ubatch-size",
+  "ok": false,
+  "result": "flag --ubatch-size requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len 4096",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": false,
+  "result": "flag not allowed: --enable-auto-tool-choice"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--trust-remote-code",
+  "ok": false,
+  "result": "flag not allowed: --trust-remote-code"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": true,
+  "result": [
+   "--ctx-size",
+   "32768",
+   "--jinja"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag --flash-attn requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": true,
+  "result": [
+   "--n-predict",
+   "8192",
+   "--n-gpu-layers",
+   "999"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": true,
+  "result": [
+   "--mmproj",
+   "a.gguf",
+   "--jinja"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": false,
+  "result": "flag not allowed: --max-seq-len"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag not allowed: --draft-mode"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--cont-batching",
+  "ok": true,
+  "result": [
+   "--cont-batching"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--context-shift",
+  "ok": true,
+  "result": [
+   "--context-shift"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--jinja",
+  "ok": true,
+  "result": [
+   "--jinja"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-unified",
+  "ok": true,
+  "result": [
+   "--kv-unified"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--llama-k2",
+  "ok": true,
+  "result": [
+   "--llama-k2"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--llama-next",
+  "ok": true,
+  "result": [
+   "--llama-next"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--llama-prism",
+  "ok": true,
+  "result": [
+   "--llama-prism"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--metrics",
+  "ok": true,
+  "result": [
+   "--metrics"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--mlock",
+  "ok": true,
+  "result": [
+   "--mlock"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--no-context-shift",
+  "ok": true,
+  "result": [
+   "--no-context-shift"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--no-kv-offload",
+  "ok": true,
+  "result": [
+   "--no-kv-offload"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--no-kv-unified",
+  "ok": true,
+  "result": [
+   "--no-kv-unified"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--no-mmap",
+  "ok": true,
+  "result": [
+   "--no-mmap"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--no-warmup",
+  "ok": true,
+  "result": [
+   "--no-warmup"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--batch-size 7",
+  "ok": true,
+  "result": [
+   "--batch-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--batch-size",
+  "ok": false,
+  "result": "flag --batch-size requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--cache-type-k 7",
+  "ok": true,
+  "result": [
+   "--cache-type-k",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--cache-type-k",
+  "ok": false,
+  "result": "flag --cache-type-k requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--cache-type-v 7",
+  "ok": true,
+  "result": [
+   "--cache-type-v",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--cache-type-v",
+  "ok": false,
+  "result": "flag --cache-type-v requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--chat-template-file 7",
+  "ok": true,
+  "result": [
+   "--chat-template-file",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--chat-template-file",
+  "ok": false,
+  "result": "flag --chat-template-file requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--chat-template-kwargs 7",
+  "ok": true,
+  "result": [
+   "--chat-template-kwargs",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--chat-template-kwargs",
+  "ok": false,
+  "result": "flag --chat-template-kwargs requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--ctx-size 7",
+  "ok": true,
+  "result": [
+   "--ctx-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--ctx-size",
+  "ok": false,
+  "result": "flag --ctx-size requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--defrag-thold 7",
+  "ok": true,
+  "result": [
+   "--defrag-thold",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--defrag-thold",
+  "ok": false,
+  "result": "flag --defrag-thold requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--flash-attn 7",
+  "ok": true,
+  "result": [
+   "--flash-attn",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--flash-attn",
+  "ok": false,
+  "result": "flag --flash-attn requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-unified-per-slot 7",
+  "ok": true,
+  "result": [
+   "--kv-unified-per-slot",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-unified-per-slot",
+  "ok": false,
+  "result": "flag --kv-unified-per-slot requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--log-verbosity 7",
+  "ok": true,
+  "result": [
+   "--log-verbosity",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--log-verbosity",
+  "ok": false,
+  "result": "flag --log-verbosity requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--main-gpu 7",
+  "ok": true,
+  "result": [
+   "--main-gpu",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--main-gpu",
+  "ok": false,
+  "result": "flag --main-gpu requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--mmproj 7",
+  "ok": true,
+  "result": [
+   "--mmproj",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--mmproj",
+  "ok": false,
+  "result": "flag --mmproj requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--n-gpu-layers 7",
+  "ok": true,
+  "result": [
+   "--n-gpu-layers",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--n-gpu-layers",
+  "ok": false,
+  "result": "flag --n-gpu-layers requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--n-predict 7",
+  "ok": true,
+  "result": [
+   "--n-predict",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--n-predict",
+  "ok": false,
+  "result": "flag --n-predict requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--parallel 7",
+  "ok": true,
+  "result": [
+   "--parallel",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--parallel",
+  "ok": false,
+  "result": "flag --parallel requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--reasoning-format 7",
+  "ok": true,
+  "result": [
+   "--reasoning-format",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--reasoning-format",
+  "ok": false,
+  "result": "flag --reasoning-format requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--rope-freq-base 7",
+  "ok": true,
+  "result": [
+   "--rope-freq-base",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--rope-freq-base",
+  "ok": false,
+  "result": "flag --rope-freq-base requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--rope-freq-scale 7",
+  "ok": true,
+  "result": [
+   "--rope-freq-scale",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--rope-freq-scale",
+  "ok": false,
+  "result": "flag --rope-freq-scale requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--rope-scaling 7",
+  "ok": true,
+  "result": [
+   "--rope-scaling",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--rope-scaling",
+  "ok": false,
+  "result": "flag --rope-scaling requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--seed 7",
+  "ok": true,
+  "result": [
+   "--seed",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--seed",
+  "ok": false,
+  "result": "flag --seed requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--split-mode 7",
+  "ok": true,
+  "result": [
+   "--split-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--split-mode",
+  "ok": false,
+  "result": "flag --split-mode requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--threads 7",
+  "ok": true,
+  "result": [
+   "--threads",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--threads",
+  "ok": false,
+  "result": "flag --threads requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--threads-batch 7",
+  "ok": true,
+  "result": [
+   "--threads-batch",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--threads-batch",
+  "ok": false,
+  "result": "flag --threads-batch requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--ubatch-size 7",
+  "ok": true,
+  "result": [
+   "--ubatch-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--ubatch-size",
+  "ok": false,
+  "result": "flag --ubatch-size requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len 4096",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": false,
+  "result": "flag not allowed: --enable-auto-tool-choice"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--trust-remote-code",
+  "ok": false,
+  "result": "flag not allowed: --trust-remote-code"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": true,
+  "result": [
+   "--ctx-size",
+   "32768",
+   "--jinja"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag --flash-attn requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": true,
+  "result": [
+   "--n-predict",
+   "8192",
+   "--n-gpu-layers",
+   "999"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": true,
+  "result": [
+   "--mmproj",
+   "a.gguf",
+   "--jinja"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": false,
+  "result": "flag not allowed: --max-seq-len"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag not allowed: --draft-mode"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--cont-batching",
+  "ok": true,
+  "result": [
+   "--cont-batching"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--context-shift",
+  "ok": true,
+  "result": [
+   "--context-shift"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--jinja",
+  "ok": true,
+  "result": [
+   "--jinja"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-unified",
+  "ok": true,
+  "result": [
+   "--kv-unified"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--llama-k2",
+  "ok": true,
+  "result": [
+   "--llama-k2"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--llama-next",
+  "ok": true,
+  "result": [
+   "--llama-next"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--llama-prism",
+  "ok": true,
+  "result": [
+   "--llama-prism"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--metrics",
+  "ok": true,
+  "result": [
+   "--metrics"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--mlock",
+  "ok": true,
+  "result": [
+   "--mlock"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--no-context-shift",
+  "ok": true,
+  "result": [
+   "--no-context-shift"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--no-kv-offload",
+  "ok": true,
+  "result": [
+   "--no-kv-offload"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--no-kv-unified",
+  "ok": true,
+  "result": [
+   "--no-kv-unified"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--no-mmap",
+  "ok": true,
+  "result": [
+   "--no-mmap"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--no-warmup",
+  "ok": true,
+  "result": [
+   "--no-warmup"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--batch-size 7",
+  "ok": true,
+  "result": [
+   "--batch-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--batch-size",
+  "ok": false,
+  "result": "flag --batch-size requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--cache-type-k 7",
+  "ok": true,
+  "result": [
+   "--cache-type-k",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--cache-type-k",
+  "ok": false,
+  "result": "flag --cache-type-k requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--cache-type-v 7",
+  "ok": true,
+  "result": [
+   "--cache-type-v",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--cache-type-v",
+  "ok": false,
+  "result": "flag --cache-type-v requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--chat-template-file 7",
+  "ok": true,
+  "result": [
+   "--chat-template-file",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--chat-template-file",
+  "ok": false,
+  "result": "flag --chat-template-file requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--chat-template-kwargs 7",
+  "ok": true,
+  "result": [
+   "--chat-template-kwargs",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--chat-template-kwargs",
+  "ok": false,
+  "result": "flag --chat-template-kwargs requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--ctx-size 7",
+  "ok": true,
+  "result": [
+   "--ctx-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--ctx-size",
+  "ok": false,
+  "result": "flag --ctx-size requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--defrag-thold 7",
+  "ok": true,
+  "result": [
+   "--defrag-thold",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--defrag-thold",
+  "ok": false,
+  "result": "flag --defrag-thold requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--flash-attn 7",
+  "ok": true,
+  "result": [
+   "--flash-attn",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--flash-attn",
+  "ok": false,
+  "result": "flag --flash-attn requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-unified-per-slot 7",
+  "ok": true,
+  "result": [
+   "--kv-unified-per-slot",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-unified-per-slot",
+  "ok": false,
+  "result": "flag --kv-unified-per-slot requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--log-verbosity 7",
+  "ok": true,
+  "result": [
+   "--log-verbosity",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--log-verbosity",
+  "ok": false,
+  "result": "flag --log-verbosity requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--main-gpu 7",
+  "ok": true,
+  "result": [
+   "--main-gpu",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--main-gpu",
+  "ok": false,
+  "result": "flag --main-gpu requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--mmproj 7",
+  "ok": true,
+  "result": [
+   "--mmproj",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--mmproj",
+  "ok": false,
+  "result": "flag --mmproj requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--n-gpu-layers 7",
+  "ok": true,
+  "result": [
+   "--n-gpu-layers",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--n-gpu-layers",
+  "ok": false,
+  "result": "flag --n-gpu-layers requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--n-predict 7",
+  "ok": true,
+  "result": [
+   "--n-predict",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--n-predict",
+  "ok": false,
+  "result": "flag --n-predict requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--parallel 7",
+  "ok": true,
+  "result": [
+   "--parallel",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--parallel",
+  "ok": false,
+  "result": "flag --parallel requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--reasoning-format 7",
+  "ok": true,
+  "result": [
+   "--reasoning-format",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--reasoning-format",
+  "ok": false,
+  "result": "flag --reasoning-format requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--rope-freq-base 7",
+  "ok": true,
+  "result": [
+   "--rope-freq-base",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--rope-freq-base",
+  "ok": false,
+  "result": "flag --rope-freq-base requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--rope-freq-scale 7",
+  "ok": true,
+  "result": [
+   "--rope-freq-scale",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--rope-freq-scale",
+  "ok": false,
+  "result": "flag --rope-freq-scale requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--rope-scaling 7",
+  "ok": true,
+  "result": [
+   "--rope-scaling",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--rope-scaling",
+  "ok": false,
+  "result": "flag --rope-scaling requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--seed 7",
+  "ok": true,
+  "result": [
+   "--seed",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--seed",
+  "ok": false,
+  "result": "flag --seed requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--split-mode 7",
+  "ok": true,
+  "result": [
+   "--split-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--split-mode",
+  "ok": false,
+  "result": "flag --split-mode requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--threads 7",
+  "ok": true,
+  "result": [
+   "--threads",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--threads",
+  "ok": false,
+  "result": "flag --threads requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--threads-batch 7",
+  "ok": true,
+  "result": [
+   "--threads-batch",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--threads-batch",
+  "ok": false,
+  "result": "flag --threads-batch requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--ubatch-size 7",
+  "ok": true,
+  "result": [
+   "--ubatch-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--ubatch-size",
+  "ok": false,
+  "result": "flag --ubatch-size requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len 4096",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": false,
+  "result": "flag not allowed: --enable-auto-tool-choice"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--trust-remote-code",
+  "ok": false,
+  "result": "flag not allowed: --trust-remote-code"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": true,
+  "result": [
+   "--ctx-size",
+   "32768",
+   "--jinja"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag --flash-attn requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": true,
+  "result": [
+   "--n-predict",
+   "8192",
+   "--n-gpu-layers",
+   "999"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": true,
+  "result": [
+   "--mmproj",
+   "a.gguf",
+   "--jinja"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": false,
+  "result": "flag not allowed: --max-seq-len"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag not allowed: --draft-mode"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--cont-batching",
+  "ok": true,
+  "result": [
+   "--cont-batching"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--context-shift",
+  "ok": true,
+  "result": [
+   "--context-shift"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--jinja",
+  "ok": true,
+  "result": [
+   "--jinja"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--kv-unified",
+  "ok": true,
+  "result": [
+   "--kv-unified"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--llama-k2",
+  "ok": true,
+  "result": [
+   "--llama-k2"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--llama-next",
+  "ok": true,
+  "result": [
+   "--llama-next"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--llama-prism",
+  "ok": true,
+  "result": [
+   "--llama-prism"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--metrics",
+  "ok": true,
+  "result": [
+   "--metrics"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--mlock",
+  "ok": true,
+  "result": [
+   "--mlock"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--no-context-shift",
+  "ok": true,
+  "result": [
+   "--no-context-shift"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--no-kv-offload",
+  "ok": true,
+  "result": [
+   "--no-kv-offload"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--no-kv-unified",
+  "ok": true,
+  "result": [
+   "--no-kv-unified"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--no-mmap",
+  "ok": true,
+  "result": [
+   "--no-mmap"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--no-warmup",
+  "ok": true,
+  "result": [
+   "--no-warmup"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--batch-size 7",
+  "ok": true,
+  "result": [
+   "--batch-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--batch-size",
+  "ok": false,
+  "result": "flag --batch-size requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--cache-type-k 7",
+  "ok": true,
+  "result": [
+   "--cache-type-k",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--cache-type-k",
+  "ok": false,
+  "result": "flag --cache-type-k requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--cache-type-v 7",
+  "ok": true,
+  "result": [
+   "--cache-type-v",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--cache-type-v",
+  "ok": false,
+  "result": "flag --cache-type-v requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--chat-template-file 7",
+  "ok": true,
+  "result": [
+   "--chat-template-file",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--chat-template-file",
+  "ok": false,
+  "result": "flag --chat-template-file requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--chat-template-kwargs 7",
+  "ok": true,
+  "result": [
+   "--chat-template-kwargs",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--chat-template-kwargs",
+  "ok": false,
+  "result": "flag --chat-template-kwargs requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--ctx-size 7",
+  "ok": true,
+  "result": [
+   "--ctx-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--ctx-size",
+  "ok": false,
+  "result": "flag --ctx-size requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--defrag-thold 7",
+  "ok": true,
+  "result": [
+   "--defrag-thold",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--defrag-thold",
+  "ok": false,
+  "result": "flag --defrag-thold requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--flash-attn 7",
+  "ok": true,
+  "result": [
+   "--flash-attn",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--flash-attn",
+  "ok": false,
+  "result": "flag --flash-attn requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--kv-unified-per-slot 7",
+  "ok": true,
+  "result": [
+   "--kv-unified-per-slot",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--kv-unified-per-slot",
+  "ok": false,
+  "result": "flag --kv-unified-per-slot requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--log-verbosity 7",
+  "ok": true,
+  "result": [
+   "--log-verbosity",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--log-verbosity",
+  "ok": false,
+  "result": "flag --log-verbosity requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--main-gpu 7",
+  "ok": true,
+  "result": [
+   "--main-gpu",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--main-gpu",
+  "ok": false,
+  "result": "flag --main-gpu requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--mmproj 7",
+  "ok": true,
+  "result": [
+   "--mmproj",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--mmproj",
+  "ok": false,
+  "result": "flag --mmproj requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--n-gpu-layers 7",
+  "ok": true,
+  "result": [
+   "--n-gpu-layers",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--n-gpu-layers",
+  "ok": false,
+  "result": "flag --n-gpu-layers requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--n-predict 7",
+  "ok": true,
+  "result": [
+   "--n-predict",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--n-predict",
+  "ok": false,
+  "result": "flag --n-predict requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--parallel 7",
+  "ok": true,
+  "result": [
+   "--parallel",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--parallel",
+  "ok": false,
+  "result": "flag --parallel requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--reasoning-format 7",
+  "ok": true,
+  "result": [
+   "--reasoning-format",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--reasoning-format",
+  "ok": false,
+  "result": "flag --reasoning-format requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--rope-freq-base 7",
+  "ok": true,
+  "result": [
+   "--rope-freq-base",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--rope-freq-base",
+  "ok": false,
+  "result": "flag --rope-freq-base requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--rope-freq-scale 7",
+  "ok": true,
+  "result": [
+   "--rope-freq-scale",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--rope-freq-scale",
+  "ok": false,
+  "result": "flag --rope-freq-scale requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--rope-scaling 7",
+  "ok": true,
+  "result": [
+   "--rope-scaling",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--rope-scaling",
+  "ok": false,
+  "result": "flag --rope-scaling requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--seed 7",
+  "ok": true,
+  "result": [
+   "--seed",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--seed",
+  "ok": false,
+  "result": "flag --seed requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--split-mode 7",
+  "ok": true,
+  "result": [
+   "--split-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--split-mode",
+  "ok": false,
+  "result": "flag --split-mode requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--threads 7",
+  "ok": true,
+  "result": [
+   "--threads",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--threads",
+  "ok": false,
+  "result": "flag --threads requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--threads-batch 7",
+  "ok": true,
+  "result": [
+   "--threads-batch",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--threads-batch",
+  "ok": false,
+  "result": "flag --threads-batch requires a value"
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--ubatch-size 7",
+  "ok": true,
+  "result": [
+   "--ubatch-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "llamacpp",
+  "hf_id": "unknown/model",
+  "args": "--ubatch-size",
+  "ok": false,
+  "result": "flag --ubatch-size requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--max-model-len 4096",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": false,
+  "result": "flag not allowed: --enable-auto-tool-choice"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--trust-remote-code",
+  "ok": false,
+  "result": "flag not allowed: --trust-remote-code"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": false,
+  "result": "flag not allowed: --ctx-size"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag not allowed: --parallel"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": false,
+  "result": "flag not allowed: --n-predict"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": false,
+  "result": "flag not allowed: --mmproj"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": false,
+  "result": "flag not allowed: --max-seq-len"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag not allowed: --draft-mode"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--cpu",
+  "ok": true,
+  "result": [
+   "--cpu"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--cuda",
+  "ok": true,
+  "result": [
+   "--cuda"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--disable-exact-dsml-tool-replay",
+  "ok": true,
+  "result": [
+   "--disable-exact-dsml-tool-replay"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--kv-cache-reject-different-quant",
+  "ok": true,
+  "result": [
+   "--kv-cache-reject-different-quant"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--backend 7",
+  "ok": true,
+  "result": [
+   "--backend",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--backend",
+  "ok": false,
+  "result": "flag --backend requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--ctx 7",
+  "ok": true,
+  "result": [
+   "--ctx",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--ctx",
+  "ok": false,
+  "result": "flag --ctx requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--kv-cache-boundary-align-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-boundary-align-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--kv-cache-boundary-align-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-boundary-align-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--kv-cache-boundary-trim-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-boundary-trim-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--kv-cache-boundary-trim-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-boundary-trim-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--kv-cache-cold-max-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-cold-max-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--kv-cache-cold-max-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-cold-max-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--kv-cache-continued-interval-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-continued-interval-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--kv-cache-continued-interval-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-continued-interval-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--kv-cache-min-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-min-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--kv-cache-min-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-min-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--kv-disk-space-mb 7",
+  "ok": true,
+  "result": [
+   "--kv-disk-space-mb",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/plain",
+  "args": "--kv-disk-space-mb",
+  "ok": false,
+  "result": "flag --kv-disk-space-mb requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len 4096",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": false,
+  "result": "flag not allowed: --enable-auto-tool-choice"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--trust-remote-code",
+  "ok": false,
+  "result": "flag not allowed: --trust-remote-code"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": false,
+  "result": "flag not allowed: --ctx-size"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag not allowed: --parallel"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": false,
+  "result": "flag not allowed: --n-predict"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": false,
+  "result": "flag not allowed: --mmproj"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": false,
+  "result": "flag not allowed: --max-seq-len"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag not allowed: --draft-mode"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--cpu",
+  "ok": true,
+  "result": [
+   "--cpu"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--cuda",
+  "ok": true,
+  "result": [
+   "--cuda"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--disable-exact-dsml-tool-replay",
+  "ok": true,
+  "result": [
+   "--disable-exact-dsml-tool-replay"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-cache-reject-different-quant",
+  "ok": true,
+  "result": [
+   "--kv-cache-reject-different-quant"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--backend 7",
+  "ok": true,
+  "result": [
+   "--backend",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--backend",
+  "ok": false,
+  "result": "flag --backend requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--ctx 7",
+  "ok": true,
+  "result": [
+   "--ctx",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--ctx",
+  "ok": false,
+  "result": "flag --ctx requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-cache-boundary-align-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-boundary-align-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-cache-boundary-align-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-boundary-align-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-cache-boundary-trim-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-boundary-trim-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-cache-boundary-trim-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-boundary-trim-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-cache-cold-max-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-cold-max-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-cache-cold-max-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-cold-max-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-cache-continued-interval-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-continued-interval-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-cache-continued-interval-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-continued-interval-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-cache-min-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-min-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-cache-min-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-min-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-disk-space-mb 7",
+  "ok": true,
+  "result": [
+   "--kv-disk-space-mb",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-disk-space-mb",
+  "ok": false,
+  "result": "flag --kv-disk-space-mb requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len 4096",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": false,
+  "result": "flag not allowed: --enable-auto-tool-choice"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--trust-remote-code",
+  "ok": false,
+  "result": "flag not allowed: --trust-remote-code"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": false,
+  "result": "flag not allowed: --ctx-size"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag not allowed: --parallel"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": false,
+  "result": "flag not allowed: --n-predict"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": false,
+  "result": "flag not allowed: --mmproj"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": false,
+  "result": "flag not allowed: --max-seq-len"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag not allowed: --draft-mode"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--cpu",
+  "ok": true,
+  "result": [
+   "--cpu"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--cuda",
+  "ok": true,
+  "result": [
+   "--cuda"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--disable-exact-dsml-tool-replay",
+  "ok": true,
+  "result": [
+   "--disable-exact-dsml-tool-replay"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-cache-reject-different-quant",
+  "ok": true,
+  "result": [
+   "--kv-cache-reject-different-quant"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--backend 7",
+  "ok": true,
+  "result": [
+   "--backend",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--backend",
+  "ok": false,
+  "result": "flag --backend requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--ctx 7",
+  "ok": true,
+  "result": [
+   "--ctx",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--ctx",
+  "ok": false,
+  "result": "flag --ctx requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-cache-boundary-align-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-boundary-align-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-cache-boundary-align-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-boundary-align-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-cache-boundary-trim-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-boundary-trim-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-cache-boundary-trim-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-boundary-trim-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-cache-cold-max-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-cold-max-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-cache-cold-max-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-cold-max-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-cache-continued-interval-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-continued-interval-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-cache-continued-interval-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-continued-interval-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-cache-min-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-min-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-cache-min-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-min-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-disk-space-mb 7",
+  "ok": true,
+  "result": [
+   "--kv-disk-space-mb",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-disk-space-mb",
+  "ok": false,
+  "result": "flag --kv-disk-space-mb requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len 4096",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": false,
+  "result": "flag not allowed: --enable-auto-tool-choice"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--trust-remote-code",
+  "ok": false,
+  "result": "flag not allowed: --trust-remote-code"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": false,
+  "result": "flag not allowed: --ctx-size"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag not allowed: --parallel"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": false,
+  "result": "flag not allowed: --n-predict"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": false,
+  "result": "flag not allowed: --mmproj"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": false,
+  "result": "flag not allowed: --max-seq-len"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag not allowed: --draft-mode"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--cpu",
+  "ok": true,
+  "result": [
+   "--cpu"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--cuda",
+  "ok": true,
+  "result": [
+   "--cuda"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--disable-exact-dsml-tool-replay",
+  "ok": true,
+  "result": [
+   "--disable-exact-dsml-tool-replay"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--kv-cache-reject-different-quant",
+  "ok": true,
+  "result": [
+   "--kv-cache-reject-different-quant"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--backend 7",
+  "ok": true,
+  "result": [
+   "--backend",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--backend",
+  "ok": false,
+  "result": "flag --backend requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--ctx 7",
+  "ok": true,
+  "result": [
+   "--ctx",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--ctx",
+  "ok": false,
+  "result": "flag --ctx requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--kv-cache-boundary-align-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-boundary-align-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--kv-cache-boundary-align-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-boundary-align-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--kv-cache-boundary-trim-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-boundary-trim-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--kv-cache-boundary-trim-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-boundary-trim-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--kv-cache-cold-max-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-cold-max-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--kv-cache-cold-max-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-cold-max-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--kv-cache-continued-interval-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-continued-interval-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--kv-cache-continued-interval-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-continued-interval-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--kv-cache-min-tokens 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-min-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--kv-cache-min-tokens",
+  "ok": false,
+  "result": "flag --kv-cache-min-tokens requires a value"
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--kv-disk-space-mb 7",
+  "ok": true,
+  "result": [
+   "--kv-disk-space-mb",
+   "7"
+  ]
+ },
+ {
+  "engine": "ds4",
+  "hf_id": "unknown/model",
+  "args": "--kv-disk-space-mb",
+  "ok": false,
+  "result": "flag --kv-disk-space-mb requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--max-model-len 4096",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": false,
+  "result": "flag not allowed: --enable-auto-tool-choice"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--trust-remote-code",
+  "ok": false,
+  "result": "flag not allowed: --trust-remote-code"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": false,
+  "result": "flag not allowed: --ctx-size"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag not allowed: --parallel"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": false,
+  "result": "flag not allowed: --n-predict"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": false,
+  "result": "flag not allowed: --mmproj"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": true,
+  "result": [
+   "--max-seq-len",
+   "8192",
+   "--cache-mode",
+   "Q4"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag --draft-mode requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--cache-mode 7",
+  "ok": true,
+  "result": [
+   "--cache-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--cache-mode",
+  "ok": false,
+  "result": "flag --cache-mode requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--cache-size 7",
+  "ok": true,
+  "result": [
+   "--cache-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--cache-size",
+  "ok": false,
+  "result": "flag --cache-size requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--chunk-size 7",
+  "ok": true,
+  "result": [
+   "--chunk-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--chunk-size",
+  "ok": false,
+  "result": "flag --chunk-size requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--draft-cache-mode 7",
+  "ok": true,
+  "result": [
+   "--draft-cache-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--draft-cache-mode",
+  "ok": false,
+  "result": "flag --draft-cache-mode requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--draft-mode 7",
+  "ok": true,
+  "result": [
+   "--draft-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag --draft-mode requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--draft-model-name 7",
+  "ok": true,
+  "result": [
+   "--draft-model-name",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--draft-model-name",
+  "ok": false,
+  "result": "flag --draft-model-name requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--draft-num-tokens 7",
+  "ok": true,
+  "result": [
+   "--draft-num-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--draft-num-tokens",
+  "ok": false,
+  "result": "flag --draft-num-tokens requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--gpu-split-auto 7",
+  "ok": true,
+  "result": [
+   "--gpu-split-auto",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--gpu-split-auto",
+  "ok": false,
+  "result": "flag --gpu-split-auto requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--max-batch-size 7",
+  "ok": true,
+  "result": [
+   "--max-batch-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--max-batch-size",
+  "ok": false,
+  "result": "flag --max-batch-size requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--max-seq-len 7",
+  "ok": true,
+  "result": [
+   "--max-seq-len",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--max-seq-len",
+  "ok": false,
+  "result": "flag --max-seq-len requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--model-name 7",
+  "ok": true,
+  "result": [
+   "--model-name",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--model-name",
+  "ok": false,
+  "result": "flag --model-name requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--reasoning 7",
+  "ok": true,
+  "result": [
+   "--reasoning",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--reasoning",
+  "ok": false,
+  "result": "flag --reasoning requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--vision 7",
+  "ok": true,
+  "result": [
+   "--vision",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/plain",
+  "args": "--vision",
+  "ok": false,
+  "result": "flag --vision requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len 4096",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": false,
+  "result": "flag not allowed: --enable-auto-tool-choice"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--trust-remote-code",
+  "ok": false,
+  "result": "flag not allowed: --trust-remote-code"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": false,
+  "result": "flag not allowed: --ctx-size"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag not allowed: --parallel"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": false,
+  "result": "flag not allowed: --n-predict"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": false,
+  "result": "flag not allowed: --mmproj"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": true,
+  "result": [
+   "--max-seq-len",
+   "8192",
+   "--cache-mode",
+   "Q4"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag --draft-mode requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--cache-mode 7",
+  "ok": true,
+  "result": [
+   "--cache-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--cache-mode",
+  "ok": false,
+  "result": "flag --cache-mode requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--cache-size 7",
+  "ok": true,
+  "result": [
+   "--cache-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--cache-size",
+  "ok": false,
+  "result": "flag --cache-size requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--chunk-size 7",
+  "ok": true,
+  "result": [
+   "--chunk-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--chunk-size",
+  "ok": false,
+  "result": "flag --chunk-size requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--draft-cache-mode 7",
+  "ok": true,
+  "result": [
+   "--draft-cache-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--draft-cache-mode",
+  "ok": false,
+  "result": "flag --draft-cache-mode requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--draft-mode 7",
+  "ok": true,
+  "result": [
+   "--draft-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag --draft-mode requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--draft-model-name 7",
+  "ok": true,
+  "result": [
+   "--draft-model-name",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--draft-model-name",
+  "ok": false,
+  "result": "flag --draft-model-name requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--draft-num-tokens 7",
+  "ok": true,
+  "result": [
+   "--draft-num-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--draft-num-tokens",
+  "ok": false,
+  "result": "flag --draft-num-tokens requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--gpu-split-auto 7",
+  "ok": true,
+  "result": [
+   "--gpu-split-auto",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--gpu-split-auto",
+  "ok": false,
+  "result": "flag --gpu-split-auto requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-batch-size 7",
+  "ok": true,
+  "result": [
+   "--max-batch-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-batch-size",
+  "ok": false,
+  "result": "flag --max-batch-size requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-seq-len 7",
+  "ok": true,
+  "result": [
+   "--max-seq-len",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-seq-len",
+  "ok": false,
+  "result": "flag --max-seq-len requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--model-name 7",
+  "ok": true,
+  "result": [
+   "--model-name",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--model-name",
+  "ok": false,
+  "result": "flag --model-name requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--reasoning 7",
+  "ok": true,
+  "result": [
+   "--reasoning",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--reasoning",
+  "ok": false,
+  "result": "flag --reasoning requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--vision 7",
+  "ok": true,
+  "result": [
+   "--vision",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--vision",
+  "ok": false,
+  "result": "flag --vision requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len 4096",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": false,
+  "result": "flag not allowed: --enable-auto-tool-choice"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--trust-remote-code",
+  "ok": false,
+  "result": "flag not allowed: --trust-remote-code"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": false,
+  "result": "flag not allowed: --ctx-size"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag not allowed: --parallel"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": false,
+  "result": "flag not allowed: --n-predict"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": false,
+  "result": "flag not allowed: --mmproj"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": true,
+  "result": [
+   "--max-seq-len",
+   "8192",
+   "--cache-mode",
+   "Q4"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag --draft-mode requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--cache-mode 7",
+  "ok": true,
+  "result": [
+   "--cache-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--cache-mode",
+  "ok": false,
+  "result": "flag --cache-mode requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--cache-size 7",
+  "ok": true,
+  "result": [
+   "--cache-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--cache-size",
+  "ok": false,
+  "result": "flag --cache-size requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--chunk-size 7",
+  "ok": true,
+  "result": [
+   "--chunk-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--chunk-size",
+  "ok": false,
+  "result": "flag --chunk-size requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--draft-cache-mode 7",
+  "ok": true,
+  "result": [
+   "--draft-cache-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--draft-cache-mode",
+  "ok": false,
+  "result": "flag --draft-cache-mode requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--draft-mode 7",
+  "ok": true,
+  "result": [
+   "--draft-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag --draft-mode requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--draft-model-name 7",
+  "ok": true,
+  "result": [
+   "--draft-model-name",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--draft-model-name",
+  "ok": false,
+  "result": "flag --draft-model-name requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--draft-num-tokens 7",
+  "ok": true,
+  "result": [
+   "--draft-num-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--draft-num-tokens",
+  "ok": false,
+  "result": "flag --draft-num-tokens requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--gpu-split-auto 7",
+  "ok": true,
+  "result": [
+   "--gpu-split-auto",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--gpu-split-auto",
+  "ok": false,
+  "result": "flag --gpu-split-auto requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-batch-size 7",
+  "ok": true,
+  "result": [
+   "--max-batch-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-batch-size",
+  "ok": false,
+  "result": "flag --max-batch-size requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-seq-len 7",
+  "ok": true,
+  "result": [
+   "--max-seq-len",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-seq-len",
+  "ok": false,
+  "result": "flag --max-seq-len requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--model-name 7",
+  "ok": true,
+  "result": [
+   "--model-name",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--model-name",
+  "ok": false,
+  "result": "flag --model-name requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--reasoning 7",
+  "ok": true,
+  "result": [
+   "--reasoning",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--reasoning",
+  "ok": false,
+  "result": "flag --reasoning requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--vision 7",
+  "ok": true,
+  "result": [
+   "--vision",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--vision",
+  "ok": false,
+  "result": "flag --vision requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len 4096",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag not allowed: --max-model-len"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": false,
+  "result": "flag not allowed: --enable-auto-tool-choice"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--trust-remote-code",
+  "ok": false,
+  "result": "flag not allowed: --trust-remote-code"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": false,
+  "result": "flag not allowed: --ctx-size"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag not allowed: --parallel"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": false,
+  "result": "flag not allowed: --n-predict"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": false,
+  "result": "flag not allowed: --mmproj"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": true,
+  "result": [
+   "--max-seq-len",
+   "8192",
+   "--cache-mode",
+   "Q4"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag --draft-mode requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--cache-mode 7",
+  "ok": true,
+  "result": [
+   "--cache-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--cache-mode",
+  "ok": false,
+  "result": "flag --cache-mode requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--cache-size 7",
+  "ok": true,
+  "result": [
+   "--cache-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--cache-size",
+  "ok": false,
+  "result": "flag --cache-size requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--chunk-size 7",
+  "ok": true,
+  "result": [
+   "--chunk-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--chunk-size",
+  "ok": false,
+  "result": "flag --chunk-size requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--draft-cache-mode 7",
+  "ok": true,
+  "result": [
+   "--draft-cache-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--draft-cache-mode",
+  "ok": false,
+  "result": "flag --draft-cache-mode requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--draft-mode 7",
+  "ok": true,
+  "result": [
+   "--draft-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag --draft-mode requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--draft-model-name 7",
+  "ok": true,
+  "result": [
+   "--draft-model-name",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--draft-model-name",
+  "ok": false,
+  "result": "flag --draft-model-name requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--draft-num-tokens 7",
+  "ok": true,
+  "result": [
+   "--draft-num-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--draft-num-tokens",
+  "ok": false,
+  "result": "flag --draft-num-tokens requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--gpu-split-auto 7",
+  "ok": true,
+  "result": [
+   "--gpu-split-auto",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--gpu-split-auto",
+  "ok": false,
+  "result": "flag --gpu-split-auto requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--max-batch-size 7",
+  "ok": true,
+  "result": [
+   "--max-batch-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--max-batch-size",
+  "ok": false,
+  "result": "flag --max-batch-size requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--max-seq-len 7",
+  "ok": true,
+  "result": [
+   "--max-seq-len",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--max-seq-len",
+  "ok": false,
+  "result": "flag --max-seq-len requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--model-name 7",
+  "ok": true,
+  "result": [
+   "--model-name",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--model-name",
+  "ok": false,
+  "result": "flag --model-name requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--reasoning 7",
+  "ok": true,
+  "result": [
+   "--reasoning",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--reasoning",
+  "ok": false,
+  "result": "flag --reasoning requires a value"
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--vision 7",
+  "ok": true,
+  "result": [
+   "--vision",
+   "7"
+  ]
+ },
+ {
+  "engine": "exllamav3",
+  "hf_id": "unknown/model",
+  "args": "--vision",
+  "ok": false,
+  "result": "flag --vision requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--max-model-len 4096",
+  "ok": true,
+  "result": [
+   "--max-model-len",
+   "4096"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": true,
+  "result": [
+   "--enable-auto-tool-choice",
+   "--tool-call-parser",
+   "qwen3_coder"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--trust-remote-code",
+  "ok": true,
+  "result": [
+   "--trust-remote-code"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": false,
+  "result": "flag not allowed: --ctx-size"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag not allowed: --parallel"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": false,
+  "result": "flag not allowed: --n-predict"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": false,
+  "result": "flag not allowed: --mmproj"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": false,
+  "result": "flag not allowed: --max-seq-len"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag not allowed: --draft-mode"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--cute-dsl-arch-sm121a",
+  "ok": true,
+  "result": [
+   "--cute-dsl-arch-sm121a"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--disable-log-requests",
+  "ok": true,
+  "result": [
+   "--disable-log-requests"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--disable-log-stats",
+  "ok": true,
+  "result": [
+   "--disable-log-stats"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--enable-auto-tool-choice",
+  "ok": true,
+  "result": [
+   "--enable-auto-tool-choice"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--enforce-eager",
+  "ok": true,
+  "result": [
+   "--enforce-eager"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--force-fp8-marlin",
+  "ok": true,
+  "result": [
+   "--force-fp8-marlin"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--language-model-only",
+  "ok": true,
+  "result": [
+   "--language-model-only"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--no-enable-prefix-caching",
+  "ok": true,
+  "result": [
+   "--no-enable-prefix-caching"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--skip-mm-profiling",
+  "ok": true,
+  "result": [
+   "--skip-mm-profiling"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--trust-remote-code",
+  "ok": true,
+  "result": [
+   "--trust-remote-code"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--vllm-025",
+  "ok": true,
+  "result": [
+   "--vllm-025"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--vllm-027",
+  "ok": true,
+  "result": [
+   "--vllm-027"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--vllm-028",
+  "ok": true,
+  "result": [
+   "--vllm-028"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--vllm-nightly",
+  "ok": true,
+  "result": [
+   "--vllm-nightly"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--attention-backend 7",
+  "ok": true,
+  "result": [
+   "--attention-backend",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--attention-backend",
+  "ok": false,
+  "result": "flag --attention-backend requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--block-size 7",
+  "ok": true,
+  "result": [
+   "--block-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--block-size",
+  "ok": false,
+  "result": "flag --block-size requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--default-chat-template-kwargs 7",
+  "ok": true,
+  "result": [
+   "--default-chat-template-kwargs",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--default-chat-template-kwargs",
+  "ok": false,
+  "result": "flag --default-chat-template-kwargs requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--dtype 7",
+  "ok": true,
+  "result": [
+   "--dtype",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--dtype",
+  "ok": false,
+  "result": "flag --dtype requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--gpu-memory-utilization 7",
+  "ok": true,
+  "result": [
+   "--gpu-memory-utilization",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--gpu-memory-utilization",
+  "ok": false,
+  "result": "flag --gpu-memory-utilization requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--kv-cache-dtype 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-dtype",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--kv-cache-dtype",
+  "ok": false,
+  "result": "flag --kv-cache-dtype requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--limit-mm-per-prompt 7",
+  "ok": true,
+  "result": [
+   "--limit-mm-per-prompt",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--limit-mm-per-prompt",
+  "ok": false,
+  "result": "flag --limit-mm-per-prompt requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--logits_processors 7",
+  "ok": true,
+  "result": [
+   "--logits_processors",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--logits_processors",
+  "ok": false,
+  "result": "flag --logits_processors requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--max-model-len 7",
+  "ok": true,
+  "result": [
+   "--max-model-len",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--max-num-batched-tokens 7",
+  "ok": true,
+  "result": [
+   "--max-num-batched-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--max-num-batched-tokens",
+  "ok": false,
+  "result": "flag --max-num-batched-tokens requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--max-num-seqs 7",
+  "ok": true,
+  "result": [
+   "--max-num-seqs",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--max-num-seqs",
+  "ok": false,
+  "result": "flag --max-num-seqs requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--mm-processor-cache-gb 7",
+  "ok": true,
+  "result": [
+   "--mm-processor-cache-gb",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--mm-processor-cache-gb",
+  "ok": false,
+  "result": "flag --mm-processor-cache-gb requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--pipeline-parallel-size 7",
+  "ok": true,
+  "result": [
+   "--pipeline-parallel-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--pipeline-parallel-size",
+  "ok": false,
+  "result": "flag --pipeline-parallel-size requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--quantization 7",
+  "ok": true,
+  "result": [
+   "--quantization",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--quantization",
+  "ok": false,
+  "result": "flag --quantization requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--reasoning-parser 7",
+  "ok": true,
+  "result": [
+   "--reasoning-parser",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--reasoning-parser",
+  "ok": false,
+  "result": "flag --reasoning-parser requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--speculative-config 7",
+  "ok": true,
+  "result": [
+   "--speculative-config",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--speculative-config",
+  "ok": false,
+  "result": "flag --speculative-config requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--swap-space 7",
+  "ok": true,
+  "result": [
+   "--swap-space",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--swap-space",
+  "ok": false,
+  "result": "flag --swap-space requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--tensor-parallel-size 7",
+  "ok": true,
+  "result": [
+   "--tensor-parallel-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--tensor-parallel-size",
+  "ok": false,
+  "result": "flag --tensor-parallel-size requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--tokenizer-mode 7",
+  "ok": true,
+  "result": [
+   "--tokenizer-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--tokenizer-mode",
+  "ok": false,
+  "result": "flag --tokenizer-mode requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--tool-call-parser 7",
+  "ok": true,
+  "result": [
+   "--tool-call-parser",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--tool-call-parser",
+  "ok": false,
+  "result": "flag --tool-call-parser requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--uvicorn-log-level 7",
+  "ok": true,
+  "result": [
+   "--uvicorn-log-level",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/plain",
+  "args": "--uvicorn-log-level",
+  "ok": false,
+  "result": "flag --uvicorn-log-level requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len 4096",
+  "ok": true,
+  "result": [
+   "--max-model-len",
+   "4096"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": true,
+  "result": [
+   "--enable-auto-tool-choice",
+   "--tool-call-parser",
+   "qwen3_coder"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--trust-remote-code",
+  "ok": true,
+  "result": [
+   "--trust-remote-code"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": false,
+  "result": "flag not allowed: --ctx-size"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag not allowed: --parallel"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": false,
+  "result": "flag not allowed: --n-predict"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": false,
+  "result": "flag not allowed: --mmproj"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": false,
+  "result": "flag not allowed: --max-seq-len"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag not allowed: --draft-mode"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--cute-dsl-arch-sm121a",
+  "ok": true,
+  "result": [
+   "--cute-dsl-arch-sm121a"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--disable-log-requests",
+  "ok": true,
+  "result": [
+   "--disable-log-requests"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--disable-log-stats",
+  "ok": true,
+  "result": [
+   "--disable-log-stats"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--enable-auto-tool-choice",
+  "ok": true,
+  "result": [
+   "--enable-auto-tool-choice"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--enforce-eager",
+  "ok": true,
+  "result": [
+   "--enforce-eager"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--force-fp8-marlin",
+  "ok": true,
+  "result": [
+   "--force-fp8-marlin"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--language-model-only",
+  "ok": true,
+  "result": [
+   "--language-model-only"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--no-enable-prefix-caching",
+  "ok": true,
+  "result": [
+   "--no-enable-prefix-caching"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--skip-mm-profiling",
+  "ok": true,
+  "result": [
+   "--skip-mm-profiling"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--trust-remote-code",
+  "ok": true,
+  "result": [
+   "--trust-remote-code"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--vllm-025",
+  "ok": true,
+  "result": [
+   "--vllm-025"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--vllm-027",
+  "ok": true,
+  "result": [
+   "--vllm-027"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--vllm-028",
+  "ok": true,
+  "result": [
+   "--vllm-028"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--vllm-nightly",
+  "ok": true,
+  "result": [
+   "--vllm-nightly"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--attention-backend 7",
+  "ok": true,
+  "result": [
+   "--attention-backend",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--attention-backend",
+  "ok": false,
+  "result": "flag --attention-backend requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--block-size 7",
+  "ok": true,
+  "result": [
+   "--block-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--block-size",
+  "ok": false,
+  "result": "flag --block-size requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--default-chat-template-kwargs 7",
+  "ok": true,
+  "result": [
+   "--default-chat-template-kwargs",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--default-chat-template-kwargs",
+  "ok": false,
+  "result": "flag --default-chat-template-kwargs requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--dtype 7",
+  "ok": true,
+  "result": [
+   "--dtype",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--dtype",
+  "ok": false,
+  "result": "flag --dtype requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--gpu-memory-utilization 7",
+  "ok": true,
+  "result": [
+   "--gpu-memory-utilization",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--gpu-memory-utilization",
+  "ok": false,
+  "result": "flag --gpu-memory-utilization requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-cache-dtype 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-dtype",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--kv-cache-dtype",
+  "ok": false,
+  "result": "flag --kv-cache-dtype requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--limit-mm-per-prompt 7",
+  "ok": true,
+  "result": [
+   "--limit-mm-per-prompt",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--limit-mm-per-prompt",
+  "ok": false,
+  "result": "flag --limit-mm-per-prompt requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--logits_processors 7",
+  "ok": true,
+  "result": [
+   "--logits_processors",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--logits_processors",
+  "ok": false,
+  "result": "flag --logits_processors requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len 7",
+  "ok": true,
+  "result": [
+   "--max-model-len",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-num-batched-tokens 7",
+  "ok": true,
+  "result": [
+   "--max-num-batched-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-num-batched-tokens",
+  "ok": false,
+  "result": "flag --max-num-batched-tokens requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-num-seqs 7",
+  "ok": true,
+  "result": [
+   "--max-num-seqs",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--max-num-seqs",
+  "ok": false,
+  "result": "flag --max-num-seqs requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--mm-processor-cache-gb 7",
+  "ok": true,
+  "result": [
+   "--mm-processor-cache-gb",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--mm-processor-cache-gb",
+  "ok": false,
+  "result": "flag --mm-processor-cache-gb requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--pipeline-parallel-size 7",
+  "ok": true,
+  "result": [
+   "--pipeline-parallel-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--pipeline-parallel-size",
+  "ok": false,
+  "result": "flag --pipeline-parallel-size requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--quantization 7",
+  "ok": true,
+  "result": [
+   "--quantization",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--quantization",
+  "ok": false,
+  "result": "flag --quantization requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--reasoning-parser 7",
+  "ok": true,
+  "result": [
+   "--reasoning-parser",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--reasoning-parser",
+  "ok": false,
+  "result": "flag --reasoning-parser requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--speculative-config 7",
+  "ok": true,
+  "result": [
+   "--speculative-config",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--speculative-config",
+  "ok": false,
+  "result": "flag --speculative-config requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--swap-space 7",
+  "ok": true,
+  "result": [
+   "--swap-space",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--swap-space",
+  "ok": false,
+  "result": "flag --swap-space requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--tensor-parallel-size 7",
+  "ok": true,
+  "result": [
+   "--tensor-parallel-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--tensor-parallel-size",
+  "ok": false,
+  "result": "flag --tensor-parallel-size requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--tokenizer-mode 7",
+  "ok": true,
+  "result": [
+   "--tokenizer-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--tokenizer-mode",
+  "ok": false,
+  "result": "flag --tokenizer-mode requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--tool-call-parser 7",
+  "ok": true,
+  "result": [
+   "--tool-call-parser",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--tool-call-parser",
+  "ok": false,
+  "result": "flag --tool-call-parser requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--uvicorn-log-level 7",
+  "ok": true,
+  "result": [
+   "--uvicorn-log-level",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "org/Qwen3-8B",
+  "args": "--uvicorn-log-level",
+  "ok": false,
+  "result": "flag --uvicorn-log-level requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len 4096",
+  "ok": true,
+  "result": [
+   "--max-model-len",
+   "4096"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": true,
+  "result": [
+   "--enable-auto-tool-choice",
+   "--tool-call-parser",
+   "qwen3_coder"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--trust-remote-code",
+  "ok": true,
+  "result": [
+   "--trust-remote-code"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": false,
+  "result": "flag not allowed: --ctx-size"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag not allowed: --parallel"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": false,
+  "result": "flag not allowed: --n-predict"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": false,
+  "result": "flag not allowed: --mmproj"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": false,
+  "result": "flag not allowed: --max-seq-len"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag not allowed: --draft-mode"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--cute-dsl-arch-sm121a",
+  "ok": true,
+  "result": [
+   "--cute-dsl-arch-sm121a"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--disable-log-requests",
+  "ok": true,
+  "result": [
+   "--disable-log-requests"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--disable-log-stats",
+  "ok": true,
+  "result": [
+   "--disable-log-stats"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--enable-auto-tool-choice",
+  "ok": true,
+  "result": [
+   "--enable-auto-tool-choice"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--enforce-eager",
+  "ok": true,
+  "result": [
+   "--enforce-eager"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--force-fp8-marlin",
+  "ok": true,
+  "result": [
+   "--force-fp8-marlin"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--language-model-only",
+  "ok": true,
+  "result": [
+   "--language-model-only"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--no-enable-prefix-caching",
+  "ok": true,
+  "result": [
+   "--no-enable-prefix-caching"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--skip-mm-profiling",
+  "ok": true,
+  "result": [
+   "--skip-mm-profiling"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--trust-remote-code",
+  "ok": true,
+  "result": [
+   "--trust-remote-code"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--vllm-025",
+  "ok": true,
+  "result": [
+   "--vllm-025"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--vllm-027",
+  "ok": true,
+  "result": [
+   "--vllm-027"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--vllm-028",
+  "ok": true,
+  "result": [
+   "--vllm-028"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--vllm-nightly",
+  "ok": true,
+  "result": [
+   "--vllm-nightly"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--attention-backend 7",
+  "ok": true,
+  "result": [
+   "--attention-backend",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--attention-backend",
+  "ok": false,
+  "result": "flag --attention-backend requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--block-size 7",
+  "ok": true,
+  "result": [
+   "--block-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--block-size",
+  "ok": false,
+  "result": "flag --block-size requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--default-chat-template-kwargs 7",
+  "ok": true,
+  "result": [
+   "--default-chat-template-kwargs",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--default-chat-template-kwargs",
+  "ok": false,
+  "result": "flag --default-chat-template-kwargs requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--dtype 7",
+  "ok": true,
+  "result": [
+   "--dtype",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--dtype",
+  "ok": false,
+  "result": "flag --dtype requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--gpu-memory-utilization 7",
+  "ok": true,
+  "result": [
+   "--gpu-memory-utilization",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--gpu-memory-utilization",
+  "ok": false,
+  "result": "flag --gpu-memory-utilization requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-cache-dtype 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-dtype",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--kv-cache-dtype",
+  "ok": false,
+  "result": "flag --kv-cache-dtype requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--limit-mm-per-prompt 7",
+  "ok": true,
+  "result": [
+   "--limit-mm-per-prompt",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--limit-mm-per-prompt",
+  "ok": false,
+  "result": "flag --limit-mm-per-prompt requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--logits_processors 7",
+  "ok": true,
+  "result": [
+   "--logits_processors",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--logits_processors",
+  "ok": false,
+  "result": "flag --logits_processors requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len 7",
+  "ok": true,
+  "result": [
+   "--max-model-len",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-num-batched-tokens 7",
+  "ok": true,
+  "result": [
+   "--max-num-batched-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-num-batched-tokens",
+  "ok": false,
+  "result": "flag --max-num-batched-tokens requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-num-seqs 7",
+  "ok": true,
+  "result": [
+   "--max-num-seqs",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--max-num-seqs",
+  "ok": false,
+  "result": "flag --max-num-seqs requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--mm-processor-cache-gb 7",
+  "ok": true,
+  "result": [
+   "--mm-processor-cache-gb",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--mm-processor-cache-gb",
+  "ok": false,
+  "result": "flag --mm-processor-cache-gb requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--pipeline-parallel-size 7",
+  "ok": true,
+  "result": [
+   "--pipeline-parallel-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--pipeline-parallel-size",
+  "ok": false,
+  "result": "flag --pipeline-parallel-size requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--quantization 7",
+  "ok": true,
+  "result": [
+   "--quantization",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--quantization",
+  "ok": false,
+  "result": "flag --quantization requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--reasoning-parser 7",
+  "ok": true,
+  "result": [
+   "--reasoning-parser",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--reasoning-parser",
+  "ok": false,
+  "result": "flag --reasoning-parser requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--speculative-config 7",
+  "ok": true,
+  "result": [
+   "--speculative-config",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--speculative-config",
+  "ok": false,
+  "result": "flag --speculative-config requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--swap-space 7",
+  "ok": true,
+  "result": [
+   "--swap-space",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--swap-space",
+  "ok": false,
+  "result": "flag --swap-space requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--tensor-parallel-size 7",
+  "ok": true,
+  "result": [
+   "--tensor-parallel-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--tensor-parallel-size",
+  "ok": false,
+  "result": "flag --tensor-parallel-size requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--tokenizer-mode 7",
+  "ok": true,
+  "result": [
+   "--tokenizer-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--tokenizer-mode",
+  "ok": false,
+  "result": "flag --tokenizer-mode requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--tool-call-parser 7",
+  "ok": true,
+  "result": [
+   "--tool-call-parser",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--tool-call-parser",
+  "ok": false,
+  "result": "flag --tool-call-parser requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--uvicorn-log-level 7",
+  "ok": true,
+  "result": [
+   "--uvicorn-log-level",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "args": "--uvicorn-log-level",
+  "ok": false,
+  "result": "flag --uvicorn-log-level requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "",
+  "ok": true,
+  "result": []
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len 4096",
+  "ok": true,
+  "result": [
+   "--max-model-len",
+   "4096"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len --dtype",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "ok": true,
+  "result": [
+   "--enable-auto-tool-choice",
+   "--tool-call-parser",
+   "qwen3_coder"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--trust-remote-code",
+  "ok": true,
+  "result": [
+   "--trust-remote-code"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--no-such-flag 1",
+  "ok": false,
+  "result": "flag not allowed: --no-such-flag"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--ctx-size 32768 --jinja",
+  "ok": false,
+  "result": "flag not allowed: --ctx-size"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--parallel 4 --flash-attn",
+  "ok": false,
+  "result": "flag not allowed: --parallel"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--n-predict 8192 --n-gpu-layers 999",
+  "ok": false,
+  "result": "flag not allowed: --n-predict"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--model /etc/passwd",
+  "ok": false,
+  "result": "flag not allowed: --model"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--port 9999",
+  "ok": false,
+  "result": "flag not allowed: --port"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--mmproj a.gguf --jinja",
+  "ok": false,
+  "result": "flag not allowed: --mmproj"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--max-seq-len 8192 --cache-mode Q4",
+  "ok": false,
+  "result": "flag not allowed: --max-seq-len"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--draft-mode",
+  "ok": false,
+  "result": "flag not allowed: --draft-mode"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--cute-dsl-arch-sm121a",
+  "ok": true,
+  "result": [
+   "--cute-dsl-arch-sm121a"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--disable-log-requests",
+  "ok": true,
+  "result": [
+   "--disable-log-requests"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--disable-log-stats",
+  "ok": true,
+  "result": [
+   "--disable-log-stats"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--enable-auto-tool-choice",
+  "ok": true,
+  "result": [
+   "--enable-auto-tool-choice"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--enforce-eager",
+  "ok": true,
+  "result": [
+   "--enforce-eager"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--force-fp8-marlin",
+  "ok": true,
+  "result": [
+   "--force-fp8-marlin"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--language-model-only",
+  "ok": true,
+  "result": [
+   "--language-model-only"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--no-enable-prefix-caching",
+  "ok": true,
+  "result": [
+   "--no-enable-prefix-caching"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--skip-mm-profiling",
+  "ok": true,
+  "result": [
+   "--skip-mm-profiling"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--trust-remote-code",
+  "ok": true,
+  "result": [
+   "--trust-remote-code"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--vllm-025",
+  "ok": true,
+  "result": [
+   "--vllm-025"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--vllm-027",
+  "ok": true,
+  "result": [
+   "--vllm-027"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--vllm-028",
+  "ok": true,
+  "result": [
+   "--vllm-028"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--vllm-nightly",
+  "ok": true,
+  "result": [
+   "--vllm-nightly"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--attention-backend 7",
+  "ok": true,
+  "result": [
+   "--attention-backend",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--attention-backend",
+  "ok": false,
+  "result": "flag --attention-backend requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--block-size 7",
+  "ok": true,
+  "result": [
+   "--block-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--block-size",
+  "ok": false,
+  "result": "flag --block-size requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--default-chat-template-kwargs 7",
+  "ok": true,
+  "result": [
+   "--default-chat-template-kwargs",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--default-chat-template-kwargs",
+  "ok": false,
+  "result": "flag --default-chat-template-kwargs requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--dtype 7",
+  "ok": true,
+  "result": [
+   "--dtype",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--dtype",
+  "ok": false,
+  "result": "flag --dtype requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--gpu-memory-utilization 7",
+  "ok": true,
+  "result": [
+   "--gpu-memory-utilization",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--gpu-memory-utilization",
+  "ok": false,
+  "result": "flag --gpu-memory-utilization requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--kv-cache-dtype 7",
+  "ok": true,
+  "result": [
+   "--kv-cache-dtype",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--kv-cache-dtype",
+  "ok": false,
+  "result": "flag --kv-cache-dtype requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--limit-mm-per-prompt 7",
+  "ok": true,
+  "result": [
+   "--limit-mm-per-prompt",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--limit-mm-per-prompt",
+  "ok": false,
+  "result": "flag --limit-mm-per-prompt requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--logits_processors 7",
+  "ok": true,
+  "result": [
+   "--logits_processors",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--logits_processors",
+  "ok": false,
+  "result": "flag --logits_processors requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len 7",
+  "ok": true,
+  "result": [
+   "--max-model-len",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--max-model-len",
+  "ok": false,
+  "result": "flag --max-model-len requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--max-num-batched-tokens 7",
+  "ok": true,
+  "result": [
+   "--max-num-batched-tokens",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--max-num-batched-tokens",
+  "ok": false,
+  "result": "flag --max-num-batched-tokens requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--max-num-seqs 7",
+  "ok": true,
+  "result": [
+   "--max-num-seqs",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--max-num-seqs",
+  "ok": false,
+  "result": "flag --max-num-seqs requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--mm-processor-cache-gb 7",
+  "ok": true,
+  "result": [
+   "--mm-processor-cache-gb",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--mm-processor-cache-gb",
+  "ok": false,
+  "result": "flag --mm-processor-cache-gb requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--pipeline-parallel-size 7",
+  "ok": true,
+  "result": [
+   "--pipeline-parallel-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--pipeline-parallel-size",
+  "ok": false,
+  "result": "flag --pipeline-parallel-size requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--quantization 7",
+  "ok": true,
+  "result": [
+   "--quantization",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--quantization",
+  "ok": false,
+  "result": "flag --quantization requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--reasoning-parser 7",
+  "ok": true,
+  "result": [
+   "--reasoning-parser",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--reasoning-parser",
+  "ok": false,
+  "result": "flag --reasoning-parser requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--speculative-config 7",
+  "ok": true,
+  "result": [
+   "--speculative-config",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--speculative-config",
+  "ok": false,
+  "result": "flag --speculative-config requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--swap-space 7",
+  "ok": true,
+  "result": [
+   "--swap-space",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--swap-space",
+  "ok": false,
+  "result": "flag --swap-space requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--tensor-parallel-size 7",
+  "ok": true,
+  "result": [
+   "--tensor-parallel-size",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--tensor-parallel-size",
+  "ok": false,
+  "result": "flag --tensor-parallel-size requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--tokenizer-mode 7",
+  "ok": true,
+  "result": [
+   "--tokenizer-mode",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--tokenizer-mode",
+  "ok": false,
+  "result": "flag --tokenizer-mode requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--tool-call-parser 7",
+  "ok": true,
+  "result": [
+   "--tool-call-parser",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--tool-call-parser",
+  "ok": false,
+  "result": "flag --tool-call-parser requires a value"
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--uvicorn-log-level 7",
+  "ok": true,
+  "result": [
+   "--uvicorn-log-level",
+   "7"
+  ]
+ },
+ {
+  "engine": "ocr",
+  "hf_id": "unknown/model",
+  "args": "--uvicorn-log-level",
+  "ok": false,
+  "result": "flag --uvicorn-log-level requires a value"
+ }
+]

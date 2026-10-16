@@ -66,6 +66,28 @@ frontend: changing it (not the list) needs a frontend rebuild. The switch was ch
 2026-10-14 with a throwaway stand-in on an unused prefix: GET and POST reached
 it, a look-alike path and the rest of the portal stayed on Flask.
 
+## Phase 1 — the runner (vllm-runner-rs), in progress
+
+`vllm-runner-rs/` ports `vllm-runner/runner.py`, the host service that launches
+and stops the served model. Its cutover restarts the runner, which stops the
+served model: it waits for an explicit go-ahead and a maintenance window.
+
+Done, parity-tested against runner.py itself:
+- the argument allow-lists of every engine, generated from runner.py by
+  `tools/gen.py` (`src/flags.rs`, never hand-copied);
+- the argument validation `_validate_vllm_args` and the engine dispatch
+  `_flags_for`: 1 156 cases with runner.py's own answers, the refusal wording
+  included (`tests/parity.rs`);
+- the repository identity `_repo_id_of`;
+- the Bearer token check of `_check_auth`, in constant time.
+
+Not yet ported (the rest of runner.py, roughly 1 000 lines): the command
+construction `_build_cmd` and the resolvers (templates, mmproj, exllamav3
+layout, GGUF), the process supervision (`_start_process`, `_kill`, the memory
+guards and waits, the health watch, the watchdog with its auto-resume and
+persisted retry counter), the logs, the metrics, and the HTTP endpoints
+(about 45 routes) served on port 8001.
+
 ## Phases
 
 | # | Phase | Scope | Notes |

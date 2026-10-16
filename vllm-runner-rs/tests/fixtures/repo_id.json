@@ -1,0 +1,22 @@
+[
+ {
+  "hf_id": "org/plain",
+  "repo": "org/plain"
+ },
+ {
+  "hf_id": "org/Qwen3-8B",
+  "repo": "org/Qwen3-8B"
+ },
+ {
+  "hf_id": "models--a--b/snapshots/deadbeef",
+  "repo": "a/b"
+ },
+ {
+  "hf_id": "unknown/model",
+  "repo": "unknown/model"
+ },
+ {
+  "hf_id": "/x/models--o--m/snapshots/abc",
+  "repo": "o/m"
+ }
+]

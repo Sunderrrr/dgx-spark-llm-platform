@@ -154,3 +154,18 @@ pub async fn launch_media(kind: &str, body: Value, secs: u64) -> (bool, String) 
         Err(e) => (false, e.to_string()),
     }
 }
+
+/// `_sidecar_action(kind, action)`: (ok, detail). The detail carries the
+/// runner's reason, so an admin sees more than « Échec du démarrage » — the
+/// same text Flask gives: ` (reason)`, ` (HTTP 503)` or ` (ExceptionName)`.
+pub async fn sidecar_action(kind: &str, action: &str) -> (bool, String) {
+    match runner_post(&format!("/{kind}/{action}"), None, 30).await {
+        Ok(r) if r.status().is_success() => (true, String::new()),
+        Ok(r) => {
+            let status = r.status().as_u16();
+            let reason = r.json::<Value>().await.ok().and_then(|v| v.get("detail").or(v.get("error")).filter(|d| crate::keys::truthy(d)).and_then(Value::as_str).map(str::to_string)).unwrap_or_default();
+            (false, if reason.is_empty() { format!(" (HTTP {status})") } else { format!(" ({})", reason.trim()) })
+        }
+        Err(e) => (false, format!(" ({})", if e.is_timeout() { "Timeout" } else if e.is_connect() { "ConnectionError" } else { "RequestException" })),
+    }
+}

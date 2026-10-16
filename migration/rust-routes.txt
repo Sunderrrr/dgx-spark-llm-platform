@@ -158,3 +158,4 @@ POST /api/security/register/finish
 POST /api/security/remove
 POST /api/security/toggle
 POST /api/security/verify-login
+/api/latency

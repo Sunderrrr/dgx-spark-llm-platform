@@ -419,9 +419,17 @@ on the bench, calls from the trusted bridge and from loopback), but Traefik's
 forwardAuth still points at `dgx-portal:5000` in `/opt/traefik` (outside this
 repository): the switch is a Traefik configuration change, not made here.
 
-Left on Flask (3 routes): the root page `/` (a Next page; Flask's answer is a
-redirect target only) and `/api/latency` (it measures the Flask process
-itself), and `/internal/authcheck` until Traefik points at portal-rs.
+`/api/latency` is ported (`portal-rs/src/latency.rs`): the same window and
+percentiles, measured on the backend that serves the traffic (portal-rs, as
+the Flask probe measured Flask). Status and shape match the Flask answer on the
+bench; the values are timings, so they are not compared.
+
+Left on Flask (1 route): `/`. It is the Next page, which the frontend serves
+itself; Flask's answer (204 when signed in, 302 otherwise) is only a redirect
+target of Flask's own pages. portal-rs has its handler too, but routing `GET /`
+to it would hand the home page to the backend, so the route stays Flask's
+until the frontend stops asking for it. `/internal/authcheck` is served by
+portal-rs from Traefik since 2026-10-16 (see above).
 
 The fake upstream records the calls it receives (the probes left out), and
 `bench.py` compares each backend's sequence of upstream calls as well: a

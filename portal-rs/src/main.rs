@@ -69,7 +69,6 @@ async fn main() -> anyhow::Result<()> {
         .route("/docs", get(handlers::docs))
         .route("/system/stats", get(handlers::system_stats))
         .route("/usage/hourly", get(handlers::usage_hourly))
-        .route("/api/latency", get(handlers::api_latency))
         .route("/", get(handlers::index))
         .route("/api/image/history", get(handlers::api_image_history))
         .route("/api/image/status/:prompt_id", get(handlers::api_image_status))
@@ -157,6 +156,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/account/password", post(handlers::api_account_password))
         .route("/api/setup", post(handlers::api_setup))
         .route("/internal/authcheck", get(handlers::internal_authcheck))
+        .route("/api/latency", get(portal_rs::latency::api_latency))
         .route("/api/security/register/begin", post(handlers::register_begin))
         .route("/api/security/register/finish", post(handlers::register_finish))
         .route("/api/security/remove", post(handlers::passkey_remove))
@@ -213,6 +213,7 @@ async fn main() -> anyhow::Result<()> {
         
         .layer(axum::middleware::from_fn_with_state(state.clone(), portal_rs::relay::admin_layer))
         .layer(axum::middleware::from_fn(portal_rs::security::layer))
+        .layer(axum::middleware::from_fn(portal_rs::latency::layer))
         .layer(TraceLayer::new_for_http())
         .layer(DefaultBodyLimit::max(16 * 1024 * 1024)) // 16 MB max body
         .with_state(state);

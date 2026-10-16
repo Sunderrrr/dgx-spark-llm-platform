@@ -497,23 +497,6 @@ pub async fn usage_hourly(
     }
 }
 
-/// GET /api/latency - NOT PORTED. This is an in-memory ring of this process's
-/// own request durations (latency.py); answering from the Rust process would
-/// report a different measurement under the same name. Answered 501 rather
-/// than an empty list that reads as « no requests ».
-pub async fn api_latency(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
-    if let Err(e) = auth::require_session(&headers, &state.db).await {
-        return e.into_response();
-    }
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({"ok": false, "error": "Non porté sur le portail Rust : mesure du processus Flask."})),
-    )
-        .into_response()
-}
 
 /// GET /api/ranking/user/:username - one account's detail: itself, or an admin
 pub async fn api_ranking_user(

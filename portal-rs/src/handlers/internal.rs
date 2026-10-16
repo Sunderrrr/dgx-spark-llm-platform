@@ -77,3 +77,18 @@ pub async fn internal_authcheck(State(state): State<AppState>, connect: Option<a
     }
     maintenance_refusal()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::from_proxy;
+    use std::net::IpAddr;
+
+    #[test]
+    fn only_the_bridge_and_loopback_are_the_proxy() {
+        assert!(from_proxy(Some("172.19.0.4".parse::<IpAddr>().unwrap())));
+        assert!(from_proxy(Some("127.0.0.1".parse::<IpAddr>().unwrap())));
+        assert!(!from_proxy(Some("172.27.0.4".parse::<IpAddr>().unwrap())));
+        assert!(!from_proxy(Some("10.0.0.5".parse::<IpAddr>().unwrap())));
+        assert!(!from_proxy(None));
+    }
+}

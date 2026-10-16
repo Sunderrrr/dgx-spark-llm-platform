@@ -23,7 +23,7 @@ FROZEN = {
     'dgx-portal-frontend/app/(app)/playground/PlaygroundPage.tsx': 2585,
     'dgx-portal/chat_routes.py': 1680,
     'dgx-portal/app.py': 1675,
-    'vllm-runner/runner.py': 1492,
+    'vllm-runner/runner.py': 1252,
 }
 
 SOURCE_EXT = ('.py', '.ts', '.tsx', '.js', '.mjs', '.sh')

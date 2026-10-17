@@ -106,7 +106,7 @@ async fn status(State(app): State<Arc<App>>) -> Json<Value> {
     let s = app.sup.lock();
     let pid = s.proc.as_ref().map(|p| p.pid);
     let mut available = serde_json::Map::new();
-    for e in ["vllm", "llamacpp", "ds4", "exllamav3"] {
+    for e in ["vllm", "llamacpp", "ds4", "exllamav3", "vllm-docker"] {
         let here = e == "vllm" || service::engine_bin(&app.cfg, e).is_some_and(|b| FsPath::new(&b).exists());
         available.insert(e.into(), json!(here));
     }

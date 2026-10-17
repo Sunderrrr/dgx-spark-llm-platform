@@ -75,6 +75,7 @@ pub fn engine_bin(cfg: &Config, engine: &str) -> Option<String> {
         "llamacpp" => Some(cfg.paths.llama_bin.clone()),
         "ds4" => Some(cfg.paths.ds4_bin.clone()),
         "exllamav3" => Some(format!("{}/main.py", cfg.paths.tabby_dir)),
+        "vllm-docker" => Some("/usr/bin/docker".to_string()),
         _ => None,
     }
 }
@@ -235,7 +236,7 @@ impl App {
         if hf_id.split('/').any(|p| p == "..") {
             return err(400, serde_json::json!({"error": "invalid hf_model_id (.. refused)"}));
         }
-        if !["vllm", "llamacpp", "ds4", "exllamav3"].contains(&engine.as_str()) {
+        if !["vllm", "llamacpp", "ds4", "exllamav3", "vllm-docker"].contains(&engine.as_str()) {
             return err(400, serde_json::json!({"error": format!("unknown engine: {engine}")}));
         }
         if engine != "vllm" && !engine_bin(&self.cfg, &engine).is_some_and(|b| std::path::Path::new(&b).exists()) {

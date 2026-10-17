@@ -260,6 +260,25 @@ pub fn build_cmd(p: &Paths, hf_id: &str, name: &str, extra: &[String], engine: &
             }
             Ok(cmd)
         }
+        "vllm-docker" => {
+            // vLLM as a container (NVIDIA ships it that way for some models). Same
+            // OpenAI API on :8000; the weights come from the host HF cache. Mirrors
+            // runner.py's vllm-docker branch.
+            let img = std::env::var("VLLM_DOCKER_IMAGE").ok().filter(|v| !v.is_empty())
+                .unwrap_or_else(|| "vllm/vllm-openai:nightly-3f1bcfd82bb2e93fcd364fc7a5491718453a77e2".to_string());
+            let cache = format!("{}/.cache/huggingface", std::env::var("HOME").unwrap_or_else(|_| "/root".into()));
+            let mut cmd = strs(&["docker", "run", "--rm", "--gpus", "all", "--ipc=host", "-p", "127.0.0.1:8000:8000",
+                "-e", "HF_TOKEN", "-e", "FLASHINFER_DISABLE_VERSION_CHECK=1", "-v"]);
+            cmd.push(format!("{cache}:/root/.cache/huggingface"));
+            cmd.extend(strs(&["--entrypoint", "vllm"]));
+            cmd.push(img);
+            cmd.extend(strs(&["serve"]));
+            cmd.push(hf_id.to_string());
+            cmd.extend(strs(&["--host", "0.0.0.0", "--port", "8000", "--served-model-name"]));
+            cmd.push(name.to_string());
+            cmd.extend(extra.iter().cloned());
+            Ok(cmd)
+        }
         "llamacpp" => {
             let src = if hf_id.starts_with("local:") { vec!["-m".into(), resolve_gguf(p, hf_id)?] } else { vec!["-hf".into(), hf_id.to_string()] };
             let toks = resolve_template_tokens(p, extra)?;

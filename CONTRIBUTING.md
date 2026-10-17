@@ -50,8 +50,8 @@ its contents into an issue, a log or a commit message.
 
 ```bash
 ./scripts/pre-push-check.sh        # everything the hook runs: tests + i18n + secret scan
-./dgx-portal/run-tests.sh          # backend suite only (unittest, throwaway container)
-./dgx-portal/run-tests.sh test_app # one module
+cd portal-rs && cargo test --locked  # backend suite (Rust portal)
+cd portal-rs && cargo test <name>   # tests whose name matches
 ```
 
 Frontend:
@@ -94,7 +94,7 @@ the cause, or say in the pull request why the check itself is wrong.
 
 ## Repository layout
 
-Top level: `dgx-portal/` (Flask API), `dgx-portal-frontend/` (Next.js app),
+Top level: `portal-rs/` (Rust API), `dgx-portal-frontend/` (Next.js app),
 `vllm-runner/` (host model-lifecycle daemon), `systemd/` (units),
 `monitoring/` (host-side checks and backups), one directory per media sidecar
 (`ocr/`, `voice/`, `voice-qwen/`, `asr/`, `image-gen/`),

@@ -7,7 +7,9 @@
 #   scripts/parity-bench/up.sh rs         # recreate the Rust side only (after a build)
 #   scripts/parity-bench/up.sh down       # remove the containers and network
 #
-# Images: ai-platform-dgx-portal and ai-platform-portal-rs (docker compose build).
+# HISTORICAL: the Flask side (ai-platform-dgx-portal) needs the git history at commit
+# 3d7b8aa to build: the dgx-portal/ tree is gone from the working copy. The Rust image
+# is ai-platform-portal-rs (docker compose build). The rest of this script is unchanged.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 B="${PARITY_BENCH_DIR:-$HOME/.cache/parity-bench}"

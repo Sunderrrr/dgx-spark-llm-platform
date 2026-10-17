@@ -1,3 +1,6 @@
+# HISTORICAL Flask-vs-Rust parity harness: it compares the removed Flask backend
+# (dgx-portal/, git history at commit 3d7b8aa) with portal-rs. It cannot run on the
+# current tree; kept as a record of the migration (docs/rust-migration.md).
 import sqlite3, json, hashlib, time
 from werkzeug.security import generate_password_hash
 c = sqlite3.connect('/app/data/portal.db')

@@ -269,7 +269,7 @@ are contracts, not decoration:
   rows land at request END (44 minutes without a single write while two sessions
   worked), LiteLLM exposes no in-flight endpoint, and `requester_ip_address` is
   Traefik. The only OBSERVED attribution is the **`dgx_inflight` callback**
-  (`dgx-portal/litellm_inflight.py`, mounted into the proxy): it records request
+  (`litellm/litellm_inflight.py`, mounted into the proxy): it records request
   openings/closings in `./runtime/inflight.db`, mounted read-only on the portal
   side (`DGX_INFLIGHT_DB`). Rules not to "simplify": the **synchronous** hooks
   are the only ones this LiteLLM version calls (an async-only class gets total
@@ -313,7 +313,7 @@ root** on the host (access to the docker socket + the 600 `.env`).
 
 - **`dgx-monitor.timer`/`.service`** (every 5 min) → `monitoring/monitor.py`:
   probes the always-up **core** (`vllm-runner` `:8001`, containers `traefik` /
-  `litellm` / `litellm-postgres` / `dgx-portal` / `dgx-portal-frontend`) and sends an
+  `litellm` / `litellm-postgres` / `portal-rs` / `dgx-portal-frontend`) and sends an
   alert email to the alert recipient (Admin → Config) when a service goes down,
   then a recovery email. The SMTP settings are read through the portal
   container and kept in a root-only copy (`/var/lib/dgx-monitor/smtp.json`), so
@@ -330,12 +330,12 @@ root** on the host (access to the docker socket + the 600 `.env`).
   database, `docker-compose.yml`, `.env` and `secrets/`, archived. **Admin →
   Stockage** chooses where it goes — local (`/var/backups/dgx/archives`, 0700),
   the S3 bucket of Admin → Config, or both — and how many archives each keeps
-  (default 7). The upload runs inside the portal (`dgx-portal/backups.py`: the
+  (default 7). The upload runs inside the portal (`portal-rs/src/backups.rs`: the
   bucket keys never leave it) and the archive is **read back from the bucket**
   before the run counts as a success; a failed upload keeps the archive locally
   and the run reports the failure. It writes `/var/backups/dgx/state.json`,
   which the monitor and the Admin panel read, and runs the **orphan sweep** of
-  the generated files (`media_store.py sweep`). **The archive contains `.env`
+  the generated files (`portal-rs/src/media_store.rs`). **The archive contains `.env`
   and the databases — the bucket must be private.**
   The portal also writes a `.db_initialized` marker: marker present + empty
   database at startup → infra alert. Restoration: download the archive, then

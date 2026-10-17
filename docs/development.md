@@ -105,7 +105,7 @@ example values.
 ## Tests and the pre-push gate
 
 - **Backend tests** run in a throwaway Docker image (never touches real data):
-  `./dgx-portal/run-tests.sh` (all) or `./dgx-portal/run-tests.sh test_app`.
+  `cd portal-rs && cargo test --locked` (all) or `cargo test <name>` (one test).
   `asr/server.py` is mounted READ-ONLY as `tests.asr_sidecar` (the script's "no
   volume" promise is "no DATA volume").
 - **Frontend**: `cd dgx-portal-frontend && npm test` (the playground parser unit
@@ -188,7 +188,7 @@ Shell traps that cost real time:
   - large lists are not seeded whole: the HTML would carry them twice (the
     playground seeds conversation titles only);
   - to read an unminified hydration error, run `next dev` on the host against
-    the portal's compose address (`BACKEND_URL=http://<dgx-portal IP>:5000`)
+    the portal's compose address (`BACKEND_URL=http://<portal-rs IP>:5100`)
     and listen to `pageerror` — `next dev` rewrites `AGENTS.md`, restore it.
   `j11_page_sweep` fails on any hydration error.
 - **Chat SSE errors are structured notices** (`dgx_notice` ids, FR msgids in
@@ -220,8 +220,8 @@ Shell traps that cost real time:
 > **Refreshing these screenshots** — nothing here is hand-made: the whole set is
 > captured by `scripts/screenshots.py`, in **English** and in the **dark theme**,
 > with the dedicated **`demo`** account (a plain, non-admin account created by
-> `scripts/create-demo-account.py` — a screenshot must never expose a real
-> person's dashboard). One command per step:
+> `docker exec -u 10001 -e DEMO_PW="$(cat /root/shots/demo-credentials)" portal-rs portal create-demo-account`
+> — a screenshot must never expose a real person's dashboard). One command per step:
 >
 > ```bash
 > python scripts/screenshots.py            # capture (1600×1000 at 2× → 3200×2000)

@@ -45,7 +45,7 @@ account). A Support assistant can act on your behalf.
 ## How it works
 
 The UI is a **Next.js shell** (`dgx-portal-frontend`, port 5000) talking to a
-**Flask portal** (`dgx-portal`, no published port) over the internal docker
+**Rust portal** (`portal-rs`, no published port) over the internal docker
 network. The portal owns authentication (LDAP/OIDC, sessions, per-request account
 checks) and business logic; it issues per-user keys and budgets to **LiteLLM**,
 the OpenAI-compatible gateway that serves the public API

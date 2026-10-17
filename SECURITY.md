@@ -21,15 +21,15 @@ which is why several controls below are about *resource* abuse, not just access.
 ### The request path
 
 ```
-client → Cloudflare → Traefik → dgx-portal-frontend (:5000) → dgx-portal (Flask)
+client → Cloudflare → Traefik → dgx-portal-frontend (:5000) → portal-rs (Rust)
                         │                                        ├→ LiteLLM (:4001) → Postgres
                         │                                        ├→ vllm-runner (:8001) → vLLM (:8000)
                         └─ forwardAuth → /internal/authcheck      └→ sidecars (OCR, voice, ASR, image, video, web search)
 ```
 
 TLS terminates at Cloudflare/Traefik; everything behind it is plain HTTP on
-docker networks. `dgx-portal` has **no published port** — only the Next.js
-frontend is reachable from outside, and it talks to Flask over the internal
+docker networks. `portal-rs` has **no published port** — only the Next.js
+frontend is reachable from outside, and it talks to the portal over the internal
 network.
 
 ### Who is trusted with what
@@ -45,10 +45,9 @@ network.
 
 ### The multi-homing question
 
-`dgx-portal` is deliberately attached to **every** sidecar network — it is the
+`portal-rs` is deliberately attached to **every** sidecar network — it is the
 only component that talks to all of them. That makes it the one process whose
-compromise matters most: it holds `LITELLM_MASTER_KEY`, `RUNNER_TOKEN` and
-`SECRET_KEY` in its environment, and the LDAP service-account password, the SSO
+compromise matters most: it holds `LITELLM_MASTER_KEY`, and `RUNNER_TOKEN` in its environment, and the LDAP service-account password, the SSO
 client secret and the SMTP password in its database (set from Admin → Config).
 
 The sidecars themselves are **not** multi-homed: each sits on its own network
@@ -131,7 +130,7 @@ secrets and their mount lists stay minimal (see §3.2).
 ### 2.3 Network isolation
 
 Each sidecar has its own docker network — `ocr_net`, `voice_net`, `asr_net`,
-`image_net`, `web_net` — shared only with `dgx-portal`. Third-party
+`image_net`, `web_net` — shared only with `portal-rs`. Third-party
 model code therefore has no L3 route to LiteLLM, Postgres or Traefik.
 
 Two host-level rules complete this, because a docker network does not isolate
@@ -169,7 +168,7 @@ for a LAN/Netbird scrape and is **refused with a 403 as soon as the request
 carries `Cf-Connecting-Ip`**, i.e. whenever it came through the public edge —
 Cloudflare sets that header on every request that traverses it, while a local
 scrape arrives without it. This matters because the frontend's catch-all rewrite
-(`/:path*` → `dgx-portal:5000`) made every Flask route reachable from
+(the catch-all `/:path*` that pointed at `dgx-portal:5000`, since removed) made every Flask route reachable from
 `dgx.example.org`, including this one.
 
 ### 2.4 Session and request integrity
@@ -188,7 +187,7 @@ scrape arrives without it. This matters because the frontend's catch-all rewrite
   lockout key, so the counter cannot be poisoned with arbitrary values.
 - Per-request nonce CSP on `script-src` (`dgx-portal-frontend/proxy.ts`), plus
   `nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy`.
-- **A test enforces the invariant**: `RouteGuardTest` walks Flask's URL map
+- **A test enforced the invariant** (removed with Flask): `RouteGuardTest` walked Flask's URL map
   and fails if any route lacks a `login_required` / `admin_required` guard,
   except an explicitly documented public list (login flow, CSRF token,
   forwardAuth). It reads the live route table, not the source, so a route
@@ -308,7 +307,7 @@ reaches LiteLLM.
 ### 2.8 Container hardening
 
 Sidecars run with `--cap-drop ALL --no-new-privileges`, non-root where the
-upstream image allows it, models mounted read-only. `dgx-portal` and
+upstream image allows it, models mounted read-only. `portal-rs` and
 `dgx-portal-frontend` are non-root with dropped capabilities. Base images are
 digest-pinned.
 
@@ -325,7 +324,7 @@ output is negotiated as `image/webp`), but the upgrade removes the question.
 > that looks like a hardening one, and it must not be "fixed". See `CLAUDE.md`,
 > the operating guide kept on the machine (not published).
 
-One host path is mounted into `dgx-portal` **read-only**: `/var/lib/dgx-monitor`,
+One host path is mounted into `portal-rs` **read-only**: `/var/lib/dgx-monitor`,
 the host monitor's state file, which holds current incidents and the backup figures
 the Admin card displays. The backup directory itself (`/var/backups/dgx`, `0700
 root`, dumps `0600`) is deliberately **not** mounted, and the monitor — which runs as
@@ -426,10 +425,10 @@ accounts is a security parameter — keep it small.
   account key rather than growing with repeats — a progressive lockout would let
   anyone extend a known account's outage, so the active lockout is surfaced to the
   admin instead.
-- **The historical monolith.** `dgx-portal/app.py` was a single 7 200-line file
+- **The historical monolith.** `dgx-portal/app.py` (removed, see git history at `3d7b8aa`) was a single 7 200-line file
   holding auth, budgets, admin and media proxying, which made it hard to
-  guarantee no route had lost a guard. It is now a wiring facade over a shared
-  core and route blueprints (see [README → Repository layout](README.md#repository-layout)),
+  guarantee no route had lost a guard. It was then a wiring facade over a shared
+  core and route blueprints; the Rust backend now plays that role (see [README → Repository layout](README.md#repository-layout)),
   and the route-guard test above makes the invariant explicit rather than
   assumed.
 

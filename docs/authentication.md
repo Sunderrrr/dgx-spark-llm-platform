@@ -1,12 +1,12 @@
 # Authentication and accounts
 
 How people get in, how accounts are managed, and what deletion actually does.
-Handled by [`auth.py`](../dgx-portal/auth.py). For the security posture around it,
+Handled by the portal (`portal-rs/src/auth.rs`, `login.rs`, `sso.rs`, `ldap.rs`). For the security posture around it,
 see [security](security.md).
 
 ## Login methods
 
-Login order (`login()` in [`app.py`](../dgx-portal/app.py)): `local_users` (hashed) →
+Login order (`portal-rs/src/login.rs`): `local_users` (hashed) →
 **LDAP** → **SSO**. Two directory methods plus local accounts:
 
 - **OIDC SSO (Authentik)** — primary, the SSO button. Flow:
@@ -23,7 +23,7 @@ Login order (`login()` in [`app.py`](../dgx-portal/app.py)): `local_users` (hash
   and removing a passkey or switching 2FA off requires a password
   re-verification.
 
-Local accounts managed by an admin ([`local_users.py`](../dgx-portal/local_users.py))
+Local accounts managed by an admin (`portal-rs/src/handlers/admin_accounts.rs`)
 sit between the two: a hashed, admin-managed account system checked before
 LDAP/SSO.
 

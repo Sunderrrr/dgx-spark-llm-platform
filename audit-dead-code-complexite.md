@@ -102,7 +102,8 @@ support.py:348).
 - **`dgx-portal/app.py:100-335` re-export surface** (~128 "unused imports" from
   ruff/vulture): explicitly documented (`# ── Re-export surface, do NOT "clean
   up" ──`, app.py:100) for `from app import <name>` consumers and
-  `scripts/create-demo-account.py` (`import app as portal`). The same pattern
+  the former `scripts/create-demo-account.py` (`import app as portal`, removed
+  since: the demo account is now a portal-rs subcommand). The same pattern
   continues at app.py:333-348 (`asr_is_up`, `websearch_tools.*`) — treat as part
   of the surface.
 - `app.py:79 _security_headers` (`@app.after_request`), `vllm-runner/runner.py:144

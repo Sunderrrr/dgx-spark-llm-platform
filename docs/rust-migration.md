@@ -1,15 +1,21 @@
 # Rust migration of the portal
 
-The portal backend (Flask, `dgx-portal/`) and the model runner
+The portal backend (Flask, `dgx-portal/`, removed 2026-10-17; now `portal-rs/`) and the model runner
 (`vllm-runner/`) move to Rust **route by route**, with no cut-over day. This
 file is the plan and its rules; [rust-routes.md](rust-routes.md) is the live
 inventory (generated, one row per route, where it is served today).
+
+> **Historical.** The Flask backend (`dgx-portal/`) was removed from the working tree on
+> 2026-10-17; `portal-rs` serves every route. The plan and the phase log below are kept as
+> the record of the migration. The comparison tools they mention (`scripts/compare-backends.py`,
+> `scripts/parity-bench/`) compare against that Flask backend: they need the git history at
+> commit `3d7b8aa` and cannot run on the current tree.
 
 ## What moves, what stays
 
 | Component | Today | Target |
 |---|---|---|
-| Portal API — 175 routes, ~22 000 lines, 905 unit tests | Python / Flask | **Rust** |
+| Portal API — 175 routes, ~22 000 lines, 905 unit tests | Python / Flask (removed 2026-10-17) | **Rust** |
 | Model runner — ~1 500 lines | Python / Flask | **Rust** |
 | Host monitor — ~400 lines | Python | **Rust** |
 | Frontend — Next.js / React | TypeScript | stays TypeScript |
@@ -45,7 +51,7 @@ phase is measured against them (RSS, CPU, p50/p95 latency of its routes).
 
 ## Moving a prefix to Rust
 
-1. Run the comparison bench on the prefix's routes (Flask as A, Rust as B):
+1. Run the comparison bench on the prefix's routes (Flask as A, Rust as B; historical, needs the Flask tree at `3d7b8aa`):
    `python3 scripts/compare-backends.py --a <flask> --b <rust> --phase N --user … --password-file …`.
    It replays only GET routes without side effects, and confirms a difference
    on a second call before reporting it.
@@ -54,8 +60,8 @@ phase is measured against them (RSS, CPU, p50/p95 latency of its routes).
 3. Recreate the frontend (`docker compose up -d dgx-portal-frontend`): it reads
    both at start (`dgx-portal-frontend/lib/backend.ts`) and routes the prefix
    to Rust for every method, page data and SSE relays included.
-4. Regenerate the inventory (`python3 scripts/routes-inventory.py`) and run
-   `scripts/validate.sh`. Rolling back is the same in reverse.
+4. Run `scripts/validate.sh`. Rolling back is the same in reverse. (The route
+   inventory generator read the Flask source and was removed with it.)
 
 A prefix covers itself and its sub-paths (`/api/ranking` covers
 `/api/ranking/activity`, not `/api/rankings`). An entry may name one method
@@ -101,11 +107,12 @@ container, and what replaced it:
   is the Rust portal, so a path no migrated prefix covers is answered there;
   the build-time fallback rewrite of `next.config.ts` is gone (an unknown path
   gets Next's 404);
-- `dgx-portal` sits behind the compose profile `flask`: it no longer starts by
-  default. Rollback: `docker compose --profile flask up -d dgx-portal`, with
-  `BACKEND_URL=http://dgx-portal:5000` on the frontend.
-The Flask source stays in the repository for now: its test suite still runs in
-the gates, and `dgx-portal/litellm_inflight.py` is LiteLLM's callback.
+- `dgx-portal` was kept behind the compose profile `flask` as a rollback until
+  2026-10-17; that service and profile are gone. A rollback to Flask now means
+  checking out commit `3d7b8aa`.
+The Flask source was removed from the working tree on 2026-10-17 (history at
+`3d7b8aa`). The LiteLLM in-flight callback it used to hold now lives in
+`litellm/litellm_inflight.py`.
 
 ## Phases
 
@@ -119,7 +126,7 @@ the gates, and `dgx-portal/litellm_inflight.py` is LiteLLM's callback.
 | 5 | Admin | models, accounts, configuration, storage | |
 | 6 | Authentication | local, LDAP, SSO, WebAuthn, CSRF | dedicated security review |
 | 7 | Chat | playground and Support SSE relays, tools, web search, MCP | hardest: heartbeat, cancellation, structured notices |
-| 8 | Clean-up | remove Flask/gunicorn, Rust owns the schema | after two weeks without incident |
+| 8 | Clean-up | remove Flask/gunicorn, Rust owns the schema | done 2026-10-17: Flask removed from the tree |
 
 Decision point after phase 2: compare the Rust service with Flask on the same
 routes. The mixed state is stable — the migration can stop at any phase.

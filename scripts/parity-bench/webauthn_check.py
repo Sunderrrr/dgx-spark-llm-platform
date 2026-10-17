@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# HISTORICAL Flask-vs-Rust parity harness: it compares the removed Flask backend
+# (dgx-portal/, git history at commit 3d7b8aa) with portal-rs. It cannot run on the
+# current tree; kept as a record of the migration (docs/rust-migration.md).
 """The passkey flows compared on the bench: each backend runs the same
 software-authenticator scenario (wa_driver.py, inside bench-flask) from the
 same restored database; the transcripts (challenges and nonces masked) and

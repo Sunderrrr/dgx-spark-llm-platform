@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# HISTORICAL Flask-vs-Rust parity harness: it compares the removed Flask backend
+# (dgx-portal/, git history at commit 3d7b8aa) with portal-rs. It cannot run on the
+# current tree; kept as a record of the migration (docs/rust-migration.md).
 """SSO sign-in compared on the bench (bench.py cannot: the state and nonce are
 random). Each side runs the whole flow from a restored database — /login/sso,
 then the provider's answer with a code naming the identity to issue — and the

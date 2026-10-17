@@ -105,14 +105,13 @@ nothing (`restart=unless-stopped`, so it never frees itself), the web UI
   (`asr_net`, then `web_net`): outbound packets then left as `172.22.x` /
   `172.25.x`, and `vllm-restrict.service` (which only allows `172.19.0.0/16`
   towards the runner and vLLM) dropped them. Symptom: the portal reaches
-  nothing, no model is available, and **nothing is logged**. `dgx-portal` now
-  pins `host.docker.internal:172.19.0.1`, the address the firewall already
+  nothing, no model is available, and **nothing is logged**. The portal (`portal-rs`, which replaced the Flask
+  `dgx-portal`) now reaches the runner at `172.19.0.1`, the address the firewall already
   hardcodes. Compose's `priority:` on networks did *not* fix this when tried.
-- **Adding a network to `dgx-portal` is never free.** After any such change,
+- **Adding a network to `portal-rs` is never free.** After any such change,
   check from inside the container that the runner still answers:
-  `docker exec dgx-portal python3 -c "import requests;
-  print(requests.get('http://host.docker.internal:8001/status', timeout=4).status_code)"`
-  (401 = reachable, timeout = you broke the route).
+  `docker exec portal-rs curl -s -o /dev/null -w '%{http_code}' http://172.19.0.1:8001/status`
+  (401 = reachable, 000 = you broke the route).
 - LiteLLM listens on **4001**, not the upstream default 4000 — the code fallback
   does not answer here (`LITELLM_URL=http://litellm:4001`).
 - `docker compose up -d <svc>` does NOT recreate a container whose definition has

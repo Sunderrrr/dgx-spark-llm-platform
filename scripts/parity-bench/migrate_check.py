@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# HISTORICAL Flask-vs-Rust parity harness: it compares the removed Flask backend
+# (dgx-portal/, git history at commit 3d7b8aa) with portal-rs. It cannot run on the
+# current tree; kept as a record of the migration (docs/rust-migration.md).
 """The media migration compared on the bench: each side starts from the same
 local files and bucket (the fake's S3), moves them, and the final status, the
 bucket and the local files must match."""

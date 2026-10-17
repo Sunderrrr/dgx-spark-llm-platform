@@ -1,3 +1,6 @@
+# HISTORICAL Flask-vs-Rust parity harness: it compares the removed Flask backend
+# (dgx-portal/, git history at commit 3d7b8aa) with portal-rs. It cannot run on the
+# current tree; kept as a record of the migration (docs/rust-migration.md).
 # The bench directory (osixia/openldap, domain bench.test): accounts under
 # ou=users named by cn, the admin group, the memberOf overlay filling memberOf.
 dn: ou=users,dc=bench,dc=test

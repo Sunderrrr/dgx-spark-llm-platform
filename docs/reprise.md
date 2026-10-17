@@ -51,7 +51,7 @@ _Écrit le 16/10/2026 03:15, contexte à 80 %. Ouvre une nouvelle session et don
   - restaurer le fil Support de demo avec `/root/shots/restore_demo_thread.py` ;
   - `comfyui-relay.service` est désactivé sur l'hôte ;
   - le résultat d'un outil MCP n'a pas de limite de taille.
-- **Retrait de `dgx-portal` (phase 8)** : étape finale, après la bascule du runner.
+- **Retrait de `dgx-portal` (phase 8)** : fait le 2026-10-17, le dossier `dgx-portal/` a quitté l'arbre de travail (historique git à `3d7b8aa`).
 
 ## Décisions prises
 - **Vérifier sur un banc isolé plutôt qu'en prod** : aucune session admin réelle ne peut servir aux tests, et une écriture testée en direct modifierait de vraies données.

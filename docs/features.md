@@ -98,7 +98,7 @@ working, and a colour glow rises from the field while dictation is listening
 
 **Web search** is available on explicit request ("search the web for…"): SearXNG
 finds the links, crawl4ai reads the pages, and the progress of each step is shown
-live. See [`websearch_tools.py`](../dgx-portal/websearch_tools.py) and the rules in
+live. See [`websearch.rs`](../portal-rs/src/chat/tools/websearch.rs) and the rules in
 [operations → web search](operations.md#web-search-searxng--crawl4ai).
 
 Conversations can be **pinned** (per browser) and **shared** — a read-only

@@ -14,7 +14,7 @@ flowchart LR
   AC -->|checked against| P
   CF -->|:5000| F[dgx-portal-frontend]
   CF -->|api.example.org · no published port| L[LiteLLM]
-  F -->|internal docker network| P[dgx-portal]
+  F -->|internal docker network| P[portal-rs]
   P -->|LDAP / OIDC auth| IDP[Authentik · LDAP outpost + OIDC]
   P -->|issues keys + budgets| L
   P -->|:8001 · Bearer token| R[vllm-runner]
@@ -27,12 +27,8 @@ flowchart LR
   P -->|/prompt, /history, /view| CU
 ```
 
-> **The backend is modular.** `dgx-portal` is not one big Flask file: it is a
-> shared core (config, database, auth, guards), a set of clients for everything
-> it talks to (LiteLLM, vLLM, ComfyUI, the sidecars, MCP, web search), and one
-> route blueprint per feature. [`app.py`](../dgx-portal/app.py) is a wiring facade —
-> it builds the Flask app, registers the blueprints and boots the schema. See
-> [Repository layout](#repository-layout).
+> **The backend is `portal-rs/` (Rust).** It serves every route and job; the
+> Flask backend it replaced was removed on 2026-10-17. See [Repository layout](#repository-layout).
 
 ### Components
 
@@ -41,7 +37,7 @@ flowchart LR
 | **litellm** | OpenAI-compatible gateway: per-user keys, budgets, token accounting | `4001` | Docker container |
 | **litellm-postgres** | LiteLLM database (keys, spend logs) | `5432` (internal) | Docker container |
 | **dgx-portal-frontend** | The UI (Next.js + Astryx): login, home, playground, media pages, support, find-a-model, leaderboard, admin, users (keys and memory live in the Settings dialog) | `5000` | Docker container (non-root) |
-| **dgx-portal** | Backend (Flask): LDAP/OIDC auth, sessions, JSON API, business logic | internal only | Docker container (non-root) |
+| **portal-rs** | Backend (Rust): LDAP/OIDC auth, sessions, JSON API, business logic, jobs | internal only | Docker container (non-root) |
 | **vllm-runner** | Daemon driving **one** chat model process (start/stop/logs; engines `vllm` / `llamacpp` / `ds4`) with auto-resume, plus scoped start/stop/recreate of every media sidecar | `8001` | systemd service on the host |
 | **vLLM** | OpenAI-compatible inference server (the main chat engine) | `8000` | process spawned by the runner |
 | **OCR container** | vLLM serving an OCR-capable VLM (baidu/Unlimited-OCR by default, chandra-ocr-2 also supported), swappable via an admin catalog | internal only | Docker container, own network + GPU slice |
@@ -59,10 +55,10 @@ flowchart LR
 
 The UI used to be server-rendered Jinja templates served directly by Flask on
 `:5000`. It's now a separate Next.js/Astryx frontend that owns `:5000` and
-talks to Flask over the internal docker network for everything — auth, data
+talks to `portal-rs` over the internal docker network for everything — auth, data
 and the streaming chat endpoints (proxied through dedicated Next.js
-Route Handlers so token-by-token streaming isn't buffered). Flask itself no
-longer has a published port.
+Route Handlers so token-by-token streaming isn't buffered). The Flask backend that
+used to sit behind it was removed on 2026-10-17.
 
 ## Repository layout
 
@@ -70,12 +66,12 @@ longer has a published port.
 .
 ├── install.sh                 # one-shot host bootstrap (packages + systemd + .env)
 ├── setup.sh                   # generates .env with random secrets
-├── docker-compose.yml         # postgres + litellm + portal + frontend + search sidecars
+├── docker-compose.yml         # postgres + litellm + portal-rs + frontend + search sidecars
 ├── .env.example               # placeholders (no real secrets)
 ├── README.md · SECURITY.md
 ├── litellm/config.yaml        # proxy, router and callback settings (the model
 │                              #   catalog itself lives in the LiteLLM database)
-├── dgx-portal/                # Flask backend — see the module map below
+├── portal-rs/                 # Rust backend (every route and job) — see the module list below
 ├── dgx-portal-frontend/       # Next.js + Astryx UI (owns the public port 5000)
 ├── vllm-runner/runner.py      # model lifecycle daemon + scoped sidecar control
 ├── monitoring/                # host monitors: health alerts + daily DB dumps (systemd timers)
@@ -85,57 +81,18 @@ longer has a published port.
 └── systemd/                   # host units (runner, firewalls, ComfyUI, recreate scripts)
 ```
 
-### Backend module map (`dgx-portal/`)
+### Backend (`portal-rs/`)
 
-The backend was a single 7 200-line file; it is now a shared core, a set of
-clients, and one blueprint per feature. [`app.py`](../dgx-portal/app.py) is a wiring
-facade of ~1 500 lines: it creates the Flask app, sets security headers and the CSP,
-keeps the handful of routes that other modules reach by name (`index`, `login`,
-`logout`, the OAuth callbacks), registers every blueprint and boots the schema.
-
-**Shared core** — imports nothing from the rest, so nothing can create a cycle:
-
-| Module | Holds |
-|---|---|
-| [`config.py`](../dgx-portal/config.py) | every environment-derived constant, in one place |
-| [`db.py`](../dgx-portal/db.py) | SQLite access, persisted settings, schema and migrations, the LiteLLM Postgres connector |
-| [`auth.py`](../dgx-portal/auth.py) | `login_required` / `admin_required`, CSRF, LDAP, brute-force lockout, session lifetime |
-| [`guards.py`](../dgx-portal/guards.py) | maintenance and rate-limit guards, shared SSE helpers, upload validation |
-
-**Clients and adapters** — one module per thing the portal talks to:
-
-| Module | Talks to |
-|---|---|
-| [`litellm_client.py`](../dgx-portal/litellm_client.py) | LiteLLM: keys, budgets, accounts, model registration |
-| [`vllm_health.py`](../dgx-portal/vllm_health.py) | the engine: served models, health, throughput, context window, HF search |
-| [`sidecars.py`](../dgx-portal/sidecars.py) | the runner: launch/stop/logs, and every sidecar readiness probe |
-| [`comfyui_client.py`](../dgx-portal/comfyui_client.py) | ComfyUI, for video |
-| [`mcp_client.py`](../dgx-portal/mcp_client.py) | user-configured MCP servers |
-| [`websearch.py`](../dgx-portal/websearch.py) · [`websearch_tools.py`](../dgx-portal/websearch_tools.py) · [`image_tools.py`](../dgx-portal/image_tools.py) | SearXNG + crawl4ai, and the tool layers that expose web search and image generation to the model |
-| [`litellm_inflight.py`](../dgx-portal/litellm_inflight.py) | loaded BY LiteLLM, not by the portal: the callback that records in-flight requests, which is the only way to attribute a running request to an account |
-| [`notify.py`](../dgx-portal/notify.py) · [`discord_notify.py`](../dgx-portal/discord_notify.py) · [`announcements.py`](../dgx-portal/announcements.py) | mail, Discord webhook and DMs, platform announcements |
-| [`stats.py`](../dgx-portal/stats.py) · [`local_users.py`](../dgx-portal/local_users.py) · [`user_lifecycle.py`](../dgx-portal/user_lifecycle.py) · [`support.py`](../dgx-portal/support.py) | consumption aggregates · local accounts · account offboarding (sessions, keys, envelope, data) · the Support assistant's tools |
-
-**Route blueprints** — no `url_prefix`, so every path is unchanged:
-
-| Module | Routes |
-|---|---|
-| [`chat_routes.py`](../dgx-portal/chat_routes.py) | `/playground/chat`, `/support/chat` — SSE streaming |
-| [`admin_routes.py`](../dgx-portal/admin_routes.py) | `/admin/*` — models, sidecars, accounts, quotas, maintenance |
-| [`conversation_routes.py`](../dgx-portal/conversation_routes.py) · [`settings_routes.py`](../dgx-portal/settings_routes.py) · [`memory_routes.py`](../dgx-portal/memory_routes.py) | history · user settings · memory graph |
-| [`ocr_routes.py`](../dgx-portal/ocr_routes.py) · [`voice_routes.py`](../dgx-portal/voice_routes.py) · [`asr_routes.py`](../dgx-portal/asr_routes.py) | OCR · voice cloning · dictation |
-| [`image_routes.py`](../dgx-portal/image_routes.py) · [`video_routes.py`](../dgx-portal/video_routes.py) | the generation pages |
-| [`preview_routes.py`](../dgx-portal/preview_routes.py) · [`discord_routes.py`](../dgx-portal/discord_routes.py) | sandboxed HTML preview · Discord account linking |
-| [`webauthn_routes.py`](../dgx-portal/webauthn_routes.py) | `/api/security/*` — passkey registration, login challenge, 2FA toggle |
-
-Also under `dgx-portal/`: `workflows/` (ComfyUI API-format templates for video),
-`tests/`, `requirements.txt` and a non-root `Dockerfile` with no published port.
+One Rust crate: `portal-rs/src/` holds one module per concern (auth, sessions,
+LiteLLM and vLLM clients, the sidecars, media jobs, admin) and `handlers/` the
+HTTP routes. The ComfyUI video graphs are compiled in from `portal-rs/workflows/`.
+Tests run with `cargo test --locked` in `portal-rs/`.
 
 ### Frontend (`dgx-portal-frontend/`)
 
 Next.js 16 + Astryx. `app/(app)/` holds the pages, `lib/` the data helpers and the
 i18n dictionary, `proxy.ts` the per-request nonce CSP and method-based routing, and
-`lib/sseProxy.ts` the streaming relay to Flask. It has its own `README.md` and
+`lib/sseProxy.ts` the streaming relay to `portal-rs`. It has its own `README.md` and
 `AGENTS.md` — start there for UI work.
 
 > The `/usr/local/sbin/*-recreate.sh` wrappers and `/etc/sudoers.d/vllmrunner-*`

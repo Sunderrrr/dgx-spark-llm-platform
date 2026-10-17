@@ -12,8 +12,9 @@
 # Both servers are public MCP endpoints (Streamable HTTP, no key):
 #   · context7  — up-to-date library/framework docs (API, versions, changes)
 #   · deepwiki  — Q&A over GitHub repositories' documentation
-# They are validated with the platform's OWN SSRF check before being written,
-# exactly like a registration done from Settings → MCP.
+# No registration-time SSRF check here (it was Flask-only, mcp_client.py): the
+# platform checks every URL again when it connects (portal-rs/src/mcp.rs,
+# skillstore::validated_target), so a refused address never reaches the network.
 #
 # Per-account by design: a user who does not want external tools in their
 # Support chat simply has nothing registered. The guardrail already in place
@@ -24,17 +25,15 @@ cd "$(dirname "$0")/.."
 
 [ $# -ge 1 ] || { echo "usage: scripts/mcp-essentials.sh <username>…"; exit 1; }
 
-args=""
-for u in "$@"; do args="$args '$u'"; done
+# The portal database: the data volume of portal-rs, written on the host
+# (the same file, the same table; no Python inside any container).
+PORTAL_DB="$(docker inspect portal-rs -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}')/portal.db" \
+  || { echo "portal-rs data volume not found"; exit 1; }
 
-docker exec -i dgx-portal python3 - "$@" <<'PYEOF'
+python3 - "$PORTAL_DB" "$@" <<'PYEOF'
+import sqlite3
 import sys
 import time
-
-sys.path.insert(0, '/app')
-import app as portal                      # noqa: E402
-from db import get_db                     # noqa: E402
-from mcp_client import validate_mcp_url   # noqa: E402
 
 # Two families (the descriptions are content shown in the UI and to the
 # model, hence French like the rest of the product's text):
@@ -98,15 +97,10 @@ WITH_KEY = [
 
 ESSENTIALS = KEYLESS + WITH_KEY
 
-with portal.app.app_context():
-  for username in sys.argv[1:]:
-    db = get_db()
+db = sqlite3.connect(sys.argv[1], timeout=30)
+for username in sys.argv[2:]:
     for family, enabled in ((KEYLESS, 1), (WITH_KEY, 0)):
         for name, url, desc in family:
-            ok, detail = validate_mcp_url(url)
-            if not ok:
-                print(f"✗ {name}: URL refused ({detail})")
-                continue
             db.execute(
                 "INSERT OR REPLACE INTO mcp_servers "
                 "(username, name, url, auth_header, description, allowed_tools, enabled, created_at) "
@@ -116,4 +110,5 @@ with portal.app.app_context():
             state = "enabled" if enabled else "waiting for its key"
             print(f"✓ {username} · {name} ({state})")
     db.commit()
+db.close()
 PYEOF

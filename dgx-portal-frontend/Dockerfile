@@ -20,7 +20,7 @@ RUN npm run build
 FROM node:20-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-# Non-root user, same scheme as dgx-portal/Dockerfile.
+# Non-root user, same scheme as Dockerfile.portal-rs.
 RUN groupadd -r frontend && useradd -r -u 10002 -g frontend frontend
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=frontend:frontend /app/.next/standalone ./

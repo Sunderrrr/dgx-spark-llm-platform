@@ -19,7 +19,7 @@ trap 'rm -rf "$TMP" "$ARCHIVE"' EXIT
 S3="s3cmd -c $S3CFG"
 
 echo "· container logs"
-for c in dgx-portal litellm litellm-postgres traefik; do
+for c in portal-rs litellm litellm-postgres traefik; do
   docker logs "$c" > "$TMP/$c.log" 2>&1 || true
 done
 

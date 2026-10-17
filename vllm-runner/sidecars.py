@@ -251,7 +251,7 @@ def video_stop():
 # ── Sidecar logs (read-only) ──────────────────────────────────────────────────
 # Fixed tail so the sudoers rules can be EXACT commands (no wildcards): the
 # vllmrunner user may read only these containers' logs, not any container's
-# (whose logs could contain secrets). dgx-portal itself has no docker access,
+# (whose logs could contain secrets). portal-rs itself has no docker access,
 # so it relays these to the admin Logs viewer.
 _LOGS_TAIL = 400
 

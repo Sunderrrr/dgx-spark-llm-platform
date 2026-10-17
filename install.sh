@@ -42,7 +42,7 @@ apt-get update -y
 apt-get install -y ca-certificates curl git iptables acl python3 python3-pip pipx earlyoom sudo
 
 # Flask for the host runner (system python3). PEP 668-safe. Pinned version
-# (audit M5) — aligned with dgx-portal/requirements.txt.
+# (audit M5).
 apt-get install -y python3-flask 2>/dev/null || pip3 install --break-system-packages "flask==3.1.3"
 
 # ── 2. Docker + compose plugin ──────────────────────────────────────────────
@@ -74,7 +74,7 @@ if [ ! -x "$VLLM_BIN" ] && ! command -v vllm >/dev/null 2>&1; then
 fi
 
 # ── 4. Repository ───────────────────────────────────────────────────────────
-if [ -f docker-compose.yml ] && [ -d dgx-portal ]; then
+if [ -f docker-compose.yml ] && [ -d portal-rs ]; then
   REPO_DIR="$(pwd)"
 else
   log "Cloning repository to $DEFAULT_DIR"
@@ -297,7 +297,7 @@ Next steps:
   3. Open the portal: http://<host>:5000 for a first look, or DGX_WEB behind
      your reverse proxy. The login page creates the OWNER account; it asks for
      the setup token printed in the portal's log:
-       docker logs dgx-portal 2>&1 | grep setup
+       docker logs portal-rs 2>&1 | grep setup
   4. Admin → Config: LDAP, SSO and e-mail (all optional). Then Admin → launch
      a model from the catalog.
 

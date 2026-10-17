@@ -7,16 +7,11 @@ From the outside (the same path as any visitor: Cloudflare → Traefik):
   - /internal/authcheck (Traefik's forwardAuth) is NOT reachable from outside
     the proxy's network — neither on the web domain nor on the API domain;
   - security.txt (RFC 9116) is published, current and carries a contact;
-  - EVERY login-protected GET route of the portal refuses an anonymous
-    visitor (the list is read from the source, so a new route is covered the
-    day it is written), and a state-changing POST without a CSRF token is
-    refused;
+  - a state-changing POST without a CSRF token is refused (the protected-route
+    sweep read the Flask source and went with the Flask backend);
   - the session cookies carry Secure, HttpOnly and SameSite.
 """
-import ast
 import datetime
-import os
-import re
 import sys
 
 import common as c
@@ -25,36 +20,7 @@ NAME = "security"
 TIME_LIMIT_S = 120
 
 EXPECTED_REFUSALS = (401, 403, 404)
-PORTAL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "dgx-portal")
-GUARDS = {"login_required", "admin_required", "owner_required"}
 
-
-def protected_routes():
-    """(method, rule) of every route behind an auth decorator, read from the
-    portal's source — path parameters filled with a harmless dummy."""
-    out = []
-    for name in sorted(os.listdir(PORTAL_DIR)):
-        if not name.endswith(".py"):
-            continue
-        tree = ast.parse(open(os.path.join(PORTAL_DIR, name), encoding="utf-8").read())
-        for fn in ast.walk(tree):
-            if not isinstance(fn, ast.FunctionDef):
-                continue
-            names = {getattr(d, "id", getattr(d, "attr", "")) for d in fn.decorator_list}
-            if not names & GUARDS:
-                continue
-            for d in fn.decorator_list:
-                if not (isinstance(d, ast.Call) and getattr(d.func, "attr", "") == "route"):
-                    continue
-                rule = d.args[0].value
-                methods = ["GET"]
-                for kw in d.keywords:
-                    if kw.arg == "methods":
-                        methods = [m.value for m in kw.value.elts]
-                path = re.sub(r"<int:[^>]+>", "1", rule)
-                path = re.sub(r"<[^>]+>", "x", path)
-                out.extend((m, path) for m in methods)
-    return sorted(set(out))
 
 
 def main() -> int:
@@ -108,24 +74,7 @@ def main() -> int:
         p.fail("security.txt current", "an Expires date in the future", expires)
     p.ok("security.txt", f"contact published, expires {expires}")
 
-    # ── 4. Every protected route refuses an anonymous visitor ──────────────
-    # A 200 here is a route whose decorator stack lost its guard. Redirects
-    # (302 to /login) and refusals are both fine; what must never come back
-    # is the data. POSTs go out WITHOUT a CSRF token: the CSRF check answers
-    # first (400), and nothing may succeed.
-    routes = protected_routes()
-    leaks = []
-    for method, path in routes:
-        status, _, body = c.http(method, f"{c.BASE}{path}", body={} if method != "GET" else None,
-                                 timeout_s=20, follow_redirects=False)
-        if status is not None and 200 <= status < 300:
-            leaks.append(f"{method} {path} → HTTP {status} {str(body)[:60]!r}")
-    if leaks:
-        p.fail("protected routes refuse anonymous visitors",
-               "no 2xx without a session", "; ".join(leaks[:8]))
-    p.ok("protected routes", f"{len(routes)} method/route pairs refused without a session")
-
-    # ── 5. Session cookies: Secure, HttpOnly, SameSite ──────────────────────
+    # ── 4. Session cookies: Secure, HttpOnly, SameSite ──────────────────────
     with c.start_playwright() as pw:
         browser, ctx = c.new_context(pw)
         try:

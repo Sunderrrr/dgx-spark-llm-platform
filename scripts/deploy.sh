@@ -16,7 +16,7 @@
 set -eu
 cd ${DGX_ROOT}
 
-SERVICES=${*:-"dgx-portal dgx-portal-frontend"}
+SERVICES=${*:-"portal-rs dgx-portal-frontend"}
 
 echo "· build: $SERVICES"
 # The heap is capped in the Dockerfile: a build must never push the served

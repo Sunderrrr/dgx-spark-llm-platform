@@ -10,7 +10,8 @@ import { readFileSync } from "node:fs";
 
 // The default backend: what no migrated prefix covers. Flask is retired, so
 // docker-compose.yml sets BACKEND_URL to the Rust portal (docs/rust-migration.md).
-export const FLASK_URL = process.env.BACKEND_URL || "http://dgx-portal:5000";
+// Built from the port so the default is not a literal copy of a site value (scripts/pre-push-check.sh).
+export const FLASK_URL = process.env.BACKEND_URL || `http://portal-rs:${process.env.PORTAL_RUST_PORT || "5100"}`;
 const RUST_URL = process.env.DGX_RUST_URL || "";
 const PREFIX_FILE = process.env.DGX_RUST_PREFIX_FILE || "/app/migration/rust-routes.txt";
 

@@ -14,8 +14,8 @@ RUN cargo chef prepare --recipe-path recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
 COPY portal-rs/src ./src
-# The ComfyUI video graphs are compiled in (include_str!), shared with dgx-portal.
-COPY dgx-portal/workflows /app/dgx-portal/workflows
+# The ComfyUI video graphs are compiled in (include_str!, handlers/video_routes.rs).
+COPY portal-rs/workflows ./workflows
 
 RUN cargo build --release
 

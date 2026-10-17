@@ -62,7 +62,7 @@ services:
     image: ghcr.io/berriai/litellm@sha256:c1465d3eeb7c9f864f8a7bd057a694f9f3c092419ecdea1a9004624747b42e0e
     container_name: litellm
     restart: unless-stopped
-    # Hardening (parity with dgx-portal/frontend): LiteLLM is a Python app that
+    # Hardening (parity with dgx-portal-frontend): LiteLLM is a Python app that
     # needs no capability and must not elevate its privs.
     # NB: the upstream image runs as uid 0 by default and its Prisma bootstrap
     # does not support a non-root uid (it regenerates its node CLI under
@@ -92,7 +92,7 @@ services:
       # by the `dgx_inflight` callback, read by the portal. The module is
       # mounted separately to stay readable, and PYTHONPATH=/app makes it
       # importable.
-      - ./dgx-portal/litellm_inflight.py:/app/dgx_inflight.py:ro
+      - ./litellm/litellm_inflight.py:/app/dgx_inflight.py:ro
       - ./runtime:/run/dgx
     environment:
       PYTHONPATH: /app
@@ -101,10 +101,10 @@ services:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY must be set in .env (run setup.sh)}
       # Turns off the admin UI (/ui, /sso): it was publicly reachable via
       # the public API domain and concentrated the whole master key on an exposed
-      # login form. Admin goes through the portal (dgx-portal), not this UI.
+      # login form. Admin goes through the portal (portal-rs), not this UI.
       DISABLE_ADMIN_UI: "True"
       # No LiteLLM SSO settings: they only served the admin UI disabled above.
-    # The proxy also writes to /run/dgx/litellm.log (shared with dgx-portal,
+    # The proxy also writes to /run/dgx/litellm.log (shared with portal-rs,
     # mounted read-only there) so the Support can read its logs with the same
     # `read_logs` tool as the GPU services — without going through the runner
     # (a runner restart would kill the served model). The wrapper keeps the
@@ -144,181 +144,13 @@ services:
       postgres:
         condition: service_healthy
 
-  # ─── DGX Portal — Flask backend (API + LDAP/OIDC auth) ─────────────────────
-  # No more published port on the host: the old Jinja UI is "down" (the files
-  # stay intact, everything still works) but is no longer reachable from
-  # outside. dgx-portal stays internally reachable via the docker-compose
-  # network (dgx-portal:5000): that is what dgx-portal-frontend proxies.
-  # → To go back to the old UI: put `ports: ["5000:5000"]` back here AND give
-  #   dgx-portal-frontend its port 3002 back below.
-  dgx-portal:
-    # Retired: every route is served by portal-rs (docs/rust-migration.md).
-    # Kept behind a profile for a rollback: `docker compose --profile flask
-    # up -d dgx-portal`, then BACKEND_URL=http://dgx-portal:5000 on the frontend.
-    profiles: ["flask"]
-    logging: *logging
-    build: ./dgx-portal
-    container_name: dgx-portal
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    environment:
-      SECRET_KEY: ${WEBUI_SECRET_KEY:?WEBUI_SECRET_KEY must be set in .env (run setup.sh)}
-      LITELLM_URL: http://litellm:4001
-      # Overridable for tests (fake sidecar); default = image_net sidecar.
-      IMAGE_URL: ${IMAGE_URL:-http://image:8007}
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY must be set in .env (run setup.sh)}
-      # Gateway of the `default` network rather than host.docker.internal: the
-      # latter points at the docker0 bridge (172.17.0.1), which this container
-      # reaches ONLY via its default route. But dgx-portal is multi-homed and
-      # Docker puts that route on the last connected interface (asr_net,
-      # 172.22.x) — a source address that vllm-restrict.service DROPs, hence
-      # 3 s of timeout per probe. Aiming at 172.19.0.1 the packet leaves via
-      # eth0 with a 172.19.x source, which the firewall allows. Measured:
-      # 4.01 s → 0.00 s. The subnet is pinned below so the IP stays stable.
-      VLLM_API_URL: http://172.19.0.1:8000/v1
-      MEDIA_REQUEST_COOLDOWN_S: ${MEDIA_REQUEST_COOLDOWN_S:-1800}
-      # NO KEY_MAX_BUDGET/KEY_BUDGET_DURATION here: this block long carried
-      # « 0.002 » / « 1d » (a nearly exhausted test account), which overwrote
-      # config.py's correct default on a FRESH install — the `settings` table
-      # being empty, every account got an envelope of 0.002 tokens, hence a 429
-      # on the first request. In production nobody saw it: the value had been
-      # corrected by hand in Admin, and that one wins. Both values now live in
-      # ONE single place: config.py's default (200 000 000 tokens / 7 d),
-      # changeable in Admin → token limit.
-      VLLM_RUNNER_URL: http://172.19.0.1:8001
-      RUNNER_TOKEN: ${RUNNER_TOKEN:?RUNNER_TOKEN must be set in .env (run setup.sh)}
-      # ComfyUI (MiniMax H3 video): host process, 127.0.0.1 only, never exposed.
-      COMFYUI_URL: http://172.19.0.1:8188
-      # OCR (baidu/Unlimited-OCR): container on ocr_net (dedicated network, not
-      # `default` with litellm/postgres) — dgx-portal is multi-homed to reach it.
-      OCR_URL: http://ocr:8000/v1
-      # Voice (Chatterbox, cloning): same reasoning as OCR — container on the
-      # dedicated voice_net, never on `default`.
-      VOICE_URL: http://voice:8004
-      # Transcription (Playground dictation): same, dedicated asr_net network.
-      ASR_URL: http://asr:8006
-      # Public URL of the OpenAI-compatible API shown to users. It was
-      # `${PUBLIC_API_URL:-…/v1}/v1`, which displayed « …/v1/v1 » to every user.
-      PUBLIC_API_URL: ${DGX_API:?set DGX_API in .env (see .env.example)}/v1
-      # The public web origin: e-mail links and the passkey (WebAuthn) origin.
-      DGX_WEB: ${DGX_WEB:?set DGX_WEB in .env (see .env.example)}
-      # LiteLLM database for consumption stats (ranking + hourly graph)
-      LITELLM_DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env (run setup.sh)}@postgres/litellm
-      TZ_DISPLAY: Europe/Paris
-      # ── LDAP, SSO, SMTP, Discord: NOT configured here ──
-      # They are set in Admin → Config (portal database). A fresh install
-      # leaves all of this empty and creates its owner account from the web.
-      # These lines only carry an OLDER deployment's .env values into the
-      # database, ONCE, at the first start of this version
-      # (parametres.importer_env_une_fois); afterwards .env is never read for
-      # them and the lines can be deleted from .env.
-      LDAP_URI: ${LDAP_URI:-}
-      LDAP_BASE: ${LDAP_BASE:-}
-      LDAP_USERS_DN: ${LDAP_USERS_DN:-}
-      LDAP_LOGIN_ATTR: ${LDAP_LOGIN_ATTR:-}
-      LDAP_BIND_DN: ${LDAP_BIND_DN:-}
-      LDAP_BIND_PW: ${LDAP_BIND_PW:-}
-      OIDC_METADATA_URL: ${OIDC_METADATA_URL:-}
-      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
-      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
-      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
-      OIDC_LOGOUT_URL: ${OIDC_LOGOUT_URL:-}
-      OIDC_ADMIN_GROUP: ${OIDC_ADMIN_GROUP:-}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM: ${SMTP_FROM:-}
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
-      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
-      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
-      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
-      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
-      DISCORD_REDIRECT_URI: ${DISCORD_REDIRECT_URI:-}
-      # App served over HTTPS behind Traefik → Secure session cookie
-      SESSION_COOKIE_SECURE: "1"
-      # Dictation's on-demand state (idle clock, in-flight calls), on the data
-      # volume so portal-rs records into the same files the reaper reads.
-      ASR_ONDEMAND_DIR: /app/data/.asr-ondemand
-    volumes:
-      - portal_data:/app/data
-      # Proxy in-flight activity, READ-ONLY: LiteLLM is the only writer, and a
-      # compromised portal must not be able to touch what the proxy writes (nor
-      # the reverse). Absent = the panel falls back to the finished rows only.
-      - ./runtime:/run/dgx:ro
-      # The admin button writes a REQUEST here; the host's .path unit picks it
-      # up and runs the validation. Writable on purpose, and only this: the
-      # rest of runtime/ stays read-only for the container.
-      - ./runtime/validation:/run/dgx/validation
-      # ComfyUI's video output, read-only: lets the portal serve past videos
-      # from disk even when the video sidecar (ComfyUI) is stopped to free the GPU.
-      - /root/ComfyUI/output:/comfyui-output:ro
-      # Host monitor state (read-only): current incidents and freshness of the
-      # portal's last dump, measured as root by the monitor. The dump folder
-      # itself is NOT mounted — it is 0700 root and the dumps 0600, and that is
-      # on purpose: they hold the whole database.
-      - /var/lib/dgx-monitor:/var/lib/dgx-monitor:ro
-      # The backup script writes its state here; the admin panel reads it.
-      - /var/backups/dgx:/var/backups/dgx:ro
-      # Same token, caller side.
-      - ./secrets/crawl4ai_token:/run/secrets/crawl4ai_token:ro
-      # Hugging Face token, OPTIONAL, read-only: it makes gated repos visible in
-      # model search and raises the anonymous API limit (500 requests / 5 min per
-      # IP). The portal never returns its value, only its presence
-      # (`vllm_health.hf_jeton_present`). It belongs to the container's user
-      # (uid 10001) and stays 0600: nobody else on the machine can read it.
-      # Missing file → the portal searches anonymously, without error (a `docker
-      # compose up` on a freshly cloned repo creates a FOLDER instead: `open()`
-      # fails, and that is handled as "no token").
-      - ./secrets/hf_token:/run/secrets/hf_token:ro
-    extra_hosts:
-      # Pinned to the gateway of the `default` network, NOT to `host-gateway`.
-      # `host-gateway` means the gateway of whichever interface carries the
-      # default route — which depends on the order of attached networks.
-      # Adding one network was enough, twice (asr_net yesterday, web_net today),
-      # to flip it: packets then left as 172.22.x or 172.25.x, and
-      # vllm-restrict.service — which only allows 172.19.0.0/16 towards the
-      # runner and vLLM — DROPped them. No model reachable anymore.
-      # This address is already the one the firewall hard-allows: we align the
-      # two rather than depend on interface order.
-      - "host.docker.internal:172.19.0.1"
-    depends_on:
-      - litellm
-    networks:
-      # `priority` fixes which interface carries the default route, hence the
-      # SOURCE IP of outgoing calls to host.docker.internal (vLLM :8000,
-      # runner :8001, ComfyUI :8188). Without it Docker picks by order of
-      # alphabetical order: adding `asr_net` moved it ahead of `default`,
-      # packets left as 172.22.x, and vllm-restrict.service — which only allows
-      # 172.19.0.0/16 — DROPped them. Result: every probe waited its 3 s
-      # timeout, ~14 s to display the home page.
-      # We deliberately keep the narrow firewall rule rather than open the
-      # other subnets: the OCR/voice/dictation containers have no reason to
-      # reach the runner.
-      # `priority`: the highest-priority interface carries the default route,
-      # hence the SOURCE IP of outgoing calls. Without it, docker picks in
-      # alphabetical order — adding `web_net` was enough to make packets leave
-      # as 172.25.x, which vllm-restrict.service (which only allows
-      # 172.19.0.0/16) DROPped: no more access to the runner nor to vLLM.
-      # Observed live, exactly like when `asr_net` was added.
-      default:
-        priority: 100
-      ocr_net: {}
-      voice_net: {}
-      asr_net: {}
-      image_net: {}
-      web_net: {}
-
   # ─── DGX Portal Frontend — Next.js + Astryx, full new UI ───────────────────
   # Published on host port 5000 for a first install (`http://<host>:5000`).
   # Behind a Traefik on the same Docker network (it targets
   # `dgx-portal-frontend:3000`), the host port is not needed: bind
   # DGX_WEB_PUBLISH to loopback to keep it off the network.
   # Anything that is not a known Next page is forwarded internally to
-  # dgx-portal:5000 (see next.config.ts → rewrites().fallback).
+  # portal-rs:5100 (see next.config.ts → rewrites().fallback).
   dgx-portal-frontend:
     logging: *logging
     build: ./dgx-portal-frontend
@@ -328,12 +160,10 @@ services:
       # Server rendering formats hours on THIS clock (the playground greeting):
       # the operator's time zone, not the container's UTC.
       TZ: ${TZ_DISPLAY:-Europe/Paris}
-      # Rust migration (docs/rust-migration.md): the Rust portal's address.
-      # Empty: every route stays on Flask. The migrated prefixes are the
-      # mounted migration/rust-routes.txt below (lib/backend.ts).
+      # The portal's address (lib/backend.ts). The migrated prefixes are the
+      # mounted migration/rust-routes.txt below (docs/rust-migration.md).
       DGX_RUST_URL: ${DGX_RUST_URL:-}
-      # The default backend (lib/backend.ts): Flask is retired, so what no
-      # migrated prefix covers goes to the Rust portal as well.
+      # What no migrated prefix covers goes to portal-rs as well.
       BACKEND_URL: ${DGX_RUST_URL:-http://portal-rs:${PORTAL_RUST_PORT:-5100}}
     volumes:
       - ./migration/rust-routes.txt:/app/migration/rust-routes.txt:ro
@@ -345,7 +175,7 @@ services:
       - "${DGX_WEB_PUBLISH:-5000}:3000"
 
   # ─── Web search: SearXNG (metasearch) + crawl4ai (extraction) ──────────────
-  # No `ports:`: neither is reachable from outside, only dgx-portal reaches
+  # No `ports:`: neither is reachable from outside, only portal-rs reaches
   # them on web_net.
   searxng:
     logging: *logging
@@ -355,7 +185,7 @@ services:
     container_name: searxng
     restart: unless-stopped
     environment:
-      # Viewed from dgx-portal; also used by SearXNG for its own URLs.
+      # Viewed from portal-rs; also used by SearXNG for its own URLs.
       - SEARXNG_BASE_URL=http://searxng:8080/
       # Secret generated by setup.sh (no more weak public fallback).
       - SEARXNG_SECRET=${SEARXNG_SECRET:?SEARXNG_SECRET must be set in .env (run setup.sh)}
@@ -381,7 +211,7 @@ services:
     restart: unless-stopped
     volumes:
       # Without a token, crawl4ai deliberately refuses to listen beyond the
-      # loopback — so it would be unreachable from dgx-portal. The token is
+      # loopback — so it would be unreachable from portal-rs. The token is
       # generated once into ./secrets (outside the repo, 0600) and mounted here
       # at the path its entrypoint reads on its own.
       - ./secrets/crawl4ai_token:/run/secrets/api_token:ro
@@ -415,8 +245,7 @@ services:
       DATABASE_URL: sqlite:/app/data/portal.db
       PORTAL_RUST_PORT: "5100"
       RUST_LOG: info
-      # Same upstreams as dgx-portal, so both backends answer alike during
-      # the migration (docs/rust-migration.md). The runner address is the
+      # Upstreams as in the rest of the stack. The runner address is the
       # 172.19.x gateway the firewall allows, not host-gateway.
       VLLM_RUNNER_URL: http://172.19.0.1:8001
       RUNNER_TOKEN: ${RUNNER_TOKEN:?RUNNER_TOKEN must be set in .env (run setup.sh)}
@@ -428,34 +257,33 @@ services:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY must be set in .env (run setup.sh)}
       PUBLIC_API_URL: ${DGX_API:?set DGX_API in .env (see .env.example)}/v1
       DGX_INFLIGHT_DB: /run/dgx/inflight.db
-      # Media sidecars, same addresses as dgx-portal.
+      # Media sidecars, same addresses as the rest of the stack.
       OCR_URL: http://ocr:8000/v1
       VOICE_URL: http://voice:8004
       ASR_URL: http://asr:8006
       IMAGE_URL: ${IMAGE_URL:-http://image:8007}
       COMFYUI_URL: http://172.19.0.1:8188
-      # Shared with dgx-portal, whose reaper stops the idle dictation sidecar.
+      # Dictation's on-demand state: the ASR reaper here stops the idle sidecar.
       ASR_ONDEMAND_DIR: /app/data/.asr-ondemand
-      # Web search, same services as dgx-portal (web_net).
+      # Web search, same services as the rest of the stack (web_net).
       SEARXNG_URL: http://searxng:8080
       CRAWL4AI_URL: http://crawl4ai:11235
     volumes:
       - portal_data:/app/data
-      # The LiteLLM callback's in-flight requests, READ-ONLY as for dgx-portal.
+      # The LiteLLM callback's in-flight requests, READ-ONLY.
       - ./runtime:/run/dgx:ro
       # The validation run's request file and log (admin_config.rs), the host
-      # monitor's state and the backups' state (admin_directory.rs): the same
-      # mounts as dgx-portal's.
+      # monitor's state and the backups' state (admin_directory.rs).
       - ./runtime/validation:/run/dgx/validation
       - /var/lib/dgx-monitor:/var/lib/dgx-monitor:ro
       - /var/backups/dgx:/var/backups/dgx:ro
-      # ComfyUI's output directory, READ-ONLY as for dgx-portal: past videos
+      # ComfyUI's output directory, READ-ONLY: past videos
       # are served from disk even while ComfyUI is stopped.
       - /root/ComfyUI/output:/comfyui-output:ro
       # crawl4ai's API token, read-only (the playground's page reads).
       - ./secrets/crawl4ai_token:/run/secrets/crawl4ai_token:ro
       # Hugging Face token for the model search, read-only; same rule as
-      # dgx-portal: missing file = anonymous search, no error.
+      # portal-rs: missing file = anonymous search, no error.
       - ./secrets/hf_token:/run/secrets/hf_token:ro
     ports:
       - "127.0.0.1:5100:5100"
@@ -468,7 +296,7 @@ services:
     # The portal it is meant to replace sits on the same networks, with the same
     # secrets: no new exposure. `priority` keeps `default` carrying the default
     # route, so calls to 172.19.0.1 (runner, engine, ComfyUI relay) leave from
-    # the 172.19.x address vllm-restrict.service allows — see dgx-portal.
+    # the 172.19.x address vllm-restrict.service allows.
     networks:
       default:
         priority: 100
@@ -493,7 +321,7 @@ networks:
   # Dedicated OCR network: the OCR container (vllm-openai image, the admin can
   # relaunch it with --trust-remote-code on another HF repo, see README
   # « Security ») is NO LONGER on `default` with litellm/postgres/traefik —
-  # only dgx-portal (which talks to it over HTTP, see OCR_URL) is multi-homed
+  # only portal-rs (which talks to it over HTTP, see OCR_URL) is multi-homed
   # on both networks. Arbitrary code executed in this container (malicious HF
   # repo) therefore has no direct L3 route to litellm/postgres.
   ocr_net:
@@ -506,13 +334,13 @@ networks:
   asr_net:
   # Image generation (diffusers): same posture as the other sidecars — receives
   # a user prompt into third-party model code, isolated from litellm/postgres.
-  # Only dgx-portal reaches it (IMAGE_URL=http://image:8007).
+  # Only portal-rs reaches it (IMAGE_URL=http://image:8007).
   image_net:
   # Web search: this is the MOST exposed sidecar of the machine — crawl4ai
   # drives a browser visiting arbitrary pages, i.e. content entirely controlled
   # by third parties, and SearXNG queries external engines. Neither has the
   # slightest reason to have a route to litellm, postgres or traefik. Only
-  # dgx-portal is multi-homed onto it.
+  # portal-rs is multi-homed onto it.
   web_net:
 
 # ─── OpenWebUI ────────────────────────────────────────────────────────────────

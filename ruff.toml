@@ -14,8 +14,3 @@ select = [
   "B023",   # closure using a loop variable (late binding)
   "S113",   # requests call without a timeout
 ]
-
-[lint.per-file-ignores]
-# app.py re-exports the helpers its blueprints were extracted from: the test
-# suite patches them as `app.<name>` (mock.patch.object(portal, …)).
-"dgx-portal/app.py" = ["F401"]

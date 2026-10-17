@@ -59,18 +59,14 @@ jobs:
           exit $hit
 
   backend:
-    name: Backend tests (unittest, in Docker)
+    name: Backend tests (cargo test)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      # run-tests.sh builds the portal image via compose and runs the suite in a
-      # throwaway container with a fresh SQLite DB — same deps as production.
-      # Pin the compose project name so the built image is `ai-platform-dgx-portal`
-      # (the name the script runs), independent of the checkout directory name.
+      # The Rust portal's suite, native (the runner image ships cargo).
       - name: Run test suite
-        env:
-          COMPOSE_PROJECT_NAME: ai-platform
-        run: ./dgx-portal/run-tests.sh
+        working-directory: portal-rs
+        run: cargo test --locked
 
   frontend:
     name: Frontend (types + lint)
@@ -126,8 +122,6 @@ jobs:
         run: python3 scripts/check-english.py
       - name: No monolith
         run: python3 scripts/check-structure.py
-      - name: Route inventory up to date (Rust migration)
-        run: python3 scripts/routes-inventory.py --check
       - name: Sudoers rules parse
         run: for f in systemd/sudoers.d-*; do sudo visudo -cf "$f" >/dev/null || { echo "::error::invalid sudoers rule $f"; exit 1; }; done
       - name: Compose file parses
@@ -159,25 +153,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - name: pip-audit (portal)
-        run: |
-          python3 -m pip install --quiet pip-audit
-          output=$(pip-audit -r dgx-portal/requirements.txt 2>&1) && status=0 || status=$?
-          printf '%s\n' "$output"
-          {
-            echo '## pip-audit — `dgx-portal/requirements.txt`'
-            echo
-            echo '```'
-            printf '%s\n' "$output"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$status" != 0 ]; then
-            echo "::warning title=Python dependencies::pip-audit reports an advisory (non-blocking) — details in this run's summary."
-          fi
-          exit 0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
-        with:
-          node-version: 20
       - name: npm audit (frontend)
         working-directory: dgx-portal-frontend
         run: |

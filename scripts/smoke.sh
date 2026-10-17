@@ -33,52 +33,56 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -m 15 "$API/v1/models")
 # it refuses strangers. Anything else is a problem.
 [ "$code" = "401" ] && ok "API without a key (401, as expected)" || ko "API without a key (HTTP $code, expected 401)"
 
+# The probes run from portal-rs, the container that now answers the site: it
+# sits on the same networks and carries the same upstream addresses.
+# The database is the portal-rs data volume, read on the host.
+PORTAL_DB="$(docker inspect portal-rs -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' 2>/dev/null)/portal.db"
+
 echo "· the portal reaches the host engines"
 # The portal's URLs target 172.19.0.1 (see the subnet note in
 # docker-compose.yml). On another subnet the packets leave with a source the
 # firewall drops, and the only symptom is « no model », with nothing logged.
-if docker exec dgx-portal python3 -c "import os, requests
-requests.get(os.environ.get('VLLM_RUNNER_URL', 'http://172.19.0.1:8001') + '/status', timeout=5)" >/dev/null 2>&1; then
-  ok "runner reachable from the portal"
+# Any HTTP answer counts (the runner asks for its token): only no answer fails.
+code=$(docker exec portal-rs sh -c 'curl -s -o /dev/null -w "%{http_code}" -m 5 "$VLLM_RUNNER_URL/status"' 2>/dev/null) || code=000
+if [ "$code" != "000" ] && [ -n "$code" ]; then
+  ok "runner reachable from the portal (HTTP $code)"
 else
-  gw=$(docker inspect dgx-portal -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}={{$v.Gateway}} {{end}}' 2>/dev/null)
+  gw=$(docker inspect portal-rs -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}={{$v.Gateway}} {{end}}' 2>/dev/null)
   ko "runner unreachable from the portal — its networks: ${gw:-?} (expected a 172.19.0.1 gateway)"
 fi
 
 echo "· the model serves an answer"
-if docker exec dgx-portal python3 - <<'PY' >/dev/null 2>&1
+# The key is read from the database file (read-only) and handed to curl through
+# stdin, so it never appears in a command line or in the output.
+KEY=$(python3 - "$PORTAL_DB" <<'PY' 2>/dev/null
 import sqlite3, sys
-sys.path.insert(0, '/app')
-import requests
-db = sqlite3.connect('/app/data/portal.db')
+db = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
 row = db.execute("SELECT key_value FROM api_keys LIMIT 1").fetchone()
-if not row:
-    sys.exit(1)
-r = requests.post('http://litellm:4001/chat/completions',
-                  headers={'Authorization': 'Bearer ' + row[0], 'Content-Type': 'application/json'},
-                  json={'model': 'auto-model', 'messages': [{'role': 'user', 'content': 'say ok'}],
-                        'max_tokens': 6}, timeout=90)
-sys.exit(0 if r.status_code == 200 else 1)
+print(row[0] if row else "")
 PY
-then ok "a real key generates an answer (200)"; else ko "generation fails"; fi
+) || KEY=""
+BODY='{"model":"auto-model","messages":[{"role":"user","content":"say ok"}],"max_tokens":6}'
+code=000
+if [ -n "$KEY" ]; then
+  code=$(printf 'Authorization: Bearer %s\n' "$KEY" | docker exec -i portal-rs sh -c \
+    'IFS= read -r H; curl -s -o /dev/null -w "%{http_code}" -m 90 -H "$H" -H "Content-Type: application/json" -d "$1" "$LITELLM_URL/chat/completions"' \
+    sh "$BODY" 2>/dev/null) || code=000
+fi
+[ "$code" = "200" ] && ok "a real key generates an answer (200)" || ko "generation fails (HTTP $code)"
+unset KEY
 
 echo "· web search finds something"
-if docker exec dgx-portal python3 - <<'PY' >/dev/null 2>&1
-import sys
-sys.path.insert(0, '/app')
-import app as portal, websearch
-with portal.app.app_context():
-    results, _error = websearch.search('test', count_value=1)
-    sys.exit(0 if results else 1)
-PY
-then ok "SearXNG returns results"; else ko "web search returns nothing"; fi
+# SearXNG, asked the way the portal asks it (websearch.rs). crawl4ai is not probed here.
+if docker exec portal-rs sh -c 'curl -s -m 15 -G "$SEARXNG_URL/search" --data-urlencode q=test -d format=json -d language=fr' 2>/dev/null \
+    | python3 -c 'import json, sys; sys.exit(0 if json.load(sys.stdin).get("results") else 1)' >/dev/null 2>&1; then
+  ok "SearXNG returns results"
+else
+  ko "web search returns nothing"
+fi
 
 echo "· the services answer"
-docker exec dgx-portal python3 -c "
-import requests, sys
-code = requests.get('http://litellm:4001/health/liveliness', timeout=10).status_code
-sys.exit(0 if code == 200 else 1)
-" >/dev/null 2>&1 && ok "litellm (200)" || ko "litellm does not answer"
+code=$(docker exec portal-rs sh -c 'curl -s -o /dev/null -w "%{http_code}" -m 10 "$LITELLM_URL/health/liveliness"' 2>/dev/null) || code=000
+[ "$code" = "200" ] && ok "litellm (200)" || ko "litellm does not answer (HTTP $code)"
 
 if [ "$FAILED" -eq 0 ]; then
   echo

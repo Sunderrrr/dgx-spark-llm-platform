@@ -34,15 +34,15 @@
 version: 2
 
 updates:
-  # Flask portal
-  - package-ecosystem: pip
-    directory: /dgx-portal
+  # Rust portal
+  - package-ecosystem: cargo
+    directory: /portal-rs
     schedule:
       interval: weekly
       day: monday
     open-pull-requests-limit: 0
     groups:
-      portail-python:
+      portail-rust:
         patterns: ["*"]
         update-types: ["minor", "patch"]
 

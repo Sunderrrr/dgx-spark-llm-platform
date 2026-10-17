@@ -1,4 +1,4 @@
-// Shapes of the leaderboard API (dgx-portal/ranking.py, ranking_routes.py)
+// Shapes of the leaderboard API (portal-rs/src/ranking.rs)
 // and the few formatters the page's parts share.
 
 export interface RankRow extends Record<string, unknown> {

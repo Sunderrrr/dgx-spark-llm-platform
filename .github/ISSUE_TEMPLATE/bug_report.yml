@@ -75,7 +75,7 @@ body:
       label: Evidence
       description: |
         A screenshot, the browser console output, or the relevant container log
-        (`docker compose logs --tail=100 dgx-portal`). **Redact credentials.**
+        (`docker compose logs --tail=100 portal-rs`). **Redact credentials.**
       render: text
     validations:
       required: false

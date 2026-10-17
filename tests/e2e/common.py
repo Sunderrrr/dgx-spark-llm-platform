@@ -353,8 +353,22 @@ def json_body(status, body):
 
 
 # ── Test SQL (demo account only) ─────────────────────────────────────────────
+def portal_db_file() -> str:
+    """The portal's SQLite file on the host: the data volume of portal-rs, the
+    same file the Flask backend reads until its retirement (lot 4)."""
+    import subprocess
+    r = subprocess.run(
+        ["docker", "inspect", "portal-rs", "-f",
+         '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}'],
+        capture_output=True, text=True, timeout=30)
+    src = r.stdout.strip()
+    if r.returncode != 0 or not src:
+        raise RuntimeError("cannot locate the portal database: portal-rs has no /app/data mount")
+    return os.path.join(src, "portal.db")
+
+
 def portal_sql(sql: str):
-    """Runs one SQL statement in the portal container and returns the rows.
+    """Runs one SQL statement on the portal database and returns the rows.
     STRICTLY for the demo account:
     - set/clear `local_users.is_admin` to test the Admin page (ALWAYS in
       try/finally, see j09_admin);
@@ -362,18 +376,20 @@ def portal_sql(sql: str):
     - revoke the demo sessions a run opened (close_sessions.py).
     Nothing else: a journey never touches real data.
     """
-    import subprocess
+    import sqlite3
     if "demo" not in sql and "e2e" not in sql.lower():
         raise SystemExit(f"refused: a test SQL statement must target the demo account — {sql!r}")
-    program = ("import sqlite3,sys;"
-               "db=sqlite3.connect('/app/data/portal.db');"
-               "cur=db.execute(sys.argv[1]);db.commit();"
-               "print(cur.fetchall())")
-    r = subprocess.run(["docker", "exec", "dgx-portal", "python3", "-c", program, sql],
-                       capture_output=True, text=True, timeout=60)
-    if r.returncode != 0:
-        raise RuntimeError(f"SQL failed ({sql[:60]}…): {r.stderr.strip()[:200]}")
-    return r.stdout.strip()
+    try:
+        db = sqlite3.connect(portal_db_file(), timeout=30)
+        try:
+            cur = db.execute(sql)
+            db.commit()
+            rows = cur.fetchall()
+        finally:
+            db.close()
+    except (sqlite3.Error, RuntimeError, OSError) as e:
+        raise RuntimeError(f"SQL failed ({sql[:60]}…): {str(e)[:200]}")
+    return str(rows)
 
 
 # ── Console error capture (page sweep) ───────────────────────────────────────

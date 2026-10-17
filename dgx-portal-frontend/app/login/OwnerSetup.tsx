@@ -62,7 +62,7 @@ export function OwnerSetup({ csrf }: { csrf: string }) {
         </Text>
         <Text type="supporting" color="secondary">
           {t("Le jeton de configuration est dans le journal du portail :")}{" "}
-          <Code>{"docker logs dgx-portal 2>&1 | grep setup"}</Code>
+          <Code>{"docker logs portal-rs 2>&1 | grep setup"}</Code>
         </Text>
       </VStack>
       {error && <Banner status="error" title={error} />}

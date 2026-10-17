@@ -15,7 +15,7 @@ ID=$(docker network inspect "$NET" -f '{{.Id}}' 2>/dev/null) || exit 0
 [ -n "$ID" ] || exit 0
 BR="br-${ID:0:12}"
 SRC=$(docker inspect ocr -f "{{index .NetworkSettings.Networks \"$NET\" \"IPAddress\"}}" 2>/dev/null)
-DST=$(docker inspect dgx-portal -f "{{index .NetworkSettings.Networks \"$NET\" \"IPAddress\"}}" 2>/dev/null)
+DST=$(docker inspect portal-rs -f "{{index .NetworkSettings.Networks \"$NET\" \"IPAddress\"}}" 2>/dev/null)
 
 # Purge of rules that became obsolete on this bridge. Deletion BY INDEX,
 # starting from the end: `ebtables -D` requires the exact rule specification,
@@ -29,7 +29,7 @@ for i in $(ebtables -L FORWARD --Ln 2>/dev/null \
 done
 
 [ "$ACTION" = del ] && exit 0
-[ -n "$SRC" ] && [ -n "$DST" ] || { echo "ocr or dgx-portal missing from $NET — nothing to set" >&2; exit 0; }
+[ -n "$SRC" ] && [ -n "$DST" ] || { echo "ocr or portal-rs missing from $NET — nothing to set" >&2; exit 0; }
 
 ebtables -A FORWARD --logical-in "$BR" -p IPv4 --ip-src "$SRC" --ip-dst "$DST" \
          --ip-proto tcp --ip-dport 5000 -j DROP

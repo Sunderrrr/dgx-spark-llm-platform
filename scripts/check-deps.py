@@ -8,10 +8,11 @@ advisory that HAS a fix (upgrade and move on: Next.js 16.3.6 → 16.4.0 on
 2026-10-13, SSRF in image optimization among others), and only REPORTS the
 ones without a fix.
 
-Covers what ships: the frontend's runtime packages (`npm audit --omit=dev`)
-and the portal's Python requirements (`pip-audit`).
+Covers what ships: the frontend's runtime packages (`npm audit --omit=dev`).
+The Python requirements of the retired Flask backend went with it; the Rust
+portal (portal-rs/Cargo.lock) is not audited by this script.
 
-Usage: python3 scripts/check-deps.py [<pip-audit binary>]
+Usage: python3 scripts/check-deps.py
 """
 import json
 import os
@@ -40,25 +41,9 @@ def npm_findings():
     return out
 
 
-def pip_findings(pip_audit):
-    r = subprocess.run([pip_audit, '-r', os.path.join(ROOT, 'dgx-portal/requirements.txt'), '--format', 'json'],
-                       capture_output=True, text=True)
-    try:
-        deps = json.loads(r.stdout or '{}').get('dependencies', [])
-    except json.JSONDecodeError:
-        return [('error', f"pip-audit: unreadable output ({r.stderr.strip()[:200]})")]
-    out = []
-    for d in deps:
-        for v in d.get('vulns', []):
-            kind = 'fix' if v.get('fix_versions') else 'nofix'
-            out.append((kind, f"pip {d['name']} {d.get('version')}: {v.get('id')} "
-                              f"(fix: {', '.join(v.get('fix_versions') or []) or 'none'})"))
-    return out
-
 
 def main():
-    pip_audit = sys.argv[1] if len(sys.argv) > 1 else 'pip-audit'
-    findings = npm_findings() + pip_findings(pip_audit)
+    findings = npm_findings()
     for kind, text in findings:
         mark = '✗' if kind in ('fix', 'error') else '·'
         suffix = '' if kind != 'nofix' else '  [no fix published yet — reported, not blocking]'

@@ -3,8 +3,11 @@
 //! policy (a missing object answers at once; 400/403/408/429/5xx — which the
 //! operator's Garage proxy answers transiently — are retried after 0.5, 1.5 and
 //! 3 s before being reported).
+use std::collections::HashMap;
+
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
+use sqlx::SqliteConnection;
 
 use crate::db::Database;
 
@@ -22,17 +25,44 @@ pub struct Config {
     pub secret_key: String,
 }
 
+/// The S3 settings, as Admin → Config stores them (`cfg_s3_<name>`).
+const SETTING_NAMES: [&str; 6] = ["endpoint", "region", "bucket", "prefix", "access_key", "secret_key"];
+
 impl Config {
     /// `s3_config()`: None unless endpoint, bucket and both keys are set.
     pub async fn load(db: &Database) -> Option<Config> {
-        let get = |k: &'static str| async move { db.get_config(k).await.unwrap_or_default() };
+        let mut values = HashMap::new();
+        for name in SETTING_NAMES {
+            values.insert(name, db.get_config(&format!("s3_{name}")).await.unwrap_or_default());
+        }
+        Self::from_values(&values)
+    }
+
+    /// The same settings read on a plain connection (the `portal` CLI opens
+    /// the database read-only and never builds a `Database`).
+    pub async fn load_conn(con: &mut SqliteConnection) -> Option<Config> {
+        let mut values = HashMap::new();
+        for name in SETTING_NAMES {
+            let raw: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+                .bind(format!("cfg_s3_{name}"))
+                .fetch_optional(&mut *con)
+                .await
+                .ok()
+                .flatten();
+            values.insert(name, raw.unwrap_or_default().trim().to_string());
+        }
+        Self::from_values(&values)
+    }
+
+    fn from_values(values: &HashMap<&str, String>) -> Option<Config> {
+        let get = |name: &str| values.get(name).cloned().unwrap_or_default();
         let c = Config {
-            endpoint: get("s3_endpoint").await.trim_end_matches('/').to_string(),
-            region: get("s3_region").await,
-            bucket: get("s3_bucket").await,
-            prefix: get("s3_prefix").await.trim_matches('/').to_string(),
-            access_key: get("s3_access_key").await,
-            secret_key: get("s3_secret_key").await,
+            endpoint: get("endpoint").trim_end_matches('/').to_string(),
+            region: get("region"),
+            bucket: get("bucket"),
+            prefix: get("prefix").trim_matches('/').to_string(),
+            access_key: get("access_key"),
+            secret_key: get("secret_key"),
         };
         (!c.endpoint.is_empty() && !c.bucket.is_empty() && !c.access_key.is_empty() && !c.secret_key.is_empty()).then_some(c)
     }

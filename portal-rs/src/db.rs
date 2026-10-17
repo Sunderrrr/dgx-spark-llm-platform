@@ -307,7 +307,7 @@ impl Database {
     }
 
     /// stats.accumulate_generated_tokens, READ-ONLY: the same total, never
-    /// written. While Flask serves the dashboard it is the only writer — two
+    /// written. While the Flask backend served the dashboard it was the only writer — two
     /// probers updating one row from slightly different readings would take a
     /// later reading for a counter reset and archive it twice.
     pub async fn generated_tokens_total(&self, model: &str, value: i64) -> Option<i64> {

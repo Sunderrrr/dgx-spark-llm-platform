@@ -1,7 +1,7 @@
 //! The settings page's read side, parity with dgx-portal settings_routes.py
 //! `api_settings`: the viewer's MCP servers and skills, preferences, the lists of
 //! choices, the account block, the 182-day activity and the real quotas.
-//! The writes of the page live under other prefixes and stay on Flask.
+//! The writes of the page live under other prefixes (served by the Flask backend until its removal).
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 

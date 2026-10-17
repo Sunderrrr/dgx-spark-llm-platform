@@ -1,7 +1,8 @@
 //! The viewer's conversations, read side, parity with dgx-portal
 //! conversation_routes.py: `GET /api/conversations` (the list, with a size
 //! budget) and `GET /api/conversations/<client_id>` (one whole conversation).
-//! The writes (`POST /conversations`, sharing) stay on Flask: they live under
+//! The writes (`POST /conversations`, sharing) were on the Flask backend until its
+//! removal: they live under
 //! another prefix and are not routed here.
 use serde_json::{json, Map, Value};
 use sqlx::{Row, SqlitePool};

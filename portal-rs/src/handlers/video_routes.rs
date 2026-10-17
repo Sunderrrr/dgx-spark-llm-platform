@@ -10,8 +10,8 @@ use axum::http::Uri;
 const VIDEO_HISTORY_LIMIT: i64 = 10;
 const MAX_UPLOAD_BYTES: usize = 15 * 1024 * 1024;
 const MAX_IMAGE_PIXELS: u64 = 40_000_000;
-const T2V_TEMPLATE: &str = include_str!("../../../dgx-portal/workflows/h3_t2v_template.json");
-const R2V_TEMPLATE: &str = include_str!("../../../dgx-portal/workflows/h3_r2v_template.json");
+const T2V_TEMPLATE: &str = include_str!("../../workflows/h3_t2v_template.json");
+const R2V_TEMPLATE: &str = include_str!("../../workflows/h3_r2v_template.json");
 
 fn comfyui_url() -> String {
     media::sidecar_url("COMFYUI_URL", "http://host.docker.internal:8188")

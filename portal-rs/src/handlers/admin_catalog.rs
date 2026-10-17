@@ -1,6 +1,6 @@
 //! The chat models' catalog (admin_models.py): add, edit the engine args,
 //! delete (route at LiteLLM, then the weights on disk unless another entry
-//! uses them). Launching and stopping stay with Flask.
+//! uses them). Launching and stopping are not in this module.
 use super::*;
 use super::admin_writes::{add_announcement, admin_form, field, json_error, json_ok};
 

@@ -15,6 +15,7 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 
 use crate::db::Database;
+use crate::AppState;
 use crate::spend;
 
 /// Periods and their labels (ranking.PERIOD_LABELS / PREV_LABELS).
@@ -487,20 +488,14 @@ async fn ranking_inner(
 
 /// The leaderboard as one viewer sees it (ranking_routes.api_ranking):
 /// accounts that chose anonymity are hidden from the OTHER users.
-pub async fn ranking_for_viewer(
-    db: &Database,
-    pool: Option<&PgPool>,
-    period: &str,
-    metric: &str,
-    by: &str,
-    model: Option<&str>,
-    me: &str,
-    admin: bool,
-) -> Value {
-    let mut data = ranking_full(db, pool, period, Some(me), metric, model, by).await;
+pub async fn ranking_for_viewer(state: &AppState, period: &str, metric: &str, by: &str, model: Option<&str>, me: &str, admin: bool) -> Value {
+    let db = &state.db;
+    let mut data = ranking_full(db, state.spend.as_ref(), period, Some(me), metric, model, by).await;
     let anonymous: HashSet<String> = db.anonymous_accounts().await;
     let avatars = db.avatars().await;
     let by_group = data["by"] == "group";
+    // `ranking.quotas()`: admins see each account's share of its budget, account view only.
+    let quotas = if admin && !by_group { quota_shares(state).await } else { HashMap::new() };
     let groups = if by_group { db.user_groups().await } else { Vec::new() };
     if let Some(rows) = data["rows"].as_array_mut() {
         for (n, row) in rows.iter_mut().enumerate() {
@@ -525,8 +520,7 @@ pub async fn ranking_for_viewer(
                 row["anon_id"] = json!(format!("anon-{n}"));
             }
             if admin {
-                // Not ported: the LiteLLM budget share (/user/list, master key).
-                row["quota_pct"] = Value::Null;
+                row["quota_pct"] = quotas.get(&name).cloned().unwrap_or(Value::Null);
             }
         }
     }
@@ -535,6 +529,49 @@ pub async fn ranking_for_viewer(
     data["period_label"] = json!(period_label(period));
     data["prev_label"] = json!(prev_label(period));
     data
+}
+
+static QUOTA_CACHE: std::sync::Mutex<Option<(std::time::Instant, HashMap<String, Value>)>> = std::sync::Mutex::new(None);
+
+/// Python's `round(x, 1)`: the decimal nearest to the double, ties to even.
+fn round1(x: f64) -> f64 {
+    format!("{x:.1}").parse().unwrap_or(x)
+}
+
+/// `ranking.quotas()`: {account: percent of its LiteLLM budget used, None when
+/// unlimited}. One /user/list call, cached 30 s like the Flask version.
+async fn quota_shares(state: &AppState) -> HashMap<String, Value> {
+    if let Some((at, data)) = QUOTA_CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        if at.elapsed() < std::time::Duration::from_secs(30) {
+            return data.clone();
+        }
+    }
+    let mut out = HashMap::new();
+    for u in crate::handlers::admin_routes::user_consumption(state).await {
+        let Some(name) = u.get("username").and_then(Value::as_str) else { continue };
+        let unlimited = u.get("unlimited").is_some_and(crate::keys::truthy);
+        let max = u.get("max_budget").and_then(Value::as_f64).filter(|m| *m != 0.0);
+        let pct = match max {
+            Some(max) if !unlimited => json!(round1(u.get("spend").and_then(Value::as_f64).unwrap_or(0.0) / max * 100.0)),
+            _ => Value::Null,
+        };
+        out.insert(name.to_string(), pct);
+    }
+    *QUOTA_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((std::time::Instant::now(), out.clone()));
+    out
+}
+
+#[cfg(test)]
+mod quota_tests {
+    use super::round1;
+
+    #[test]
+    fn quota_rounds_like_python() {
+        assert_eq!(round1(12.34), 12.3);
+        assert_eq!(round1(100.0), 100.0);
+        assert_eq!(round1(0.05), 0.1);
+        assert_eq!(round1(2.25), 2.2);
+    }
 }
 
 /// ranking.ACTIVITY_DAYS: days per period for the heatmap and the detail.

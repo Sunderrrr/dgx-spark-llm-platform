@@ -10,7 +10,7 @@ use crate::chat::support_tools::grouped;
 const MAX_AMOUNT: f64 = 1_000_000_000_000.0;
 
 /// `get_setting('default_key_duration', KEY_DURATION)`.
-async fn key_duration(state: &AppState) -> String {
+pub(crate) async fn key_duration(state: &AppState) -> String {
     match state.db.get_setting("default_key_duration").await.ok().flatten() {
         Some(v) => v,
         None => super::admin_routes::key_duration_default().as_str().unwrap_or("7d").to_string(),
@@ -18,7 +18,7 @@ async fn key_duration(state: &AppState) -> String {
 }
 
 /// `litellm_update_user_budget(username, amount, budget_duration)`.
-async fn update_envelope(username: &str, amount: f64, duration: &str) -> bool {
+pub(crate) async fn update_envelope(username: &str, amount: f64, duration: &str) -> bool {
     let mut payload = json!({"user_id": username, "max_budget": amount});
     if !duration.is_empty() {
         payload["budget_duration"] = json!(duration);

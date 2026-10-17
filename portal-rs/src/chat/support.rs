@@ -89,10 +89,10 @@ impl ThreadMsg {
 /// Everything decided before the stream.
 struct Turn {
     username: String,
+    fullname: Option<String>,
+    is_admin: bool,
     model: String,
     user_key: String,
-    csrf: String,
-    headers: HeaderMap,
     history: Vec<ThreadMsg>,
     msgs: Vec<Value>,
     tools: Vec<Value>,
@@ -146,7 +146,7 @@ pub async fn support_chat(state: AppState, headers: HeaderMap, body: axum::body:
     if let Some(reset) = gauges::quota_exceeded_reset(&state.db, state.spend.as_ref(), &user).await {
         return sse(StatusCode::OK, notice("quota_exceeded", json!({"reset": reset}), true));
     }
-    let mut ctx = st::context(&state, &user).await;
+    let mut ctx = st::context(&state, &user, session.is_admin).await;
     let mem_on = crate::memory::enabled(state.db.pool(), &user).await;
     if mem_on {
         let memctx = memory_turn::inject_context(state.db.pool(), &user).await;
@@ -159,11 +159,11 @@ pub async fn support_chat(state: AppState, headers: HeaderMap, body: axum::body:
     msgs.extend(hist.iter().map(ThreadMsg::api));
     let ldap = crate::handlers::ldap_host(&state).await;
     let (extra, routing) = st::extra_tools(&state, &user, &ldap).await;
-    let mut tools = st::tools();
+    let mut tools = st::tools(session.is_admin);
     tools.extend(extra);
     let last_user = hist.iter().rev().find(|m| m.role == "user").map(|m| m.content.clone()).unwrap_or_default();
     let turn = Turn {
-        username: user, model, user_key, csrf: session.csrf.clone().unwrap_or_default(), headers, history: hist, msgs, tools, routing,
+        username: user, fullname: session.fullname.clone(), is_admin: session.is_admin, model, user_key, history: hist, msgs, tools, routing,
         think: reasoning::reasonably_complex(&last_user), mem_on, ldap,
     };
     let (tx, rx) = tokio::sync::mpsc::channel(256);
@@ -461,7 +461,7 @@ async fn turns(state: &AppState, t: &mut Turn, out: &Out, response: &mut Vec<Str
                         crate::chat::tools::library::use_skill(pool, &t.username, &a("name")).await
                     }
                 }
-                None => st::exec(state, &t.headers, &t.csrf, &fname, &args_obj, &t.username).await,
+                None => st::exec(state, &fname, &args_obj, &t.username, t.fullname.as_deref(), t.is_admin).await,
             };
             let ms = started.elapsed().as_millis() as i64;
             out.send(tool_event(&tc_id, &label, target.as_deref(), if ok { "complete" } else { "error" }, Some(ms), if ok { None } else { Some(res.as_str()) })).await;
@@ -517,7 +517,7 @@ pub async fn support_confirm(state: AppState, headers: HeaderMap, body: axum::bo
     }
     let args: Value = serde_json::from_str(args.as_deref().filter(|a| !a.is_empty()).unwrap_or("{}")).unwrap_or_else(|_| json!({}));
     let args = if args.is_object() { args } else { json!({}) };
-    let (res, ok) = st::exec(&state, &headers, session.csrf.as_deref().unwrap_or(""), &tool, &args, user).await;
+    let (res, ok) = st::exec(&state, &tool, &args, user, session.fullname.as_deref(), session.is_admin).await;
     crate::sessions::log_audit(pool, user, &format!("support.{tool}"), &format!("{label} — {}", if ok { "ok" } else { "échec" })).await;
     answer(StatusCode::OK, json!({"ok": ok, "message": res}))
 }

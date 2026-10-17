@@ -1,8 +1,8 @@
 //! The dictation sidecar's on-demand state, parity with dgx-portal sidecars.py
 //! (« ASR on-demand »): FILE state in a directory both portals share
-//! (`ASR_ONDEMAND_DIR`, on the data volume), so Flask's idle reaper sees the
-//! activity and the in-flight calls Rust records. The reaper itself stays in
-//! Flask; Rust only writes the clock and the markers, and starts the sidecar.
+//! (`ASR_ONDEMAND_DIR`, on the data volume), so the idle reaper (asr_reaper.rs)
+//! sees the activity and the in-flight calls Rust records. The reaper is a Rust
+//! background job; this module only writes the clock and the markers, and starts the sidecar.
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};

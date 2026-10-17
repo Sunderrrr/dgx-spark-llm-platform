@@ -1,7 +1,7 @@
 //! Dictation and the playground's voice mode (asr_routes.py,
 //! voice_chat_routes.py): mic audio → text, the voice container started on
 //! first use, and one sentence → raw PCM streamed. The ASR sidecar's idle
-//! reaper stays in Flask; these routes write the shared on-demand state.
+//! reaper is a separate background job (asr_reaper.rs); these routes write the shared on-demand state.
 #![allow(unused_imports)]
 use super::*;
 use crate::asr_ondemand;

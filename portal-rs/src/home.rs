@@ -1,8 +1,8 @@
 //! The home dashboard's data, parity with dgx-portal/app.py `_index_data`
 //! (route /api/home) and the stats.py helpers it calls.
 //!
-//! Everything here READS. Two Flask helpers also write as a side effect and
-//! stay Flask's job while it serves the dashboard: `_inflight_snapshot`
+//! Everything here READS. Two Flask helpers also wrote as a side effect; the
+//! Flask backend kept that job until its removal: `_inflight_snapshot`
 //! sweeps in-flight rows older than 15 min (here they are skipped, not
 //! deleted), and the token total (see health.rs).
 use std::collections::HashMap;

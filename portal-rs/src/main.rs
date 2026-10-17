@@ -22,6 +22,17 @@ async fn main() -> anyhow::Result<()> {
     if let Some(code) = portal_rs::monitor_read::run_from_args(&db_url).await {
         std::process::exit(code);
     }
+    // The nightly backup's commands (scripts/backup.sh), same shape.
+    if let Some(code) = portal_rs::ops_cli::run_from_args(&db_url).await {
+        std::process::exit(code);
+    }
+    // Any other bare word is a mistyped or missing-from-the-image command: fail
+    // instead of falling through to the server (a second start, or a silent no-op).
+    if let Some(word) = std::env::args().nth(1).filter(|a| !a.starts_with('-')) {
+        eprintln!("unknown command: {word}");
+        eprintln!("commands: backup-settings, backup-upload, media-sweep, create-demo-account, monitor-counters, monitor-smtp");
+        std::process::exit(2);
+    }
     let port = std::env::var("PORTAL_RUST_PORT").unwrap_or_else(|_| "5100".to_string());
     let port: u16 = port.parse()?;
 
@@ -41,6 +52,14 @@ async fn main() -> anyhow::Result<()> {
     // Flask's start). Same seam as the background jobs.
     if std::env::var("DGX_NO_REAPER").as_deref() != Ok("1") {
         let _ = portal_rs::ldap::states_for(&state, &[]);
+    }
+
+    // The background jobs the Flask container used to run, now in Rust
+    // (same cadence, same effect): the budget-grant reaper (every 60 s, and at
+    // startup) and the ASR idle reaper (every 30 s). Same DGX_NO_REAPER seam.
+    if std::env::var("DGX_NO_REAPER").as_deref() != Ok("1") {
+        portal_rs::budget_reaper::spawn(state.clone());
+        portal_rs::asr_reaper::spawn(state.db.clone());
     }
 
     info!("Portal Rust starting on 0.0.0.0:{}", port);
@@ -228,7 +247,6 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/notifications/seen", post(handlers::api_notifications_seen))
         .route("/api/announcements/seen", post(handlers::api_announcements_seen))
         
-        .layer(axum::middleware::from_fn_with_state(state.clone(), portal_rs::relay::admin_layer))
         .layer(axum::middleware::from_fn(portal_rs::security::layer))
         .layer(axum::middleware::from_fn(portal_rs::latency::layer))
         .layer(TraceLayer::new_for_http())

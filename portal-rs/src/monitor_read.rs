@@ -10,7 +10,8 @@ use std::str::FromStr;
 /// The settings keys the monitor needs to send its alerts (Admin → Config).
 const SMTP_KEYS: [&str; 6] = ["cfg_smtp_host", "cfg_smtp_port", "cfg_smtp_user", "cfg_smtp_pass", "cfg_smtp_from", "cfg_admin_email"];
 
-async fn connect(db_url: &str) -> anyhow::Result<sqlx::SqliteConnection> {
+/// A read-only connection: the CLI answers questions, it never writes.
+pub async fn connect(db_url: &str) -> anyhow::Result<sqlx::SqliteConnection> {
     Ok(SqliteConnectOptions::from_str(db_url)?.read_only(true).connect().await?)
 }
 

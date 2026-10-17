@@ -2,11 +2,11 @@
 //! context about the logged-in account (never anyone else's), its tools and
 //! their execution — always for the session's user. Sensitive actions are only
 //! PROPOSED: a token goes to the UI, and the click executes (`/support/confirm`).
-//! Admin sessions are served by Flask (see `relay`), so only the self-service
-//! tools are offered here.
+//! The admin tools live in `support_admin`, offered to admin sessions only.
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
 
+use crate::chat::support_admin;
 use crate::AppState;
 
 const SUPPORT_FAQ: &str = "FAQ plateforme __PLATFORM__ :\n\
@@ -113,12 +113,14 @@ async fn services_state() -> Vec<(String, String)> {
     state
 }
 
-/// `_support_context` for a non-admin account.
-pub async fn context(state: &AppState, username: &str) -> String {
+/// `_support_context`.
+pub async fn context(state: &AppState, username: &str, is_admin: bool) -> String {
     let pool = state.db.pool();
-    let mut lines = vec![format!("Utilisateur connecté : {username}")];
+    let mut lines = vec![format!("Utilisateur connecté : {username}{}", if is_admin { " (admin)" } else { "" })];
     let acct = crate::keys::account_info(username).await;
-    if acct.exists {
+    if is_admin {
+        lines.push("Budget du compte : illimité (admin).".into());
+    } else if acct.exists {
         if let Some(b) = acct.max_budget {
             let mut l = format!("Budget du compte : {} / {} tokens utilisés", grouped(acct.spend), grouped(b));
             if !acct.budget_reset_at.is_empty() {
@@ -175,11 +177,22 @@ pub async fn context(state: &AppState, username: &str) -> String {
             d.as_deref().filter(|x| !x.is_empty()).or(a.as_deref()).unwrap_or("").chars().take(160).collect::<String>())).collect();
         lines.push(format!("Ses dernières actions (plus récente d'abord) :\n{}", l.join("\n")));
     }
+    if is_admin {
+        lines.push("Les logs des services ne sont PAS dans ce contexte : s'ils sont utiles pour répondre (panne, erreur, démarrage), lis-les avec l'outil read_logs, puis cite la cause trouvée.".into());
+    }
     format!("{}\n\n{}", support_text(pool, SUPPORT_FAQ).await, lines.join("\n"))
 }
 
-/// `_support_tools(False)`: the self-service tools.
-pub fn tools() -> Vec<Value> {
+/// `_support_tools(is_admin)`: the self-service tools, and the admin ones for an admin.
+pub fn tools(is_admin: bool) -> Vec<Value> {
+    let mut t = self_service_tools();
+    if is_admin {
+        t.extend(support_admin::tools());
+    }
+    t
+}
+
+fn self_service_tools() -> Vec<Value> {
     vec![
         json!({"type": "function", "function": {"name": "create_api_key", "description": "Crée une nouvelle clé API pour l'utilisateur connecté et la retourne.",
             "parameters": {"type": "object", "properties": {"alias": {"type": "string", "description": "Nom court de la clé (ex: mon-laptop). Optionnel."}}}}}),
@@ -207,7 +220,7 @@ pub fn label(name: &str) -> String {
     .to_string()
 }
 
-fn arg(args: &Value, k: &str) -> String {
+pub fn arg(args: &Value, k: &str) -> String {
     crate::memory::py_strip(&args.get(k).filter(|v| crate::keys::truthy(v)).map(crate::chat::history::py_str).unwrap_or_default()).to_string()
 }
 
@@ -223,26 +236,14 @@ pub fn target(name: &str, args: &Value) -> Option<String> {
     }
 }
 
-/// POSTs to one of Flask's own forms, as the user (their cookie, their session's CSRF).
-async fn flask_form(headers: &axum::http::HeaderMap, csrf: &str, path: &str, body: reqwest::RequestBuilder) -> Result<u16, String> {
-    let _ = path;
-    let mut req = body.header("X-CSRFToken", csrf);
-    if let Some(c) = headers.get(axum::http::header::COOKIE) {
-        req = req.header("cookie", c.as_bytes());
-    }
-    req.send().await.map(|r| r.status().as_u16()).map_err(|_| "ConnectionError".to_string())
-}
-
-/// `_exec_support_tool` for a non-admin session: (result, ok).
-pub async fn exec(state: &AppState, headers: &axum::http::HeaderMap, csrf: &str, name: &str, args: &Value, username: &str) -> (String, bool) {
+/// `_exec_support_tool`: (result, ok). Always on behalf of the session user.
+pub async fn exec(state: &AppState, name: &str, args: &Value, username: &str, fullname: Option<&str>, is_admin: bool) -> (String, bool) {
     let pool = state.db.pool();
-    let flask = std::env::var("FLASK_URL").unwrap_or_else(|_| "http://dgx-portal:5000".to_string());
-    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build();
     match name {
         "create_api_key" => {
             let raw = arg(args, "alias");
             let alias = if raw.is_empty() { format!("{username}-{}", chrono::Utc::now().timestamp()) } else { crate::handlers::key_alias(&raw) };
-            let Some(new_key) = crate::handlers::create_key(state, &alias, username, false).await else {
+            let Some(new_key) = crate::handlers::create_key(state, &alias, username, is_admin).await else {
                 return ("Échec de la création (alias déjà pris ou LiteLLM injoignable).".into(), false);
             };
             let _ = sqlx::query("INSERT OR REPLACE INTO api_keys (username, key_alias, key_value, created_at) VALUES (?,?,?,?)")
@@ -260,36 +261,63 @@ pub async fn exec(state: &AppState, headers: &axum::http::HeaderMap, csrf: &str,
                 ("Échec de la révocation côté LiteLLM.".into(), false)
             }
         }
-        "request_budget" => {
-            // Flask's own form records it and notifies the admin (Discord, e-mail).
-            let Ok(c) = client else { return ("Erreur lors de l'exécution de l'action (ConnectionError).".into(), false) };
-            let body = c.post(format!("{flask}/keys")).form(&[("action", "request_budget"), ("reason", arg(args, "reason").as_str())]);
-            match flask_form(headers, csrf, "/keys", body).await {
-                Ok(409) => ("Une demande de budget est déjà en attente.".into(), true),
-                Ok(s) if (200..300).contains(&s) => ("Demande de budget envoyée à un admin.".into(), true),
-                Ok(_) => ("Erreur lors de l'exécution de l'action (HTTPError).".into(), false),
-                Err(e) => (format!("Erreur lors de l'exécution de l'action ({e})."), false),
-            }
-        }
-        "request_model" => {
-            let hf = arg(args, "hf_model_id");
-            if hf.is_empty() {
-                return ("Identifiant de modèle manquant.".into(), false);
-            }
-            let Ok(c) = client else { return ("Erreur lors de l'exécution de l'action (ConnectionError).".into(), false) };
-            let body = c.post(format!("{flask}/request")).json(&json!({"model_id": hf, "reason": arg(args, "reason")}));
-            match flask_form(headers, csrf, "/request", body).await {
-                Ok(409) => (format!("Une demande pour « {hf} » est déjà en attente."), true),
-                Ok(s) if (200..300).contains(&s) => (format!("Demande d'ajout du modèle « {hf} » envoyée à un admin."), true),
-                Ok(_) => ("Erreur lors de l'exécution de l'action (HTTPError).".into(), false),
-                Err(e) => (format!("Erreur lors de l'exécution de l'action ({e})."), false),
-            }
-        }
-        "read_logs" => ("Lecture réservée aux administrateurs.".into(), false),
-        "manage_service" => ("Action réservée aux administrateurs.".into(), false),
-        "launch_model" | "stop_model" => ("Action réservée aux admins.".into(), false),
+        "request_budget" => request_budget(state, args, username, fullname).await,
+        "request_model" => request_model(state, args, username, fullname).await,
+        "read_logs" if !is_admin => ("Lecture réservée aux administrateurs.".into(), false),
+        "manage_service" if !is_admin => ("Action réservée aux administrateurs.".into(), false),
+        "launch_model" | "stop_model" if !is_admin => ("Action réservée aux admins.".into(), false),
+        _ if support_admin::ADMIN_TOOLS.contains(&name) => support_admin::exec(pool, name, args, username).await,
         other => (format!("Outil inconnu : {other}"), false),
     }
+}
+
+/// `request_budget`: one pending request per account; the admins are told.
+async fn request_budget(state: &AppState, args: &Value, username: &str, fullname: Option<&str>) -> (String, bool) {
+    let pool = state.db.pool();
+    let reason = arg(args, "reason");
+    let pending: Option<i64> = sqlx::query_scalar("SELECT 1 FROM budget_requests WHERE username=? AND status='pending'").bind(username).fetch_optional(pool).await.ok().flatten();
+    if pending.is_some() {
+        return ("Une demande de budget est déjà en attente.".into(), true);
+    }
+    let current = crate::keys::account_info(username).await.max_budget;
+    let inserted = sqlx::query("INSERT INTO budget_requests (username, fullname, key_alias, current_budget, reason, status, created_at) VALUES (?,?,?,?,?,?,?)")
+        .bind(username).bind(fullname).bind("(compte)").bind(current).bind(&reason).bind("pending")
+        .bind(crate::keys::iso(&chrono::Local::now().naive_local())).execute(pool).await;
+    if inserted.is_err() {
+        return ("Erreur lors de l'exécution de l'action (DatabaseError).".into(), false);
+    }
+    let who = fullname.unwrap_or("None");
+    tokio::join!(
+        crate::discord::budget_request(pool, username, who, "(compte)", current, &reason),
+        crate::mailer::budget_request(pool, username, who, "(compte)", current, &reason),
+    );
+    ("Demande de budget envoyée à un admin.".into(), true)
+}
+
+/// `request_model`: one pending request per model and account; the admins are told.
+async fn request_model(state: &AppState, args: &Value, username: &str, fullname: Option<&str>) -> (String, bool) {
+    let pool = state.db.pool();
+    let hf = arg(args, "hf_model_id");
+    if hf.is_empty() {
+        return ("Identifiant de modèle manquant.".into(), false);
+    }
+    let reason = arg(args, "reason");
+    let pending: Option<i64> = sqlx::query_scalar("SELECT 1 FROM model_requests WHERE username=? AND model_id=? AND status='pending'").bind(username).bind(&hf).fetch_optional(pool).await.ok().flatten();
+    if pending.is_some() {
+        return (format!("Une demande pour « {hf} » est déjà en attente."), true);
+    }
+    let inserted = sqlx::query("INSERT INTO model_requests (username, fullname, model_id, reason, status, created_at) VALUES (?,?,?,?,?,?)")
+        .bind(username).bind(fullname).bind(&hf).bind(&reason).bind("pending")
+        .bind(crate::keys::iso(&chrono::Local::now().naive_local())).execute(pool).await;
+    if inserted.is_err() {
+        return ("Erreur lors de l'exécution de l'action (DatabaseError).".into(), false);
+    }
+    let who = fullname.unwrap_or("None");
+    let _ = tokio::join!(
+        crate::discord::model_request(pool, &hf, username, who, &reason),
+        crate::mailer::model_request(pool, &hf, username, fullname, &reason),
+    );
+    (format!("Demande d'ajout du modèle « {hf} » envoyée à un admin."), true)
 }
 
 /// `create_pending_action`: the confirmation request; its opaque token.

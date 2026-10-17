@@ -2,7 +2,7 @@
 //! statuses of image, OCR, video and voice, the voice capabilities, and whether
 //! dictation can serve. The routes that create jobs, call a sidecar to act, or
 //! return a stored file are NOT here: they write, or they read media that may
-//! live on S3 (media_store), and stay on Flask until they are ported whole.
+//! live on S3 (media_store), and were served by the Flask backend until it was removed.
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 

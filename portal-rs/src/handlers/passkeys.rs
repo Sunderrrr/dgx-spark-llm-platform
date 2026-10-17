@@ -1,7 +1,7 @@
 //! Passkeys (webauthn_routes.py): listing, adding (after the password), removing,
 //! toggling the second factor, and the second factor of the sign-in. The
-//! challenges are single use and short-lived, kept in pending_webauthn exactly
-//! as Flask writes them, so either backend can finish the other's challenge.
+//! challenges are single use and short-lived, kept in pending_webauthn in the
+//! format the Flask backend used, so rows written before its removal stay valid.
 use super::*;
 use super::admin_accounts::{management, verify_password_locked};
 use crate::webauthn as wa;

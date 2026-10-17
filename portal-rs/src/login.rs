@@ -1,8 +1,7 @@
-//! Signing a LOCAL account in (app.py `login`, local_users.py): the werkzeug
-//! hash checked here, the lockout counters shared with Flask, the session
-//! opened in the shared store. Every other case — directory accounts, a
-//! failed local check, an account with a passkey — is handed to Flask as it
-//! came, so LDAP and WebAuthn stay where they are verified.
+//! Signing an account in (app.py `login`, local_users.py): a local account by its
+//! werkzeug hash, a directory account by LDAP bind (ldap.rs). The lockout counters
+//! are shared with the Flask copy while it ran; the session is opened in the shared
+//! store. The passkey second factor is checked in webauthn.rs.
 use hmac::Hmac;
 use sha2::Sha256;
 
@@ -116,7 +115,7 @@ pub(crate) async fn record_source(pool: &sqlx::SqlitePool, username: &str, sourc
 }
 
 /// POST /login - a local or LDAP account's sign-in; a blocked account and
-/// the passkey second factor are Flask's.
+/// the passkey second factor are checked here too (webauthn.rs for the latter).
 pub async fn login(state: AppState, headers: HeaderMap, connect: Option<std::net::SocketAddr>, uri: axum::http::Uri, body: axum::body::Bytes) -> Response {
     let form = crate::handlers::form_of(&headers, &body);
     match crate::auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
@@ -124,13 +123,6 @@ pub async fn login(state: AppState, headers: HeaderMap, connect: Option<std::net
         Ok(false) => return crate::auth::csrf_refused(),
         Ok(true) => {}
     }
-    let relay = |headers: HeaderMap, body: axum::body::Bytes, uri: axum::http::Uri| async move {
-        let mut req = axum::http::Request::builder().method("POST").uri(uri);
-        for (k, v) in &headers {
-            req = req.header(k, v);
-        }
-        crate::relay::to_flask(req.body(axum::body::Body::from(body)).unwrap_or_default()).await
-    };
     if crate::auth::require_session(&headers, &state.db).await.is_ok() {
         return (StatusCode::FOUND, [(axum::http::header::LOCATION, "/")], crate::auth::werkzeug_redirect_body("/")).into_response();
     }
@@ -166,8 +158,14 @@ pub async fn login(state: AppState, headers: HeaderMap, connect: Option<std::net
         Err(_) => return crate::auth::html_status(StatusCode::INTERNAL_SERVER_ERROR),
     };
     if facts.blocked {
-        // The refusal and its audit line are Flask's.
-        return relay(headers, body, uri).await;
+        // `_refuse_if_blocked`: after the credentials, so a blocked account is
+        // told the truth; the JSON body lets the page show the message as is.
+        crate::sessions::log_audit(pool, &username, "login.refuse", "compte bloqué par un administrateur").await;
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({"ok": false, "error": "Accès révoqué pour ce compte. Contacte un administrateur.", "blocked": true})),
+        )
+            .into_response();
     }
     let passkey: Option<Option<i64>> = sqlx::query_scalar("SELECT enabled FROM user_security WHERE username=?").bind(&username).fetch_optional(pool).await.ok().flatten();
     let second_factor = passkey.flatten().unwrap_or(0) != 0;

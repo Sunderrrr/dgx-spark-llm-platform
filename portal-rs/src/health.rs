@@ -6,7 +6,7 @@
 //! backends: the instantaneous throughput (previous counter + time), and the
 //! age of the engine's tasks (first time a task id was seen).
 //! The cross-relaunch token total is computed READ-ONLY here (see
-//! Database::generated_tokens_total): Flask stays its only writer.
+//! Database::generated_tokens_total): the removed Flask backend was its only writer.
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};

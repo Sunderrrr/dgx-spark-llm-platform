@@ -24,11 +24,11 @@ mod dictation_routes;
 mod ocr_routes;
 mod mcp_routes;
 mod key_routes;
-mod admin_routes;
+pub(crate) mod admin_routes;
 mod admin_writes;
-mod admin_budget;
-mod admin_groups;
-mod admin_accounts;
+pub(crate) mod admin_budget;
+pub(crate) mod admin_groups;
+pub(crate) mod admin_accounts;
 mod user_requests;
 mod admin_catalog;
 mod admin_ops;
@@ -356,17 +356,7 @@ pub async fn api_ranking(
         .get("model")
         .map(|m| m.trim().chars().take(120).collect::<String>())
         .filter(|m| !m.is_empty());
-    let data = ranking::ranking_for_viewer(
-        &state.db,
-        state.spend.as_ref(),
-        period,
-        metric,
-        by,
-        model.as_deref(),
-        &session.username,
-        session.is_admin,
-    )
-    .await;
+    let data = ranking::ranking_for_viewer(&state, period, metric, by, model.as_deref(), &session.username, session.is_admin).await;
     (StatusCode::OK, Json(data)).into_response()
 }
 
@@ -609,7 +599,7 @@ pub async fn docs(
     }
 }
 
-/// GET / - the page itself is the Next.js frontend's. Flask keeps the route for
+/// GET / - the page itself is the Next.js frontend's. The Flask backend kept the route for
 /// its redirect targets: signed out → 302 to the login page (it is not an API,
 /// so no 401), signed in → 204.
 pub async fn index(

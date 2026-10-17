@@ -1,5 +1,5 @@
 //! Session routes that need no credential check (auth.py / app.py): the CSRF
-//! token and the logout. The login itself stays on Flask (LDAP, SSO, WebAuthn).
+//! token and the logout. The login itself is in login.rs.
 #![allow(unused_imports)]
 use super::*;
 use crate::session_store;
@@ -74,7 +74,7 @@ pub async fn logout(State(state): State<AppState>, headers: HeaderMap, body: axu
     resp
 }
 
-/// POST /login - a local account's sign-in in Rust; directory accounts and passkeys go to Flask
+/// POST /login - a local account's sign-in in Rust; directory accounts and passkeys are handled in login.rs
 pub async fn login(State(state): State<AppState>, connect: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>, uri: axum::http::Uri, headers: HeaderMap, body: axum::body::Bytes) -> Response {
     crate::login::login(state, headers, connect.map(|c| c.0), uri, body).await
 }

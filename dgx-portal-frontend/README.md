@@ -6,22 +6,22 @@ StyleX). It owns the platform's public port (`:5000`) and covers every page:
 home, playground, OCR, video, image, voice, memory, keys, search,
 ranking, request, support, users, admin, login.
 
-Flask (`../dgx-portal/`) remains the authority for everything that matters —
+The Rust portal (`../portal-rs/`) is the authority for everything that matters —
 LDAP/OIDC auth, sessions, CSRF, the database, budgets, model launching. This
 app is a client-rendered UI on top of that JSON API; it holds no business
-logic of its own.
+logic of its own. (The Flask backend was removed; see docs/rust-migration.md.)
 
-## How it talks to Flask
+## How it talks to portal-rs
 
 Three different mechanisms, depending on what's being called, because a
 naive one-size-fits-all proxy doesn't work here:
 
 - **`proxy.ts`** (Next.js 16's `middleware.ts` replacement) routes by METHOD,
-  not by path: every non-GET/HEAD request is rewritten straight to Flask
+  not by path: every non-GET/HEAD request is rewritten straight to portal-rs
   *before* Next's own router runs — except the four SSE paths below, which
   have their own Route Handlers. Without this, a POST to a path that is also
   a page (`/login`, `/keys`, `/request`) would silently hit Next's own cached
-  page markup instead of ever reaching Flask — the bug that motivated this
+  page markup instead of ever reaching portal-rs — the bug that motivated this
   file existing at all. `proxy.ts` also denies `/internal/*` outright (404) —
   that prefix is Traefik's forwardAuth channel and is never called through
   the public frontend — and sets the security headers on Next-served pages:
@@ -29,16 +29,16 @@ naive one-size-fits-all proxy doesn't work here:
   is why every page here is forced to render dynamically, see
   `app/layout.tsx`'s `export const dynamic`), plus HSTS,
   `X-Content-Type-Options`, `X-Frame-Options: DENY` and `Referrer-Policy`,
-  matching what Flask sets on its own responses.
+  matching what portal-rs sets on its own responses.
 - **`next.config.ts`**'s `rewrites().fallback` catches everything else that
   isn't a known Next.js route — the `/api/*` JSON endpoints, admin action
-  routes, etc. — and forwards it to Flask as-is.
+  routes, etc. — and forwards it to portal-rs as-is.
 - **Dedicated Route Handlers** (`app/playground/chat/route.ts`,
   `app/support/chat/route.ts`, `app/admin/runner/stream/route.ts`,
   `app/api/ocr/extract/route.ts`) exist
   because both mechanisms above were confirmed — by timing actual SSE chunk
   arrivals — to buffer a streamed response entirely before forwarding it,
-  even though Flask streams token-by-token correctly. These manually pipe
+  even though portal streams token-by-token correctly. These manually pipe
   `upstream.body` through a `Response`, which Next.js genuinely streams. See
   `lib/sseProxy.ts` for the shared connect-timeout / idle-timeout logic.
   The OCR page (`app/(app)/ocr/`) uses the same SSE-over-POST pattern for
@@ -47,16 +47,16 @@ naive one-size-fits-all proxy doesn't work here:
   send a body), rendered live with `@astryxdesign/core/Markdown`'s
   `isStreaming` mode.
 
-`BACKEND_URL` (env var, default `http://dgx-portal:5000`) is the only place
-Flask's address is configured — it's the docker-compose service name
-internally, or `http://localhost:5000` for local dev against a Flask
-instance running outside Docker.
+`BACKEND_URL` (env var) is the only place the backend's address is configured.
+Docker-compose sets it to the `portal-rs` service; the fallback default is
+`http://portal-rs:<PORTAL_RUST_PORT or 5100>`, and local dev can point it at a
+portal-rs instance running outside Docker.
 
 ## Auth model
 
 There's no session state on the Next.js side. Every authenticated fetch goes
 out with `credentials: "include"` (see `lib/api.ts`'s `authFetch`) so the
-browser attaches Flask's session cookie directly. A `401` means "not logged
+browser attaches the portal's session cookie directly. A `401` means "not logged
 in" and redirects to `/login`; a `403` means "logged in, not allowed"
 (`ForbiddenError`) and the calling page is expected to render its own
 "access denied" state instead — see `app/(app)/admin/page.tsx` for the
@@ -71,7 +71,7 @@ npm run dev          # http://localhost:3000, Turbopack
 ```
 
 For real data during local dev, either point `BACKEND_URL` at a reachable
-Flask instance, or run the whole stack via `docker compose up` from the repo
+portal-rs instance, or run the whole stack via `docker compose up` from the repo
 root and hit the container directly.
 
 ```bash
@@ -122,7 +122,7 @@ app/
 │   ├── video/                     # video generation (MiniMax H3, text- or image-driven)
 │   ├── voice/                     # voice cloning (Qwen3-TTS default, Chatterbox fallback);
 │   │                              #   mic recording or file upload; page adapts to the loaded
-│   │                              #   engine; audio served by Flask at /voice/audio/<job id>
+│   │                              #   engine; audio served by portal at /voice/audio/<job id>
 │   ├── support/                   # streaming chat with the Support assistant (tool-calling)
 │   ├── image/, memory/      # generation pages + the memory graph
 │   ├── keys/, search/, ranking/, request/, users/, admin/
@@ -143,7 +143,7 @@ lib/
 ├── useDictation.ts    # shared live-dictation hook (Playground/Voice/Video): polls the ASR
 │                      #   sidecar, re-transcribes the whole buffer, cancellable on send
 ├── useCsrf.ts
-├── conversations.ts   # server-persisted Playground chat history (Flask /api/conversations,
+├── conversations.ts   # server-persisted Playground chat history (portal-rs /api/conversations,
 │                       #   /conversations); one-time migration from the old localStorage version
 ├── notices.ts       # dgx_notice server notices → translated UI text
 ├── integrationSnippets.ts   # ready-to-paste client configs for the keys panel
@@ -154,7 +154,7 @@ lib/
 ├── csrf.tsx · themes.ts · settings-dialog.tsx · useIsNarrow.ts ·
 │   useStickToBottom.ts   # small shared utilities (CSRF context, palettes, layout hooks)
 └── types.ts
-proxy.ts           # method-based routing to Flask + nonce CSP + security headers (see above)
+proxy.ts           # method-based routing to portal-rs + nonce CSP + security headers (see above)
 next.config.ts      # fallback rewrite + proxy limits, output: standalone (CSP lives in proxy.ts)
 ```
 
@@ -162,5 +162,5 @@ next.config.ts      # fallback rewrite + proxy limits, output: standalone (CSP l
 
 Built and run as its own Docker service (`dgx-portal-frontend` in the repo
 root's `docker-compose.yml`), non-root, `output: "standalone"`. It owns the
-platform's public port; `dgx-portal` (Flask) has no published port and is
-only reachable from this container over the internal docker network.
+platform's public port; `portal-rs` has no published port and is only
+reachable from this container over the internal docker network.

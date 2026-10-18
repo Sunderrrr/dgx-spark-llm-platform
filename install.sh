@@ -103,8 +103,8 @@ id "$RUNNER_USER" >/dev/null 2>&1 || {
   useradd -r -m -d "$RUNNER_HOME" -s /usr/sbin/nologin "$RUNNER_USER"
 }
 
-# ── 6b. What the runner must reach under /root ──────────────────────────────
-# The repo, vLLM and the model cache live under /root (0700 by default on
+# ── 6b. What the runner must reach under the install user's home ──────────────────────────────
+# The repo, vLLM and the model cache live under the install user's home (0700 by default on
 # Debian/Ubuntu) while the runner runs as $RUNNER_USER. Without these ACLs the
 # install LOOKS complete and fails at first use: the unit crash-loops (it
 # cannot run the binary), a launch dies on « permission denied » (it cannot
@@ -136,7 +136,7 @@ if command -v setfacl >/dev/null 2>&1; then
   grant_traverse "$HF_HOME_DIR"
   setfacl -m u:"$RUNNER_USER":rwx -m d:u:"$RUNNER_USER":rwx "$HF_HOME_DIR"
 else
-  warn "setfacl missing: the runner cannot reach its code, vLLM or the model cache under /root. Install 'acl' and re-run."
+  warn "setfacl missing: the runner cannot reach its code, vLLM or the model cache under the home. Install 'acl' and re-run."
 fi
 
 # ── 6c. The Docker network the portal's URLs are written for ────────────────
@@ -208,7 +208,7 @@ for unit in vllm-runner.service vllm-restrict.service dgx-docker-restrict.servic
              dgx-validation.service dgx-validation.path \
              comfyui.service comfyui-relay.service; do
   [ -f "systemd/$unit" ] || continue
-  # Units use /root as the placeholder for the install user's home.
+  # Units use /root as the placeholder for the install user's home (see above).
   sed -e "s#/root/ai-platform#${REPO_DIR}#g" -e "s#/root/#${HOME%/}/#g" "systemd/$unit" > "/etc/systemd/system/$unit"
 done
 # The site's firewall sources: a template only, never overwritten.

@@ -152,7 +152,7 @@ if [ "${SKIP_TESTS:-0}" = "1" ]; then
   info "SKIP_TESTS=1 — skipping the test suite (secret scan only)"
 else
   info "Running backend test suite (cargo test --locked, portal-rs)…"
-  if bash -c 'cd portal-rs && CARGO_TARGET_DIR="${PORTAL_RS_TARGET_DIR:-${XDG_CACHE_HOME:-${HOME:-/root}/.cache}/ai-platform/portal-rs-target}" cargo test --locked'; then
+  if bash -c 'cd portal-rs && CARGO_TARGET_DIR="${PORTAL_RS_TARGET_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/ai-platform/portal-rs-target}" cargo test --locked'; then
     ok "Tests passed"
   else
     fail "Tests FAILED — push aborted."

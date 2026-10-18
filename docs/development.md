@@ -47,7 +47,7 @@ minutes — that is the price of not being surprised.
 
 Four groups, each with its own verdict:
 
-1. **Code gates** (12 checks, ~1.5 min):
+1. **Code gates** (13 checks, ~1.5 min):
    - backend suite, frontend tests, `tsc`, eslint with **zero warnings** (a
      deliberate exception is an `eslint-disable-next-line` with its reason);
    - i18n coverage (`scripts/check-i18n.py`);

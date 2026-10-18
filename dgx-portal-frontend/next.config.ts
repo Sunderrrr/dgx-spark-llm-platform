@@ -15,7 +15,7 @@ const nextConfig: NextConfig = {
   // Removes the X-Powered-By: Next.js header — no functional value,
   // just free fingerprinting handed to an attacker.
   poweredByHeader: false,
-  // /root/package-lock.json (Astryx sandbox, outside this project) otherwise
+  // A package-lock.json above this project (a sandbox workspace) otherwise
   // makes Next drift to the wrong workspace root.
   turbopack: {
     root: path.join(__dirname),

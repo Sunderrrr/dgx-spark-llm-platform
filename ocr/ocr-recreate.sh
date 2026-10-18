@@ -14,7 +14,7 @@
 # --trust-remote-code, i.e. to run arbitrary third-party model code:
 #   --cap-drop ALL / --security-opt no-new-privileges: aligns OCR on asr/voice;
 #     that arbitrary code gets no capability and no elevation.
-#   DEDICATED HF cache (/root/.cache/huggingface-ocr) instead of sharing in RW
+#   DEDICATED HF cache (${HOME}/.cache/huggingface-ocr) instead of sharing in RW
 #     the host runner's cache (which serves the CHAT model): removes the
 #     poisoning path (a malicious OCR repo can no longer write into the cache
 #     read by the runner). The OCR model (re)downloads into this isolated
@@ -30,7 +30,7 @@ fi
 HF_ID="$1"
 shift
 
-OCR_CACHE=/root/.cache/huggingface-ocr
+OCR_CACHE=${HOME}/.cache/huggingface-ocr
 mkdir -p "$OCR_CACHE"
 
 docker rm -f ocr >/dev/null 2>&1 || true

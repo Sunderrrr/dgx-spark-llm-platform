@@ -283,7 +283,7 @@ services:
       - /var/backups/dgx:/var/backups/dgx:ro
       # ComfyUI's output directory, READ-ONLY: past videos
       # are served from disk even while ComfyUI is stopped.
-      - /root/ComfyUI/output:/comfyui-output:ro
+      - "${COMFYUI_OUTPUT_DIR:-${HOME}/ComfyUI/output}:/comfyui-output:ro"
       # crawl4ai's API token, read-only (the playground's page reads).
       - ./secrets/crawl4ai_token:/run/secrets/crawl4ai_token:ro
       # Hugging Face token for the model search, read-only; same rule as

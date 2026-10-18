@@ -28,7 +28,7 @@ docker rm -f asr >/dev/null 2>&1 || true
 #   memory at startup). The anti-decompression-bomb protection is done in the
 #   code (header check before decoding, server.py) and by the byte cap, not by
 #   the cgroup.
-# The HF cache is DEDICATED to ASR (`/root/.cache/huggingface-asr`) and stays
+# The HF cache is DEDICATED to ASR (`${HOME}/.cache/huggingface-asr`) and stays
 #   writable to allow a cold download of the model at first startup (deploy
 #   with no manual step). It therefore no longer mounts the runner's shared
 #   `HF_HOME` cache: this container receives raw user bytes and runs as root,
@@ -43,7 +43,7 @@ exec docker run -d --name asr --restart unless-stopped \
   --network ai-platform_asr_net --gpus all --shm-size=2g \
   --pids-limit 512 \
   --security-opt no-new-privileges --cap-drop ALL \
-  -v /root/.cache/huggingface-asr:/app/hf_cache \
+  -v "${HOME}/.cache/huggingface-asr:/app/hf_cache" \
   -e HF_HOME=/app/hf_cache \
   -e ASR_MODEL="$MODEL" \
   whisper-asr:turbo-cu130

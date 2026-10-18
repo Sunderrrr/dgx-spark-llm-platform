@@ -6,7 +6,7 @@
 # image_net (IMAGE_URL=http://image:8007).
 #
 # $1 = model id (allowlist below). Each model maps to a diffusers folder
-#      already present on the host under /root/models/<slug>: cold download is
+#      already present on the host under ${HOME}/models/<slug>: cold download is
 #      a separate provisioning step, never triggered from the web.
 set -euo pipefail
 
@@ -28,7 +28,7 @@ case "$MODEL" in
   *) echo "model id invalide : $MODEL" >&2; exit 2 ;;
 esac
 
-MODEL_DIR="/root/models/$SLUG"
+MODEL_DIR="${HOME}/models/$SLUG"
 if [ ! -f "$MODEL_DIR/model_index.json" ]; then
   echo "model missing on the host: $MODEL_DIR (download it first)" >&2
   exit 3
@@ -51,7 +51,7 @@ exec docker run -d --name image --restart unless-stopped \
   --pids-limit 512 \
   --security-opt no-new-privileges --cap-drop ALL \
   -v "$MODEL_DIR":/model:ro \
-  -v /root/models/esrgan:/esrgan:ro \
+  -v "${HOME}/models/esrgan:/esrgan:ro" \
   -e MODEL_DIR=/model -e MODEL_NAME="$NAME" \
   -e IMAGE_STEPS="$STEPS" -e IMAGE_GUIDANCE="$GUIDANCE" \
   ai-platform-image-gen

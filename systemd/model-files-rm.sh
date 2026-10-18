@@ -8,7 +8,7 @@
 # revalidated HERE (the runner already validated them, but this script is the
 # last barrier before a root rm -rf), never interpreted by a shell.
 #
-#   model-files-rm.sh local <folder>   → /root/models/<folder>
+#   model-files-rm.sh local <folder>   → ${HOME}/models/<folder>
 #   model-files-rm.sh hf <org>/<name>  → <hub>/models--<org>--<name>
 #
 # Refuses: any `..`, a symlink, a missing folder, and the folders of the OTHER
@@ -38,7 +38,7 @@ case "$KIND" in
     case "$ID" in
       templates|esrgan|flux2-klein-4b) echo "protected folder: $ID" >&2; exit 4 ;;
     esac
-    T="/root/models/$ID"
+    T="${HOME}/models/$ID"
     if [ -L "$T" ] || [ ! -d "$T" ]; then
       echo "absent: $T" >&2; exit 3
     fi
@@ -53,7 +53,7 @@ case "$KIND" in
         echo "protected repo (another service): $ID" >&2; exit 4 ;;
     esac
     D="models--${ID/\//--}"
-    for H in /root/.cache/huggingface/hub /var/lib/vllm-runner/.cache/huggingface/hub; do
+    for H in ${HOME}/.cache/huggingface/hub /var/lib/vllm-runner/.cache/huggingface/hub; do
       if [ -d "$H/$D" ] && [ ! -L "$H/$D" ]; then
         TARGETS+=("$H/$D")
       fi

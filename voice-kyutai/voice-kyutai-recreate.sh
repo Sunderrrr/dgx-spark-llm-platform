@@ -32,7 +32,7 @@ exec docker run -d --name voice --restart unless-stopped \
   --network ai-platform_voice_net --gpus all --shm-size=2g \
   --pids-limit 512 \
   --security-opt no-new-privileges --cap-drop ALL \
-  -v /root/.cache/huggingface:/app/hf_cache \
+  -v "${HOME}/.cache/huggingface:/app/hf_cache" \
   -e HF_HOME=/app/hf_cache \
   -e HF_TOKEN_PATH=/app/no-hf-token \
   -e KYUTAI_TTS_REPO="$1" \

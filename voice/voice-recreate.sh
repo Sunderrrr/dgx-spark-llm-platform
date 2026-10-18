@@ -81,6 +81,6 @@ exec docker run -d --name voice --restart unless-stopped \
   -v "$STATE_DIR/outputs:/app/outputs" \
   -v "$STATE_DIR/voices:/app/voices" \
   -v "$STATE_DIR/logs:/app/logs" \
-  -v /root/.cache/huggingface:/app/hf_cache \
+  -v "${HOME}/.cache/huggingface:/app/hf_cache" \
   -e HF_HOME=/app/hf_cache \
   chatterbox-voice:v2.0.0-cu130

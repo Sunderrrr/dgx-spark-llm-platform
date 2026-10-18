@@ -16,7 +16,7 @@ here for how we work.
 **A running chat model is production traffic.** Never stop, restart or
 reconfigure the served model to test something: on this box a restart kills
 whatever is being generated with no warning, and the model is the product.
-If your change touches `vllm-runner/runner.py`, the units under `systemd/`, or
+If your change touches `vllm-runner-rs/`, the units under `systemd/`, or
 the model catalogue, say so explicitly in your pull request — the change only
 takes effect at the next legitimate launch, and **nobody should trigger one just
 to see the diff land**.

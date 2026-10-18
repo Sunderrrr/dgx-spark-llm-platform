@@ -74,18 +74,18 @@ it, a look-alike path and the rest of the portal stayed on Flask.
 
 ## Phase 1 — the runner (vllm-runner-rs): in service since 2026-10-16
 
-`vllm-runner-rs/` is the whole of `vllm-runner/runner.py`: the argument rules,
+`vllm-runner-rs/` is the whole of the former `vllm-runner/runner.py` (removed; see git history): the argument rules,
 the command construction, the launch environment, the supervisor (process
 group, output, readiness, memory guard, stop), the watchdog (auto-resume,
 memory floor, persisted failure counter), and the HTTP surface on :8001.
 
 Verified, against runner.py itself:
-- allow-lists generated from runner.py (`tools/gen.py`), never copied by hand;
+- allow-lists copied from runner.py, then frozen (the generator is removed);
 - 1 156 argument cases, 1 584 command cases, 32 environment cases: identical;
 - the process stop takes the whole group down (real processes in the tests);
-- the HTTP surface: 61 steps identical (`tools/http_parity.py`), the watchdog's
-  auto-resume and the memory-floor refusal identical (`tools/watchdog_parity.py`);
-- the harness runs in an isolated network namespace (`tools/run_isolated.sh`):
+- the HTTP surface: 61 steps identical (parity tool, removed with runner.py), the watchdog's
+  auto-resume and the memory-floor refusal identical (parity tool, removed with runner.py);
+- the harness runs in an isolated network namespace (removed with the parity tools):
   the production runner listens on :8001 and must never be reached from a test.
 
 Cutover (2026-10-16, in a maintenance window): the release binary is

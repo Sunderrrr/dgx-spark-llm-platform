@@ -2,7 +2,7 @@
 Thank you. A few reminders before opening the PR — they come from CONTRIBUTING.md.
 
 - A served chat model is production: do not restart it to test your change. If your
-  PR touches `vllm-runner/runner.py`, `systemd/` or the model catalog, say so
+  PR touches `vllm-runner-rs/`, `systemd/` or the model catalog, say so
   explicitly below.
 - Deploying = rebuilding the image, then `docker compose up -d <service>`.
   `docker compose restart` does NOT pick up the new code.

@@ -72,7 +72,7 @@ then LOOPED, across reboots, because:
 4. the counter reset as soon as the model answered HTTP 200 — it answered, then died a
    minute later. "Answers" is not "stable".
 
-Fixes in `runner.py` and the units (do not undo):
+Fixes in `vllm-runner-rs` and the units (do not undo):
 
 - **persisted** failure counter (`resume_failures` next to `last_model.json`), reset
   only after `STABLE_SECONDS` (600 s) of uninterrupted running.
@@ -123,7 +123,7 @@ nothing (`restart=unless-stopped`, so it never frees itself), the web UI
 - **Restarting `vllm-runner` KILLS the served model.** The unit has no `KillMode`,
   so systemd applies `control-group` — and the `llama-server` spawned by the
   runner lives in the `vllm-runner.service` cgroup (verified via
-  `/proc/<pid>/cgroup`). Any change to `runner.py` that must take effect needs
+  `/proc/<pid>/cgroup`). Any change to the runner daemon that must take effect needs
   the same downtime window as a model relaunch — this is not a "zero-downtime"
   operation. New pseudo-flags (`--llama-prism` and friends) exist only after such
   a restart (`_BIN_FLAGS` is built at import).

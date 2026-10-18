@@ -73,7 +73,7 @@ used to sit behind it was removed on 2026-10-17.
 │                              #   catalog itself lives in the LiteLLM database)
 ├── portal-rs/                 # Rust backend (every route and job) — see the module list below
 ├── dgx-portal-frontend/       # Next.js + Astryx UI (owns the public port 5000)
-├── vllm-runner/runner.py      # model lifecycle daemon + scoped sidecar control
+├── vllm-runner-rs/            # model lifecycle daemon (Rust) + scoped sidecar control
 ├── monitoring/                # host monitors: health alerts + daily DB dumps (systemd timers)
 ├── needrestart/               # needrestart policy (keeps vllm-runner out of its restarts)
 ├── ocr/ · voice/ · voice-qwen/ · asr/ · image-gen/   # sidecar images and host wrappers

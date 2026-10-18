@@ -61,7 +61,7 @@ mediates between them, but at L3 either can open connections to the other).
 
 ### 2.1 Model launching — a strict allowlist, not a denylist
 
-`vllm-runner/runner.py` validates every flag of `vllm_args` against a closed
+`vllm-runner-rs/src/validate.rs` validates every flag of `vllm_args` against a closed
 allowlist per engine (`vllm`, `llamacpp`, `ds4`, OCR). Anything not on the list
 is refused. The exclusions are deliberate, and each is commented in the source:
 
@@ -95,7 +95,7 @@ flags. The admin only ever controls the trailing arguments, revalidated
 host-side.
 
 For the **voice** sidecar there is no free-form argv at all: the single variable
-(`repo_id`) is checked against a closed allowlist in both `runner.py` and the
+(`repo_id`) is checked against a closed allowlist in both `vllm-runner-rs/src/validate.rs` and the
 script. The **image** sidecar is the same shape, with per-model inference
 settings baked into the wrapper. The **ASR** sidecar (dictation) is the same
 shape again: its model id must match a closed `case` list in `asr-recreate.sh`

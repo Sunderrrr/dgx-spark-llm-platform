@@ -12,7 +12,7 @@ history.
 > model is not. Restarting `vllm-runner` KILLS the served model too — the unit
 > has no `KillMode`, so the `llama-server` it spawned lives in the
 > `vllm-runner.service` cgroup (verified via `/proc/<pid>/cgroup`). Any change to
-> `runner.py` that must take effect therefore needs the same downtime window as a
+> the runner daemon that must take effect therefore needs the same downtime window as a
 > model relaunch.
 
 ## Launch a model
@@ -58,7 +58,7 @@ bare repo id uses `-hf` (which can pick the wrong shard).
 - **Engine versions are opt-in pseudo-flags**, never a default swap:
   `--vllm-025`, `--vllm-027`, `--vllm-028`, `--vllm-nightly`, `--llama-next`,
   `--llama-k2`, `--llama-prism` pick a specific binary for THAT launch
-  (`_BIN_FLAGS` in [`runner.py`](../vllm-runner/runner.py), split per engine into
+  (`_BIN_FLAGS` in [`vllm-runner-rs/src/flags.rs`](../vllm-runner-rs/src/flags.rs), split per engine into
   `_LLAMA_BIN_FLAGS` / `_VLLM_BIN_FLAGS`, so a llama.cpp launch cannot be pointed
   at a vLLM binary). vLLM **0.28.0** (`/root/venvs/vllm-028`, torch 2.13 cu130,
   sm_121 verified, adds BailingMoeV3) and llama.cpp **0.3.0-dev upstream**

@@ -21,6 +21,9 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ### Added
 
+- **Admin can delete requests and notifications**: model and budget requests
+  leave the queue with « Supprimer » (no notice goes to the requester), and any
+  user can remove one notification from the bell.
 - **S3 storage in Admin → Config**: endpoint, region, bucket, prefix and keys of
   any S3-compatible service (Garage, MinIO, AWS), with a « Tester » button that
   writes, reads back and deletes a probe object. The secret key is write-only.
@@ -80,6 +83,14 @@ fails if `package.json` and the newest version here have drifted apart.
   objects that exist.
 
 ### Removed
+
+- The Python runner (`vllm-runner/runner.py`, `sidecars.py`, `launch_env.py`):
+  the Rust daemon `vllm-runner-rs` is the only runner. `systemd/vllm-runner.service`
+  and `install.sh` build and install it.
+- The migration tooling that compared the two runners or the Flask and Rust
+  backends (`vllm-runner-rs/tools/`, `scripts/compare-backends.py`,
+  `scripts/parity-bench/`). The Rust parity tests keep their recorded fixtures.
+- 70 unreachable English strings in `lib/i18n.tsx`, and an unused Rust module.
 
 - `monitoring/backup.py`: no unit ran it any more; its orphan sweep moved to
   `dgx-portal/media_store.py`.

@@ -1,5 +1,5 @@
-//! The Rust validation against runner.py's own answers (tests/fixtures, written
-//! by tools/gen.py): every case must agree, the refusal wording included.
+//! The Rust validation against the answers the former runner.py gave (tests/fixtures,
+//! recorded then): every case must agree, the refusal wording included.
 use runner_rs::validate::{repo_id_of, validate_args};
 use serde_json::Value;
 

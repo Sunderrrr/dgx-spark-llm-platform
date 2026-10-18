@@ -1,5 +1,5 @@
-//! The command construction against runner.py (tests/fixtures/build_cmd.json,
-//! written by tools/build_gen.py): the same argv, the same refusals, on a copy
+//! The command construction against the former runner.py (tests/fixtures/build_cmd.json,
+//! recorded then): the same argv, the same refusals, on a copy
 //! of the fixture tree in a scratch directory.
 use runner_rs::build::{build_cmd, Paths};
 use serde_json::Value;
@@ -29,7 +29,7 @@ fn command_construction_matches_runner_py() {
     let tree = scratch.join("root");
     copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tree"), &tree);
     let root = tree.to_string_lossy().to_string();
-    // The same locations runner.py was run with (tools/build_gen.py), not the environment.
+    // The same locations the former runner.py was run with, not the environment.
     let p = Paths {
         vllm_bin: "/root/.local/bin/vllm".into(),
         llama_bin: "/root/llama.cpp/build/bin/llama-server".into(),

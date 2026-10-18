@@ -322,16 +322,13 @@ if group_wanted 2; then
   printf '%s══ Group 2 — Running service ══%s\n' "$BOLD" "$RST"
   run_check "2.1 Deployed service probes (scripts/smoke.sh)" 600 ./scripts/smoke.sh
   # The runner only re-reads its code when it restarts, which the probes above
-  # do not do: a module the runner's own user cannot import (directory ACL
-  # --x only: Python must LIST a directory to import from it) passed every
-  # check on 2026-10-14 and crash-looped the runner at its next restart.
-  run_check "2.2 Runner modules importable as its service user" 60 bash -c '
+  # do not do: a binary the runner's own user cannot execute (ACL on the
+  # path) passes every check and crash-loops the runner at its next restart.
+  run_check "2.2 Runner daemon executable as its service user" 60 bash -c '
     u=$(systemctl show -p User --value vllm-runner); u=${u:-vllmrunner}
-    cd /tmp && for f in "'"$PWD"'"/vllm-runner/*.py; do
-      m=$(basename "$f" .py); [ "$m" = runner ] && continue
-      sudo -u "$u" python3 -c "import sys; sys.path.insert(0, \"${f%/*}\"); import $m" || exit 1
-      echo "ok $m"
-    done'
+    bin=$(systemctl show -p ExecStart --value vllm-runner | grep -o "path=[^ ;]*" | head -1 | cut -d= -f2)
+    bin=${bin:-/usr/local/bin/vllm-runner}
+    sudo -u "$u" test -x "$bin" && echo "ok $bin"'
   close_group "Running service"
 fi
 

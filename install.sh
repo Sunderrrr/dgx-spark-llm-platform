@@ -107,7 +107,7 @@ id "$RUNNER_USER" >/dev/null 2>&1 || {
 # The repo, vLLM and the model cache live under /root (0700 by default on
 # Debian/Ubuntu) while the runner runs as $RUNNER_USER. Without these ACLs the
 # install LOOKS complete and fails at first use: the unit crash-loops (it
-# cannot open runner.py), a launch dies on « permission denied » (it cannot
+# cannot run the binary), a launch dies on « permission denied » (it cannot
 # execute vLLM), a download fails (it cannot write the cache). We grant the
 # least each path needs: TRAVERSAL (--x) on the parents, never their listing.
 #
@@ -124,11 +124,8 @@ grant_traverse() {
   done
 }
 if command -v setfacl >/dev/null 2>&1; then
-  # The code: runner.py and its modules. READ on its own directory too:
-  # Python lists a directory to import a module from it, so with --x alone
-  # `import launch_env` fails although runner.py, opened by path, runs.
-  grant_traverse "$REPO_DIR/vllm-runner/runner.py"
-  setfacl -m u:"$RUNNER_USER":r-x "$REPO_DIR/vllm-runner"
+  # The daemon is the installed binary (/usr/local/bin, traversable by all):
+  # it needs no read access to the repo itself.
   # The engine: the vllm link AND the pipx venv it points to.
   if [ -e "$VLLM_BIN" ]; then
     grant_traverse "$VLLM_BIN"
@@ -166,6 +163,14 @@ else
     || warn "$NET has subnet $sub, not $DEFAULT_SUBNET — the portal will not reach the runner; see the subnet note in docker-compose.yml"
 fi
 
+# ── 6d. The runner daemon: the Rust binary, built from the repo ─────────────
+# systemd/vllm-runner.service runs /usr/local/bin/vllm-runner. Building it needs
+# a Rust toolchain on the host (rustup); the portal's own image is built by Docker.
+log "Building the runner daemon (vllm-runner-rs)"
+command -v cargo >/dev/null 2>&1 || die "cargo not found: install a Rust toolchain on the host (https://rustup.rs), then re-run."
+cargo build --release --locked --manifest-path "$REPO_DIR/vllm-runner-rs/Cargo.toml"
+install -o root -g root -m 0755 "$REPO_DIR/vllm-runner-rs/target/release/vllm-runner" /usr/local/bin/vllm-runner
+
 # ── 7. systemd units (paths patched to the real repo dir) ───────────────────
 log "Installing systemd units"
 # ALL the repo's units, not just the startup ones: the network restriction units
@@ -194,7 +199,7 @@ fi
 # ── 7b. Root-owned scripts: wrappers called by the runner via scoped sudo,
 #        and helpers of the units ─────────────────────────────────────────────
 # Without the wrappers, the admin can launch a model but NO media sidecar and
-# cannot delete model files: runner.py runs them with `sudo`, and the sudoers
+# cannot delete model files: the runner runs them with `sudo`, and the sudoers
 # rules below are the only ones authorizing them. A missing wrapper shows up as
 # « command not allowed » on the first click, not at install time.
 for s in ocr/ocr-recreate.sh voice/voice-recreate.sh voice-qwen/voice-qwen-recreate.sh \
@@ -266,14 +271,8 @@ enable_units dgx-traefik-boot.service
 
 # ── 8. Checks: does what was installed actually work? ───────────────────────
 log "Checking the installation"
-# The runner can load its code and run its engine, as ITS user — exactly what
-# failed silently before (2026-10-14: a module it could not import).
-for f in "$REPO_DIR"/vllm-runner/*.py; do
-  m=$(basename "$f" .py); [ "$m" = runner ] && continue
-  (cd /tmp && sudo -u "$RUNNER_USER" python3 -c "import sys; sys.path.insert(0, '${f%/*}'); import $m") >/dev/null 2>&1 \
-    || warn "the runner cannot import its module '$m' as $RUNNER_USER"
-done
-sudo -u "$RUNNER_USER" test -r "$REPO_DIR/vllm-runner/runner.py" || warn "the runner cannot read runner.py as $RUNNER_USER"
+# The runner can run its engine and write its cache, as ITS user.
+[ -x /usr/local/bin/vllm-runner ] || warn "the runner daemon /usr/local/bin/vllm-runner is missing"
 if [ -e "$VLLM_BIN" ]; then
   sudo -u "$RUNNER_USER" test -x "$(readlink -f "$VLLM_BIN")" || warn "the runner cannot execute $VLLM_BIN as $RUNNER_USER"
 fi

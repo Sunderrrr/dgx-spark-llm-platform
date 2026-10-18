@@ -6,24 +6,33 @@ After=network.target
 Type=simple
 User=vllmrunner
 Group=vllmrunner
-WorkingDirectory=/root/ai-platform/vllm-runner
+WorkingDirectory=/var/lib/vllm-runner
 EnvironmentFile=/root/ai-platform/.env
-ExecStart=/usr/bin/python3 /root/ai-platform/vllm-runner/runner.py
+ExecStart=/usr/local/bin/vllm-runner
 Restart=always
-# 30 s and not 5: the NVIDIA driver returns a killed process's GPU memory with
-# a DELAY. Relaunching after 5 s, the runner reloaded its model on top of
-# memory not yet returned → new OOM → loop (45 restarts on 2026-10-01).
+# 30 s, not 5: the NVIDIA driver returns a killed process's GPU memory with a
+# DELAY. Relaunching after 5 s, the runner reloaded its model on top of memory
+# not yet returned -> new OOM -> loop (45 restarts on 2026-10-01).
 RestartSec=30
 # An OOM hitting the llama-server must NOT kill the whole runner: with the
 # default `stop`, systemd stopped the whole service, the portal lost the runner
-# and every restart relaunched the model. In `continue`, the runner stays up,
+# and every restart relaunched the model. With `continue`, the runner stays up,
 # notices the model's exit and lets the watchdog decide, with memory wait,
-# floor and persisted failure counter (see runner.py).
+# floor and persisted failure counter.
 OOMPolicy=continue
 Environment=VLLM_BIN=/root/.local/bin/vllm
 Environment=HF_HOME=/root/.cache/huggingface
 Environment=HOME=/var/lib/vllm-runner
-Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# flashinfer's JIT (`Building JIT module gemm_sm120`) shells out to nvcc. The
+# toolkit lives at /usr/local/cuda but is not on the default PATH, so the build
+# died there and the model never came up.
+Environment=PATH=/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin
+Environment=CUDA_HOME=/usr/local/cuda
+# flashinfer-cubin publishes no 0.7.x build, so flashinfer-python 0.7.0.post1
+# (the version vLLM 0.31 pins) always mismatches it. Downgrading flashinfer to
+# 0.6.13 drags torch to 2.10 and breaks vLLM entirely. This is the documented
+# escape hatch.
+Environment=FLASHINFER_DISABLE_VERSION_CHECK=1
 
 [Install]
 WantedBy=multi-user.target

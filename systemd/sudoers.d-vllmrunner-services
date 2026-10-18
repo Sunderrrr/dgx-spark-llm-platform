@@ -3,12 +3,12 @@
 # disarmed Admin → Launch of the media sidecars.
 #
 # Scoped control of the OCR and voice containers (docker) and the ComfyUI video
-# service (systemd), used by vllm-runner (runner.py, routes /ocr/*, /video/*
+# service (systemd), used by vllm-runner (vllm-runner-rs, routes /ocr/*, /video/*
 # and /voice/*) for the start/stop/relaunch requested from the dgx-portal
 # admin. Fixed commands (start/stop/status), with no variable argument nor
 # wildcard, except for ocr-recreate.sh (hf_model_id + vLLM flags) and
 # voice-recreate.sh (repo_id) whose arguments are validated on the Python side
-# (runner.py, _validate_vllm_args / closed allowlist for repo_id) before the
+# (vllm-runner-rs/src/validate.rs, validate_args / closed allowlist for repo_id) before the
 # sudo call — see each script for the detail of why it is safe even with
 # variable arguments (never interpreted by a shell).
 vllmrunner ALL=(root) NOPASSWD: /usr/bin/systemctl start comfyui.service

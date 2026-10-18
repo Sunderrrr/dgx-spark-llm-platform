@@ -21,7 +21,6 @@ MAX_LINES = 1200
 # Files above MAX_LINES on 2026-10-13, frozen at their size that day.
 FROZEN = {
     'dgx-portal-frontend/app/(app)/playground/PlaygroundPage.tsx': 2585,
-    'vllm-runner/runner.py': 1252,
 }
 
 SOURCE_EXT = ('.py', '.ts', '.tsx', '.js', '.mjs', '.sh')

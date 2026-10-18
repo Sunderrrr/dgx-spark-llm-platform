@@ -2,7 +2,7 @@
 # the OCR/voice/asr grants in vllmrunner-services: vllm-runner (unprivileged)
 # may only start/stop/inspect the fixed `image` container and run the
 # recreate script, whose single argument is revalidated against a closed
-# allowlist (_IMAGE_MODEL_IDS) in runner.py before any privileged call.
+# allowlist of the vllm-runner daemon (vllm-runner-rs) before any privileged call.
 # Install to /etc/sudoers.d/vllmrunner-image (root:root, mode 0440).
 vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker start image
 vllmrunner ALL=(root) NOPASSWD: /usr/bin/docker stop image

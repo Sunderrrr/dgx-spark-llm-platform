@@ -1,4 +1,4 @@
-//! The launch environment against launch_env.py (tests/fixtures/launch_env.json).
+//! The launch environment against the former launch_env.py (tests/fixtures/launch_env.json).
 use runner_rs::launch_env::build;
 use std::collections::BTreeMap;
 

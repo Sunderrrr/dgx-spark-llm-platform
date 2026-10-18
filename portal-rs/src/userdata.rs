@@ -141,6 +141,17 @@ pub async fn discord_status(
     })
 }
 
+/// `POST /api/notifications/delete/<id>`: removes one notification of the viewer.
+/// Returns false when the notification is not theirs or does not exist.
+pub async fn notification_delete(pool: &SqlitePool, username: &str, id: i64) -> Result<bool, sqlx::Error> {
+    let done = sqlx::query("DELETE FROM notifications WHERE id = ? AND username = ?")
+        .bind(id)
+        .bind(username)
+        .execute(pool)
+        .await?;
+    Ok(done.rows_affected() > 0)
+}
+
 /// `POST /api/notifications/seen`: every unseen notification of the viewer becomes seen.
 pub async fn notifications_seen(pool: &SqlitePool, username: &str) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE notifications SET seen = 1 WHERE username = ? AND seen = 0")
@@ -204,4 +215,31 @@ pub async fn set_avatar(pool: &SqlitePool, username: &str, avatar: Option<&str>)
     .execute(pool)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    #[tokio::test]
+    async fn a_user_deletes_only_their_own_notifications() {
+        let pool = SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+        sqlx::query(
+            "CREATE TABLE notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, \
+             kind TEXT NOT NULL, title TEXT NOT NULL, seen INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO notifications (username, kind, title, created_at) VALUES ('alice','request','a','t'), ('bob','request','b','t')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        // Bob's notification (id 2) is not Alice's to delete.
+        assert!(!notification_delete(&pool, "alice", 2).await.unwrap());
+        assert!(notification_delete(&pool, "alice", 1).await.unwrap());
+        // Already gone: nothing to delete.
+        assert!(!notification_delete(&pool, "alice", 1).await.unwrap());
+    }
 }

@@ -38,6 +38,7 @@ import {
   PhotoIcon,
   DocumentMagnifyingGlassIcon,
   SpeakerWaveIcon,
+  TrashIcon,
 } from "@heroicons/react/24/outline";
 import { useThemeMode } from "../theme-provider";
 import { useCsrf, useCsrfRefresh } from "@/lib/useCsrf";
@@ -244,6 +245,13 @@ export default function AppLayout({
   // page opening, for nothing.
   const csrfRef = useRef(csrf);
   useEffect(() => { csrfRef.current = csrf; }, [csrf]);
+  // Removes one notification from the bell (the server only deletes the viewer's own).
+  const deleteNotif = useCallback((id: number) => {
+    fetch(`/api/notifications/delete/${id}`, { method: "POST", credentials: "include", headers: { "X-CSRFToken": csrfRef.current } })
+      .then((r) => { if (r.ok) setNotifs((list) => list.filter((n) => n.id !== id)); })
+      .catch(() => {});
+  }, []);
+
   const loadNotifs = useCallback((markSeen: boolean) => {
     fetch("/api/notifications", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : { items: [], unread: 0 }))
@@ -429,12 +437,20 @@ export default function AppLayout({
             notifs.map((n) => (
               <HStack key={n.id} gap={2} vAlign="center">
                 {!n.seen && <StatusDot variant="accent" label={t(NOTIF_KIND_LABEL[n.kind] ?? n.kind)} />}
-                <VStack gap={0}>
+                <VStack gap={0} width="fill">
                   <Text weight={n.seen ? undefined : "semibold"}>{n.title}</Text>
                   <Text type="supporting" color="secondary">
                     <ClientTimestamp value={n.created_at} format="date_time" />
                   </Text>
                 </VStack>
+                <Button
+                  label={t("Supprimer")}
+                  variant="ghost"
+                  size="sm"
+                  isIconOnly
+                  icon={<Icon icon={TrashIcon} size="sm" />}
+                  onClick={() => deleteNotif(n.id)}
+                />
               </HStack>
             ))
           )}

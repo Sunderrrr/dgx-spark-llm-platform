@@ -177,6 +177,20 @@ pub(crate) async fn csrf_then_viewer(state: &AppState, headers: &HeaderMap, body
     viewer(state, headers).await
 }
 
+/// POST /api/notifications/delete/<id> - removes one of the viewer's own notifications
+pub async fn api_notification_delete(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let session = match csrf_then_viewer(&state, &headers, &body).await {
+        Err(r) => return r,
+        Ok(s) => s,
+    };
+    let Ok(id) = id.parse::<i64>() else { return (StatusCode::NOT_FOUND, Json(json!({"ok": false}))).into_response() };
+    match userdata::notification_delete(state.db.pool(), &session.username, id).await {
+        Ok(true) => Json(json!({"ok": true})).into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, Json(json!({"ok": false, "error": "Notification introuvable."}))).into_response(),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "error": "Base du portail illisible."}))).into_response(),
+    }
+}
+
 /// POST /api/notifications/seen - mark the bell's notifications as read
 pub async fn api_notifications_seen(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
     let session = match csrf_then_viewer(&state, &headers, &body).await {

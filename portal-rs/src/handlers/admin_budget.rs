@@ -159,6 +159,26 @@ pub async fn admin_budget_approve(State(state): State<AppState>, Path(id): Path<
     json_ok(&msg, json!({}))
 }
 
+/// POST /admin/budget/delete/<id> - removes a budget request from the queue,
+/// without notifying the requester.
+pub async fn admin_budget_delete(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let Some(id) = req_id(&id) else { return auth::html_status(StatusCode::NOT_FOUND) };
+    let (s, _) = match admin_form(&state, &headers, &body, "/admin/budget/delete/x").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let pool = state.db.pool();
+    let row: Option<(Option<String>,)> = sqlx::query_as("SELECT username FROM budget_requests WHERE id=?").bind(id).fetch_optional(pool).await.ok().flatten();
+    let Some((user,)) = row else {
+        return json_error("Demande introuvable.", StatusCode::NOT_FOUND);
+    };
+    if sqlx::query("DELETE FROM budget_requests WHERE id=?").bind(id).execute(pool).await.is_err() {
+        return json_error("Base du portail illisible.", StatusCode::SERVICE_UNAVAILABLE);
+    }
+    crate::sessions::log_audit(pool, &s.username, "budget.delete", &format!("demande #{id} ({}) supprimée", user.unwrap_or_default())).await;
+    json_ok("Demande supprimée.", json!({}))
+}
+
 /// POST /admin/budget/reject/<int:req_id>
 pub async fn admin_budget_reject(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
     let Some(id) = req_id(&id) else { return auth::html_status(StatusCode::NOT_FOUND) };

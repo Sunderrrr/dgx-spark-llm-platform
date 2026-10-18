@@ -592,6 +592,29 @@ pub async fn admin_update_request(State(state): State<AppState>, Path(id): Path<
     json_ok(&format!("Modèle « {name} » ajouté au catalogue et routé par LiteLLM — vérifie ses args vLLM puis lance-le."), json!({}))
 }
 
+/// POST /admin/request/delete/<id> - removes a model request from the queue
+/// (a test row, a duplicate, a stale one). No notification goes to the requester.
+pub async fn admin_request_delete(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let Some(id) = (!id.is_empty() && id.bytes().all(|c| c.is_ascii_digit())).then(|| id.parse::<i64>().ok()).flatten() else {
+        return auth::html_status(StatusCode::NOT_FOUND);
+    };
+    let (s, _) = match admin_form(&state, &headers, &body, "/admin/request/delete/x").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let pool = state.db.pool();
+    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as("SELECT username, model_id FROM model_requests WHERE id=?").bind(id).fetch_optional(pool).await.ok().flatten();
+    let Some((user, model_id)) = row else {
+        return json_error("Demande introuvable.", StatusCode::NOT_FOUND);
+    };
+    if sqlx::query("DELETE FROM model_requests WHERE id=?").bind(id).execute(pool).await.is_err() {
+        return json_error("Base du portail illisible.", StatusCode::SERVICE_UNAVAILABLE);
+    }
+    crate::sessions::log_audit(pool, &s.username, "request.delete", &format!("demande #{id} ({}) supprimée", model_id.unwrap_or_default())).await;
+    let _ = user;
+    json_ok("Demande supprimée.", json!({}))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

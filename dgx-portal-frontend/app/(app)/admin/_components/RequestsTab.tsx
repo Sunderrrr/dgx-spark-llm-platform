@@ -17,7 +17,7 @@ import { Badge } from "@astryxdesign/core/Badge";
 import { Table } from "@astryxdesign/core/Table";
 import type { TableColumn } from "@astryxdesign/core/Table";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
-import { CheckIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { CheckIcon, TrashIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { useT, useLocale } from "@/lib/i18n";
 import {
   REQ_STATUS_LABEL,
@@ -61,7 +61,9 @@ export function RequestsTab({ data, act, actionDisabled }: AdminTabProps) {
             <BudgetApproveForm fullname={r.fullname} currentBudget={r.current_budget} isDisabled={actionDisabled} onApprove={(amount, days) => act(`/admin/budget/approve/${r.id}`, { amount, grant_days: days })} />
             <Button label={t("Refuser")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={XMarkIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act(`/admin/budget/reject/${r.id}`)} />
           </HStack>
-        ) : null,
+        ) : (
+          <Button label={t("Supprimer")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act(`/admin/budget/delete/${r.id}`)} />
+        ),
     },
   ];
 
@@ -78,6 +80,7 @@ export function RequestsTab({ data, act, actionDisabled }: AdminTabProps) {
         <HStack gap={1}>
           {r.status !== "done" && <Button label={t("Lancé")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={CheckIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act(`/admin/update/${r.id}`, { status: "done" })} />}
           {r.status !== "rejected" && <Button label={t("Refuser")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={XMarkIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act(`/admin/update/${r.id}`, { status: "rejected" })} />}
+          <Button label={t("Supprimer")} variant="ghost" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act(`/admin/request/delete/${r.id}`)} />
         </HStack>
       ),
     },

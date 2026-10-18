@@ -193,6 +193,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/admin/users/:username/detail", get(handlers::admin_user_detail))
         .route("/admin/platform", get(handlers::admin_platform))
         .route("/admin/update/:id", post(handlers::admin_update_request))
+        .route("/admin/request/delete/:id", post(handlers::admin_request_delete))
+        .route("/admin/budget/delete/:id", post(handlers::admin_budget_delete))
         .route("/admin/config", get(handlers::admin_config_get).post(handlers::admin_config_post))
         .route("/admin/config/test/:part", post(handlers::admin_config_test))
         .route("/admin/validate", post(handlers::admin_validate))
@@ -245,6 +247,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/announcements", get(handlers::api_announcements))
         .route("/api/skills", get(handlers::api_skills))
         .route("/api/notifications/seen", post(handlers::api_notifications_seen))
+        .route("/api/notifications/delete/:id", post(handlers::api_notification_delete))
         .route("/api/announcements/seen", post(handlers::api_announcements_seen))
         
         .layer(axum::middleware::from_fn(portal_rs::security::layer))

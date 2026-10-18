@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn fact_lines_like_python() {
-        assert_eq!(parse_fact_line(" - Maël | utilise | Rust "), Some(("Maël".into(), "utilise".into(), "Rust".into(), None)));
+        assert_eq!(parse_fact_line(" - Alice | utilise | Rust "), Some(("Alice".into(), "utilise".into(), "Rust".into(), None)));
         assert_eq!(parse_fact_line("a | b | c | d"), Some(("a".into(), "b".into(), "c".into(), Some("d".into()))));
         assert_eq!(parse_fact_line("a | b |  "), None);
         assert_eq!(parse_fact_line("pas de barre"), None);

@@ -30,5 +30,5 @@ DOMAIN = WEB.split("//", 1)[-1].split("/", 1)[0]
 SSO_DOMAIN = os.environ.get("DGX_SSO_DOMAIN", "")
 API = os.environ.get("DGX_API", "https://api.example.org")
 DEMO_USER = os.environ.get("DGX_DEMO_USER", "demo")
-DEMO_PASS = os.environ.get("DGX_DEMO_PASS", "/root/shots/demo-credentials")
-PYTEST_BIN = os.environ.get("DGX_PYTEST_BIN", "/root/shots-venv/bin/python")
+DEMO_PASS = os.environ.get("DGX_DEMO_PASS", os.path.expanduser("~/shots/demo-credentials"))
+PYTEST_BIN = os.environ.get("DGX_PYTEST_BIN", os.path.expanduser("~/shots-venv/bin/python"))

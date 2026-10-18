@@ -45,8 +45,8 @@ export DGX_API="${DGX_API:-https://api.example.org}"
 export DGX_S3_CFG="${DGX_S3_CFG:-$DGX_ROOT/secrets/s3-garage.cfg}"
 export DGX_S3_LOGS="${DGX_S3_LOGS:-s3://dgx/logs}"
 export DGX_DEMO_USER="${DGX_DEMO_USER:-demo}"
-export DGX_DEMO_PASS="${DGX_DEMO_PASS:-/root/shots/demo-credentials}"
-export DGX_PYTEST_BIN="${DGX_PYTEST_BIN:-/root/shots-venv/bin/python}"
+export DGX_DEMO_PASS="${DGX_DEMO_PASS:-$HOME/shots/demo-credentials}"
+export DGX_PYTEST_BIN="${DGX_PYTEST_BIN:-$HOME/shots-venv/bin/python}"
 export DGX_RUNNER_URL="${DGX_RUNNER_URL:-http://127.0.0.1:8001}"
 
 # The deployer's values are the point of all this: if a domain is still the

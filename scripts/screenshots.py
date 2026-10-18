@@ -24,13 +24,13 @@ Usage (the three modes chain: capture, verify, install):
 Proper names to redact (never in a public repo): list them, one per line
 (« # » to comment), in a file outside the repo, and point at it with
 SHOTS_FORBIDDEN_FILE:
-    SHOTS_FORBIDDEN_FILE=/root/shots/noms-interdits.txt python screenshots.py --verify
+    SHOTS_FORBIDDEN_FILE=~/shots/noms-interdits.txt python screenshots.py --verify
 Missing variable or unreadable file → only the STRUCTURAL patterns (email, key
 `sk-…`, access-refusal text) apply, without error.
 
 Prerequisites: playwright + chromium (`playwright install chromium`), and the
 password of the demonstration account in SHOTS_PW_FILE (default
-/root/shots/demo-credentials, chmod 600, outside the repo). The account is
+~/shots/demo-credentials, chmod 600, outside the repo). The account is
 created with `docker exec portal-rs portal create-demo-account`; it is NOT an administrator —
 /admin and /users require granting is_admin for the duration of the capture,
 then removing it (the script refuses to capture those pages without the rights
@@ -55,14 +55,14 @@ from playwright.sync_api import sync_playwright
 
 BASE = os.environ.get("SHOTS_BASE", os.environ.get("DGX_WEB", "https://example.org"))
 USER = "demo"
-PW_FILE = os.environ.get("SHOTS_PW_FILE", "/root/shots/demo-credentials")
+PW_FILE = os.environ.get("SHOTS_PW_FILE", os.path.expanduser("~/shots/demo-credentials"))
 try:
     PW = open(PW_FILE).read().strip()
 except FileNotFoundError:
     sys.exit(f"demo account password not found: {PW_FILE}\n"
              f"  → create the account with `portal create-demo-account` (see docs/development.md) then write the\n"
              f"    password in that file (chmod 600), or set SHOTS_PW_FILE.")
-OUT = os.environ.get("SHOTS_OUT", "/root/shots/out")
+OUT = os.environ.get("SHOTS_OUT", os.path.expanduser("~/shots/out"))
 W, H, DPR = 1600, 1000, 2
 
 # (file name, route) — the order follows the README table

@@ -15,6 +15,9 @@ COPY . .
 # NODE_HEAP_MB=4096) if the build runs out of memory.
 ARG NODE_HEAP_MB=2560
 ENV NODE_OPTIONS=--max-old-space-size=${NODE_HEAP_MB}
+# next.config.ts bakes the fallback rewrite to portal-rs at build time, so the
+# address must be known here, not only at run time (compose always passes it).
+ARG BACKEND_URL=
 RUN npm run build
 
 FROM node:20-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS runner

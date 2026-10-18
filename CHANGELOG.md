@@ -90,7 +90,7 @@ fails if `package.json` and the newest version here have drifted apart.
 - The migration tooling that compared the two runners or the Flask and Rust
   backends (`vllm-runner-rs/tools/`, `scripts/compare-backends.py`,
   `scripts/parity-bench/`). The Rust parity tests keep their recorded fixtures.
-- 70 unreachable English strings in `lib/i18n.tsx`, and an unused Rust module.
+- 43 unreachable English strings in `lib/i18n.tsx`, and an unused Rust module.
 
 - `monitoring/backup.py`: no unit ran it any more; its orphan sweep moved to
   `dgx-portal/media_store.py`.

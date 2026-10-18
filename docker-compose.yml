@@ -153,7 +153,11 @@ services:
   # portal-rs:5100 (see next.config.ts → rewrites().fallback).
   dgx-portal-frontend:
     logging: *logging
-    build: ./dgx-portal-frontend
+    build:
+      context: ./dgx-portal-frontend
+      # Baked into the rewrites at build time (next.config.ts), same value as runtime.
+      args:
+        BACKEND_URL: ${DGX_RUST_URL:-http://portal-rs:${PORTAL_RUST_PORT:-5100}}
     container_name: dgx-portal-frontend
     restart: unless-stopped
     environment:

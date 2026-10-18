@@ -8,6 +8,9 @@ User=vllmrunner
 Group=vllmrunner
 WorkingDirectory=/var/lib/vllm-runner
 EnvironmentFile=/root/ai-platform/.env
+# Locations of the models, binaries and caches on this machine (written by
+# install.sh from $HOME). Read after .env; the leading - means optional.
+EnvironmentFile=-/etc/vllm-runner/paths.env
 ExecStart=/usr/local/bin/vllm-runner
 Restart=always
 # 30 s, not 5: the NVIDIA driver returns a killed process's GPU memory with a
@@ -20,8 +23,6 @@ RestartSec=30
 # notices the model's exit and lets the watchdog decide, with memory wait,
 # floor and persisted failure counter.
 OOMPolicy=continue
-Environment=VLLM_BIN=/root/.local/bin/vllm
-Environment=HF_HOME=/root/.cache/huggingface
 Environment=HOME=/var/lib/vllm-runner
 # flashinfer's JIT (`Building JIT module gemm_sm120`) shells out to nvcc. The
 # toolkit lives at /usr/local/cuda but is not on the default PATH, so the build

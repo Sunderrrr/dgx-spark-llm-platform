@@ -191,14 +191,14 @@ pub static ENV_FLAG_VARS: &[(&str, &str, &str)] = &[
     ("--force-fp8-marlin", "VLLM_TEST_FORCE_FP8_MARLIN", "1"),
 ];
 
-/// (flag, env var, default binary)
+/// (flag, env var, default binary relative to the runner's HOME)
 pub static BIN_FLAG_PATHS: &[(&str, &str, &str)] = &[
-    ("--llama-k2", "LLAMA_BIN_K2", "/root/llama-cpp-k2horizon/build/bin/llama-server"),
-    ("--llama-next", "LLAMA_BIN_NEXT", "/root/llama-cpp-upstream/build/bin/llama-server"),
-    ("--llama-prism", "LLAMA_BIN_PRISM", "/root/llama-prism-cuda/build/bin/llama-server"),
-    ("--vllm-025", "VLLM_BIN_025", "/root/venvs/vllm025/bin/vllm"),
-    ("--vllm-027", "VLLM_BIN_027", "/root/venvs/vllm-next/bin/vllm"),
-    ("--vllm-028", "VLLM_BIN_028", "/root/venvs/vllm-028/bin/vllm"),
-    ("--vllm-nightly", "VLLM_BIN_NIGHTLY", "/root/venvs/vllm-nightly/bin/vllm"),
+    ("--llama-k2", "LLAMA_BIN_K2", "llama-cpp-k2horizon/build/bin/llama-server"),
+    ("--llama-next", "LLAMA_BIN_NEXT", "llama-cpp-upstream/build/bin/llama-server"),
+    ("--llama-prism", "LLAMA_BIN_PRISM", "llama-prism-cuda/build/bin/llama-server"),
+    ("--vllm-025", "VLLM_BIN_025", "venvs/vllm025/bin/vllm"),
+    ("--vllm-027", "VLLM_BIN_027", "venvs/vllm-next/bin/vllm"),
+    ("--vllm-028", "VLLM_BIN_028", "venvs/vllm-028/bin/vllm"),
+    ("--vllm-nightly", "VLLM_BIN_NIGHTLY", "venvs/vllm-nightly/bin/vllm"),
 ];
 

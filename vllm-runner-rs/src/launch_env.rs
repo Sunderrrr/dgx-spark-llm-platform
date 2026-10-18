@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 pub fn build(engine: &str, model_env: &BTreeMap<String, String>, hf_home: &str, root_env: &dyn Fn(&str) -> Option<String>) -> BTreeMap<String, String> {
     let mut env: BTreeMap<String, String> = BTreeMap::new();
     env.insert("PATH".into(), root_env("PATH").unwrap_or_else(|| "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin".into()));
-    env.insert("HOME".into(), root_env("HOME").unwrap_or_else(|| "/root".into()));
+    env.insert("HOME".into(), root_env("HOME").unwrap_or_else(|| "/var/lib/vllm-runner".into()));
     env.insert("HF_HOME".into(), hf_home.into());
     env.insert("PYTHONUNBUFFERED".into(), "1".into());
     env.insert("FLASHINFER_DISABLE_VERSION_CHECK".into(), "1".into());

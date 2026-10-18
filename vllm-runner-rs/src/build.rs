@@ -23,16 +23,18 @@ pub struct Paths {
 impl Paths {
     pub fn from_env() -> Paths {
         let env = |k: &str, d: &str| std::env::var(k).ok().filter(|v| !v.is_empty()).unwrap_or_else(|| d.to_string());
+        // Defaults hang off the runner's own HOME. The box-specific locations are
+        // set in /etc/vllm-runner/paths.env (written by install.sh), not here.
         let home = env("HOME", "/var/lib/vllm-runner");
-        let tabby_dir = env("TABBY_DIR", "/root/tabbyAPI");
+        let tabby_dir = env("TABBY_DIR", &format!("{home}/tabbyAPI"));
         Paths {
-            vllm_bin: env("VLLM_BIN", "/root/.local/bin/vllm"),
-            llama_bin: env("LLAMA_BIN", "/root/llama.cpp/build/bin/llama-server"),
-            ds4_bin: env("DS4_BIN", "/root/ds4-nvfp4-spark/ds4-server"),
-            hf_home: env("HF_HOME", "/root/.cache/huggingface"),
-            models_dir: env("MODELS_DIR", "/root/models"),
-            templates_dir: env("TEMPLATES_DIR", "/root/models/templates"),
-            exl3_py: env("EXL3_PY", "/root/venvs/exl3/bin/python"),
+            vllm_bin: env("VLLM_BIN", &format!("{home}/.local/bin/vllm")),
+            llama_bin: env("LLAMA_BIN", &format!("{home}/llama.cpp/build/bin/llama-server")),
+            ds4_bin: env("DS4_BIN", &format!("{home}/ds4-nvfp4-spark/ds4-server")),
+            hf_home: env("HF_HOME", &format!("{home}/.cache/huggingface")),
+            models_dir: env("MODELS_DIR", &format!("{home}/models")),
+            templates_dir: env("TEMPLATES_DIR", &format!("{home}/models/templates")),
+            exl3_py: env("EXL3_PY", &format!("{home}/venvs/exl3/bin/python")),
             exl3_run_dir: format!("{home}/exl3"),
             tabby_dir,
         }
@@ -266,7 +268,7 @@ pub fn build_cmd(p: &Paths, hf_id: &str, name: &str, extra: &[String], engine: &
             // runner.py's vllm-docker branch.
             let img = std::env::var("VLLM_DOCKER_IMAGE").ok().filter(|v| !v.is_empty())
                 .unwrap_or_else(|| "vllm/vllm-openai:nightly-3f1bcfd82bb2e93fcd364fc7a5491718453a77e2".to_string());
-            let cache = format!("{}/.cache/huggingface", std::env::var("HOME").unwrap_or_else(|_| "/root".into()));
+            let cache = format!("{}/.cache/huggingface", std::env::var("HOME").unwrap_or_else(|_| "/var/lib/vllm-runner".into()));
             let mut cmd = strs(&["docker", "run", "--rm", "--gpus", "all", "--ipc=host", "-p", "127.0.0.1:8000:8000",
                 "-e", "HF_TOKEN", "-e", "FLASHINFER_DISABLE_VERSION_CHECK=1", "-v"]);
             cmd.push(format!("{cache}:/root/.cache/huggingface"));

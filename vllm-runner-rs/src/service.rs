@@ -50,7 +50,7 @@ impl Config {
             critical_free_gib: env("CRITICAL_FREE_GIB", "2").parse().unwrap_or(2.0),
             stable_seconds: env("RESUME_STABLE_SECONDS", "600").parse().unwrap_or(600),
             max_auto_retries: 3,
-            hf_home: env("HF_HOME", "/root/.cache/huggingface"),
+            hf_home: env("HF_HOME", &format!("{home}/.cache/huggingface")),
             sudo: true,
         })
     }
@@ -80,9 +80,11 @@ pub fn engine_bin(cfg: &Config, engine: &str) -> Option<String> {
     }
 }
 
-/// The binary of a `--vllm-*` / `--llama-*` pseudo-flag: its env var, or its default.
+/// The binary of a `--vllm-*` / `--llama-*` pseudo-flag: its env var, or its
+/// default, which is relative to the runner's HOME.
 pub fn bin_flag_path(flag: &str) -> Option<String> {
-    flags::BIN_FLAG_PATHS.iter().find(|(f, _, _)| *f == flag).map(|(_, var, default)| std::env::var(var).ok().filter(|v| !v.is_empty()).unwrap_or_else(|| default.to_string()))
+    let home = std::env::var("HOME").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| "/var/lib/vllm-runner".into());
+    flags::BIN_FLAG_PATHS.iter().find(|(f, _, _)| *f == flag).map(|(_, var, default)| std::env::var(var).ok().filter(|v| !v.is_empty()).unwrap_or_else(|| format!("{home}/{default}")))
 }
 
 /// Python's repr of a dict of strings, for the journal line.

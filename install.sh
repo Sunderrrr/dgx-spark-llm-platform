@@ -14,12 +14,12 @@
 set -euo pipefail
 
 REPO_URL="${DGX_REPO:-https://github.com/Sunderrrr/dgx-spark-llm-platform.git}"
-DEFAULT_DIR="/root/ai-platform"        # systemd units reference this path
+DEFAULT_DIR="${HOME}/ai-platform"        # systemd units reference this path
 RUNNER_USER="vllmrunner"
 RUNNER_HOME="/var/lib/vllm-runner"
-# Both as set in systemd/vllm-runner.service (VLLM_BIN, HF_HOME).
-VLLM_BIN="/root/.local/bin/vllm"
-HF_HOME_DIR="/root/.cache/huggingface"
+# Both read from /etc/vllm-runner/paths.env (written in §7c below).
+VLLM_BIN="${HOME}/.local/bin/vllm"
+HF_HOME_DIR="${HOME}/.cache/huggingface"
 # The subnet the portal's URLs (172.19.0.1:8000/8001/8188, docker-compose.yml)
 # and vllm-restrict.service are written for.
 DEFAULT_SUBNET="172.19.0.0/16"
@@ -176,6 +176,31 @@ log "Installing systemd units"
 # ALL the repo's units, not just the startup ones: the network restriction units
 # and the monitor/backup pair are described in the README as deployed, and
 # without them the install is half-protected in silence.
+# ── 7c. Runner paths: this machine's locations, kept out of the repo ─────────
+# The runner's defaults are relative to its own HOME, so every location that
+# differs from them is written here once. Never overwritten: edit it by hand.
+install -d -m 0755 /etc/vllm-runner
+if [ ! -f /etc/vllm-runner/paths.env ]; then
+  cat > /etc/vllm-runner/paths.env <<EOF
+# Locations used by vllm-runner on this machine. Read by systemd (EnvironmentFile).
+VLLM_BIN=${HOME}/.local/bin/vllm
+HF_HOME=${HOME}/.cache/huggingface
+TABBY_DIR=${HOME}/tabbyAPI
+DS4_BIN=${HOME}/ds4-nvfp4-spark/ds4-server
+MODELS_DIR=${HOME}/models
+TEMPLATES_DIR=${HOME}/models/templates
+EXL3_PY=${HOME}/venvs/exl3/bin/python
+LLAMA_BIN_K2=${HOME}/llama-cpp-k2horizon/build/bin/llama-server
+LLAMA_BIN_NEXT=${HOME}/llama-cpp-upstream/build/bin/llama-server
+LLAMA_BIN_PRISM=${HOME}/llama-prism-cuda/build/bin/llama-server
+VLLM_BIN_025=${HOME}/venvs/vllm025/bin/vllm
+VLLM_BIN_027=${HOME}/venvs/vllm-next/bin/vllm
+VLLM_BIN_028=${HOME}/venvs/vllm-028/bin/vllm
+VLLM_BIN_NIGHTLY=${HOME}/venvs/vllm-nightly/bin/vllm
+EOF
+  chmod 0644 /etc/vllm-runner/paths.env
+fi
+
 for unit in vllm-runner.service vllm-restrict.service dgx-docker-restrict.service \
              dgx-web-restrict.service dgx-ocr-restrict.service \
              dgx-traefik-boot.service dgx-monitor.service dgx-monitor.timer \
@@ -183,7 +208,8 @@ for unit in vllm-runner.service vllm-restrict.service dgx-docker-restrict.servic
              dgx-validation.service dgx-validation.path \
              comfyui.service comfyui-relay.service; do
   [ -f "systemd/$unit" ] || continue
-  sed "s#/root/ai-platform#${REPO_DIR}#g" "systemd/$unit" > "/etc/systemd/system/$unit"
+  # Units use /root as the placeholder for the install user's home.
+  sed -e "s#/root/ai-platform#${REPO_DIR}#g" -e "s#/root/#${HOME%/}/#g" "systemd/$unit" > "/etc/systemd/system/$unit"
 done
 # The site's firewall sources: a template only, never overwritten.
 [ -f /etc/default/dgx-firewall ] || install -m 0644 systemd/dgx-firewall.example /etc/default/dgx-firewall

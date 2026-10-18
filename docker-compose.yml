@@ -254,6 +254,9 @@ services:
       VLLM_RUNNER_URL: http://172.19.0.1:8001
       RUNNER_TOKEN: ${RUNNER_TOKEN:?RUNNER_TOKEN must be set in .env (run setup.sh)}
       VLLM_API_URL: http://172.19.0.1:8000/v1
+      # LiteLLM reaches the engine through the same gateway: its routes are written
+      # with this address (host.docker.internal resolves to docker0, not to the publish).
+      VLLM_API_BASE: http://172.19.0.1:8000/v1
       LITELLM_URL: http://litellm:4001
       LITELLM_DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env (run setup.sh)}@postgres/litellm
       DGX_WEB: ${DGX_WEB:?set DGX_WEB in .env (see .env.example)}

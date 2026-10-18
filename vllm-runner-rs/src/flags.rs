@@ -6,6 +6,8 @@ pub static BOOL_FLAGS: &[&str] = &[
     "--disable-log-requests",
     "--disable-log-stats",
     "--enable-auto-tool-choice",
+    "--enable-mamba-cache-stochastic-rounding",
+    "--enable-mamba-shared-prefix-checkpoint",
     "--enforce-eager",
     "--force-fp8-marlin",
     "--language-model-only",
@@ -24,18 +26,26 @@ pub static VALUE_FLAGS: &[&str] = &[
     "--gpu-memory-utilization",
     "--kv-cache-dtype",
     "--limit-mm-per-prompt",
+    "--mamba-backend",
+    "--mamba-cache-philox-rounds",
+    "--mamba-ssm-cache-dtype",
     "--max-model-len",
     "--max-num-batched-tokens",
     "--max-num-seqs",
     "--pipeline-parallel-size",
+    "--prefix-match-unit",
     "--quantization",
     "--reasoning-parser",
     "--speculative-config",
+    "--speculative_config.method",
+    "--speculative_config.model",
+    "--speculative_config.num_speculative_tokens",
     "--swap-space",
     "--tensor-parallel-size",
     "--tokenizer-mode",
     "--tool-call-parser",
     "--uvicorn-log-level",
+    "--video-pruning-rate",
 ];
 
 pub static ENV_FLAGS: &[&str] = &[
@@ -183,6 +193,7 @@ pub static EXL3_VALUE_FLAGS: &[&str] = &[
 ];
 
 pub static TRUST_RC_MODELS: &[&str] = &[
+    "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
 ];
 
 /// (flag, env var, value)

@@ -269,7 +269,11 @@ pub fn build_cmd(p: &Paths, hf_id: &str, name: &str, extra: &[String], engine: &
             let img = std::env::var("VLLM_DOCKER_IMAGE").ok().filter(|v| !v.is_empty())
                 .unwrap_or_else(|| "vllm/vllm-openai:nightly-3f1bcfd82bb2e93fcd364fc7a5491718453a77e2".to_string());
             let cache = format!("{}/.cache/huggingface", std::env::var("HOME").unwrap_or_else(|_| "/var/lib/vllm-runner".into()));
-            let mut cmd = strs(&["docker", "run", "--rm", "--gpus", "all", "--ipc=host", "-p", "127.0.0.1:8000:8000",
+            // Published where the portal can reach it: VLLM_DOCKER_PUBLISH is the host
+            // address (the portal's bridge gateway on this machine), loopback by default.
+            let bind = std::env::var("VLLM_DOCKER_PUBLISH").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| "127.0.0.1".to_string());
+            let publish = format!("{bind}:8000:8000");
+            let mut cmd = strs(&["docker", "run", "--rm", "--gpus", "all", "--ipc=host", "-p", publish.as_str(),
                 "-e", "HF_TOKEN", "-e", "FLASHINFER_DISABLE_VERSION_CHECK=1", "-v"]);
             cmd.push(format!("{cache}:/root/.cache/huggingface"));
             cmd.extend(strs(&["--entrypoint", "vllm"]));

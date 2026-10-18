@@ -190,6 +190,9 @@ DS4_BIN=${HOME}/ds4-nvfp4-spark/ds4-server
 MODELS_DIR=${HOME}/models
 TEMPLATES_DIR=${HOME}/models/templates
 EXL3_PY=${HOME}/venvs/exl3/bin/python
+# Host address the vllm-docker engine publishes on: the portal's bridge gateway
+# (docker-compose.yml, VLLM_API_URL). Loopback would hide the engine from the portal.
+VLLM_DOCKER_PUBLISH=172.19.0.1
 LLAMA_BIN_K2=${HOME}/llama-cpp-k2horizon/build/bin/llama-server
 LLAMA_BIN_NEXT=${HOME}/llama-cpp-upstream/build/bin/llama-server
 LLAMA_BIN_PRISM=${HOME}/llama-prism-cuda/build/bin/llama-server

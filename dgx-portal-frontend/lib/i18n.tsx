@@ -13,8 +13,6 @@ export type Lang = "fr" | "en";
  * dictionary; a missing entry falls back to French rather than
  * showing a key name. */
 const EN: Record<string, string> = {
-  "Emails de notification": "Notification emails",
-  "SMTP configuré": "SMTP configured",
   "SMTP non configuré": "SMTP not configured",
   // {adresse} = shipping address, inserted AFTER mount: Cloudflare
   // rewrites the server-side HTML email addresses and would break hydration
@@ -23,8 +21,6 @@ const EN: Record<string, string> = {
   "Envoi depuis {adresse} via {serveur} ; les notifications admin partent vers l'adresse ci-dessous.":
     "Sent from {adresse} via {serveur}; admin notifications go to the address below.",
   "le portail": "the portal",
-  "Envoyer un test": "Send a test",
-  "Email de test envoyé.": "Test email sent.",
   "Échec de l'envoi.": "Send failed.",
   "Déjà signalé — la demande se débloquera automatiquement.": "Already requested — it will unlock automatically.",
   "Réessaie dans": "Try again in",
@@ -274,7 +270,6 @@ const EN: Record<string, string> = {
   "Les mots de passe ne correspondent pas.": "The passwords do not match.",
   "Créer le compte propriétaire": "Create the owner account",
   "Création impossible.": "Could not create it.",
-  "(sera effacé)": "(will be cleared)",
   "(inchangé)": "(unchanged)",
   "Effacer": "Clear",
   "Le modèle rejoint le catalogue ; il se lance ensuite depuis sa carte.": "The model joins the catalog; launch it from its card afterwards.",
@@ -355,7 +350,6 @@ const EN: Record<string, string> = {
   "12 mois": "12 months",
   "Apparaître anonymement aux autres": "Appear anonymously to others",
   "Aucune requête sur cette période.": "No request over this period.",
-  "Carte d'activité : requêtes par jour de la semaine et par heure": "Activity map: requests per day of the week and per hour",
   "Ce que ça aurait coûté": "What it would have cost",
   "Classer": "Rank",
   "Compte anonyme": "Anonymous account",
@@ -367,7 +361,6 @@ const EN: Record<string, string> = {
   "Coût de référence": "Reference cost",
   "Créneau le plus chargé : {d} {h} h ({n} requêtes).": "Busiest slot: {d} {h}:00 ({n} requests).",
   "Depuis le début, requêtes réussies uniquement.": "Since the start, successful requests only.",
-  "{d} {h} h : {n} requêtes · {k} tokens": "{d} {h}:00: {n} requests · {k} tokens",
   "en moyenne": "on average",
   "Exporter en CSV": "Export as CSV",
   "Moi": "Me",
@@ -389,7 +382,6 @@ const EN: Record<string, string> = {
   "Records et séries": "Records and streaks",
   "Requêtes": "Requests",
   "requêtes au total": "requests in total",
-  "Requêtes réussies par jour et par heure (heure locale).": "Successful requests per day and per hour (local time).",
   "Série en cours : {s} · record : {r}": "Current streak: {s} · record: {r}",
   "{n} jours": "{n} days",
   "{n} jour": "{n} day",
@@ -404,13 +396,6 @@ const EN: Record<string, string> = {
   "≈ {v} au tarif de référence": "≈ {v} at the reference price",
   "groupes actifs": "active groups",
   "groupe actif": "active group",
-  "Lundi": "Monday",
-  "Mardi": "Tuesday",
-  "Mercredi": "Wednesday",
-  "Jeudi": "Thursday",
-  "Vendredi": "Friday",
-  "Samedi": "Saturday",
-  "Dimanche": "Sunday",
   "Prix en entrée": "Input price",
   "Prix en sortie": "Output price",
   "Devise": "Currency",
@@ -520,7 +505,6 @@ const EN: Record<string, string> = {
   "Application OAuth2 qui lie un compte Discord.": "OAuth2 app that links a Discord account.",
   "Contact sécurité": "Security contact",
   "Publié dans /.well-known/security.txt. Vide : le destinataire des alertes.": "Published in /.well-known/security.txt. Empty: the alert recipient.",
-  "LDAP, SSO et e-mail se règlent ici, et nulle part ailleurs. Un secret n'est jamais réaffiché : laisse son champ vide pour le garder.": "LDAP, SSO and e-mail are set here, and nowhere else. A secret is never shown again: leave its field empty to keep it.",
   "LDAP — compte de service (DN)": "LDAP — service account (DN)",
   "LDAP — mot de passe du compte de service": "LDAP — service account password",
   "SMTP — destinataire des alertes": "SMTP — alert recipient",
@@ -539,7 +523,6 @@ const EN: Record<string, string> = {
   "Clés API actives": "Active API keys",
   "Budget": "Budget",
   "Budget illimité (admin)": "Unlimited budget (admin)",
-  "Consommé aujourd'hui": "Used today",
   "Activité de tokens par jour": "Daily token activity",
 
   // — Usage —
@@ -693,7 +676,6 @@ const EN: Record<string, string> = {
   "En attente": "Pending",
   "Retirer": "Remove",
   "Mémoire": "Memory",
-  "Activer la mémoire": "Enable memory",
   "Désactivée par défaut. Une fois activée, l'assistant peut retenir des informations durables te concernant pour les réutiliser plus tard.":
     "Off by default. Once enabled, the assistant can keep durable information about you and reuse it later.",
   "Ajouter une information": "Add an entry",
@@ -907,7 +889,6 @@ const EN: Record<string, string> = {
   "Supprimer le serveur MCP « {nom} » ? Son secret sera perdu.":
     "Delete the MCP server \u00ab {nom} \u00bb? Its secret will be lost.",
   "Supprimer la compétence « {nom} » ?": "Delete the skill \u00ab {nom} \u00bb?",
-  "deja_en_attente": "You already have a pending request.",
   "Copie impossible depuis ce navigateur.":
     "Copying is not available in this browser.",
   "« {name} » : seuls les fichiers texte sont acceptés.":
@@ -937,17 +918,9 @@ const EN: Record<string, string> = {
   "Réponse API : médiane {a} ms · p95 {b} ms sur {n} appels": "API response: median {a} ms · p95 {b} ms over {n} calls",
   "Configuration": "Configuration",
   "LDAP": "LDAP",
-  "SSO / Authentification": "SSO / Authentication",
-  "SMTP / Courriel": "SMTP / Email",
-  "Autres": "Other",
   "Configuration de l'instance": "Instance configuration",
-  "LDAP, SSO, SMTP — l'interface d'abord, .env ensuite, le défaut en dernier. Un secret n'est jamais affiché.": "LDAP, SSO, SMTP — the interface first, .env second, the default last. A secret is never shown.",
-  "Source : {s}": "Source: {s}",
-  "Configuré": "Configured",
   "Absent": "Missing",
-  "(valeur présente)": "(value set)",
   "(non défini)": "(not set)",
-  "Configuration enregistrée.": "Configuration saved.",
   "Vérification complète": "Full verification",
   "Code, service, parcours utilisateur, santé — comme avant un push.": "Code, running service, user journeys, health — what you run before a push.",
   "Tout est vert": "Everything green",
@@ -969,7 +942,6 @@ const EN: Record<string, string> = {
   "Enregistrement…": "Saving…",
   "Compétences du playground (menu « / »)": "Playground skills (the \"/\" menu)",
   "Appelées depuis le composeur en tapant « / ». Les intégrées sont livrées avec la plateforme ; les tiennes sont modifiables depuis le playground.": "Called from the composer by typing \"/\". The built-in ones ship with the platform; yours are editable from the playground.",
-  "Compétences de l'assistant": "Assistant skills",
   "Anti-IA — détection et correction": "Anti-AI — detection and rewriting",
   "Repère et corrige les tournures typiques d'un texte généré par IA": "Spot and fix the tells of AI-generated writing",
   "Repère et corrige les tournures d'IA dans ce texte : ": "Spot and fix the AI tells in this text: ",
@@ -1125,7 +1097,6 @@ const EN: Record<string, string> = {
   "sur {n} comptes actifs": "across {n} active accounts",
   "Vous n'avez rien consommé sur cette période.": "You have not used anything over this period.",
   "tokens au total": "tokens in total",
-  "en moyenne par compte": "on average per account",
   "Classement indisponible.": "Leaderboard unavailable.",
   "La consommation n'a pas pu être lue. Réessaie dans un instant.":
     "Consumption could not be read. Try again in a moment.",
@@ -1169,7 +1140,6 @@ const EN: Record<string, string> = {
   "Nom (ex: unlimited-ocr)": "Name (e.g. unlimited-ocr)",
   "Lancer": "Launch",
   "Ajouter un modèle": "Add a model",
-  "Nom (ex: llama-3-8b)": "Name (e.g. llama-3-8b)",
   "HF ID": "HF ID",
   "Moteur": "Engine",
   "Args": "Args",
@@ -1231,7 +1201,6 @@ const EN: Record<string, string> = {
   "Ouvrir le document": "Open document",
   "Voici le document — ouvre-le pour le lire ou le copier.": "Here's the document — open it to read or copy it.",
   "Voici le fichier — ouvre-le pour le copier.": "Here's the file — open it to copy it.",
-  "Ouvrir et copier dans le volet": "Open and copy in the panel",
   "Rédaction en cours…": "Writing…",
   "Écriture en cours…": "Writing the file…",
   "Ouvrir le document en cours de rédaction": "Open the document being written",
@@ -1288,19 +1257,12 @@ const EN: Record<string, string> = {
     "Virtual model: always routes to the chat model currently loaded — your code needs no change when the admin switches models. Pick a named model to pin to that one.",
   "Contexte entrée": "Input context",
   "Contexte sortie": "Output context",
-  "Recherche par utilisateur": "Search by user",
   "Cherche un utilisateur pour voir ses quotas et son utilisation (LiteLLM, OCR, vidéo, voix). Réservé aux admins.":
     "Search a user to see their quota and usage (LiteLLM, OCR, video, voice). Admins only.",
-  "Identifiant à rechercher": "Username to search",
-  "Aucun utilisateur ne correspond.": "No matching user.",
-  "Tape un identifiant pour afficher son profil.": "Type a username to show their profile.",
-  "Utilisateurs connus": "Known users",
-  "Quota LiteLLM": "LiteLLM quota",
   "clé(s)": "key(s)",
   "extractions": "extractions",
   "générations": "generations",
   "Aucune": "None",
-  "Aucune activité enregistrée pour cet utilisateur.": "No activity recorded for this user.",
   "Mode maintenance actif": "Maintenance mode active",
   "Mode maintenance": "Maintenance mode",
   "Bloque l'accès à l'API et au chat/OCR/vidéo pour les non-admins, sans arrêter les modèles. Les admins gardent l'accès.":
@@ -1539,7 +1501,6 @@ const EN: Record<string, string> = {
   "Quota (vide = groupe/défaut)": "Quota (empty = group/default)",
   "Aucun groupe": "No group",
   "Groupe": "Group",
-  "Quota / j": "Quota / day",
   // « par jour » suffix appended after a number (card of a group).
   "/ j": "/ d",
   "Actif": "Active",
@@ -1552,7 +1513,6 @@ const EN: Record<string, string> = {
   "quota par défaut": "default quota",
   "Supprimer ce groupe ?": "Delete this group?",
   "Nom du groupe": "Group name",
-  "Quota / j (optionnel)": "Quota / day (optional)",
   "Admin par défaut": "Default admin",
   "Ajouter le groupe": "Add group",
   "Échec de l'action.": "Action failed.",
@@ -1603,7 +1563,6 @@ const EN: Record<string, string> = {
   "Cet utilisateur existe déjà.": "This user already exists.",
   "Groupe inconnu.": "Unknown group.",
   "Utilisateur introuvable.": "User not found.",
-  "Nom de groupe invalide (max 40).": "Invalid group name (max 40).",
   "Quota invalide.": "Invalid quota.",
   "Un prompt texte est requis.": "A text prompt is required.",
   "ComfyUI inaccessible ou requête refusée.": "ComfyUI unreachable or request refused.",
@@ -1785,7 +1744,6 @@ const EN: Record<string, string> = {
   "clés actives": "active keys",
 
   // User search (Admin): generic example, never a real account.
-  "ex : jdoe": "e.g. jdoe",
 
   // Hugging Face model search. The tasks were written in English in the code:
   // they were therefore not translatable and stayed English even in French. They
@@ -1912,7 +1870,6 @@ const EN: Record<string, string> = {
   "Lancement refusé par le runner.": "Launch refused by the runner.",
   "Nom et HF model ID requis.": "Name and HF model ID required.",
   "Un modèle avec ce nom existe déjà.": "A model with this name already exists.",
-  "Identifiant HuggingFace invalide (attendu : org/nom).": "Invalid HuggingFace identifier (expected: org/name).",
   "Durée invalide (ex: 1d, 7d, 30d, 12h).": "Invalid duration (e.g. 1d, 7d, 30d, 12h).",
   "Lancement de {name} accepté — chargement en cours.":
     "Launch of {name} accepted — loading in progress.",

@@ -20,7 +20,7 @@
     "blobatar": "^2.7.0",
     "border-beam": "^1.4.1",
     "katex": "^0.18.7",
-    "next": "16.4.0",
+    "next": "^16.4.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "sharp": "^0.35.4",
@@ -42,5 +42,8 @@
   },
   "astryx": {
     "theme": "@astryxdesign/theme-neutral"
+  },
+  "overrides": {
+    "zod": "^4.6.7"
   }
 }

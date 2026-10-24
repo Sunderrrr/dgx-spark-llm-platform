@@ -60,6 +60,12 @@ if [ -f .env ]; then
     case "$key" in \#*) continue ;; esac
     [ "${#val}" -lt 8 ] && continue
     if printf '%s' "$staged" | grep -qF -- "$val"; then
+      # Already tracked in HEAD → already public: staging it again publishes
+      # nothing new. The compose defaults repeat site URLs by design (the
+      # DGX_RUST_URL default — first false positive, 2026-10-24). Search
+      # HEAD, not the working tree: a value that exists ONLY in the staged
+      # diff must still be refused.
+      if git grep -I -q -F -e "$val" HEAD 2>/dev/null; then continue; fi
       say "A value from .env ($key) is in the diff."
       hit=1
     fi

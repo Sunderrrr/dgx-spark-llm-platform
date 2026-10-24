@@ -93,6 +93,10 @@ for range in "${ranges[@]}"; do
       case "$key" in \#*|'') continue ;; esac
       [ "${#val}" -lt 8 ] && continue
       if printf '%s' "$haystack" | grep -qF -- "$val"; then
+        # Already tracked in HEAD → already public: the push adds nothing.
+        # HEAD, not the working tree, so a value introduced by THIS push is
+        # still refused (same rule as pre-commit-check.sh, 2026-10-24).
+        if git grep -I -q -F -e "$val" HEAD 2>/dev/null; then continue; fi
         fail "A value from .env ($key) is in the push."; secret_hit=1
       fi
     done < .env

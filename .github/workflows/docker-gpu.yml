@@ -1,0 +1,63 @@
+# Build the five GPU sidecar images: asr, voice (Chatterbox + Kyutai + Qwen
+# variants), image-gen. Each one is a multi-GB CUDA 13.0 + torch cu130 build —
+# running that on EVERY push would make the whole repo's CI slower for a check
+# that rarely changes. So this workflow has its own trigger set:
+#   - push to master touching one of the five directories (paths filter),
+#   - a pull request touching them (the gate BEFORE the merge, not after),
+#   - a weekly schedule, so a recipe that rots on its own (base image pulled
+#     from the registry, upstream release renamed) is caught without a push,
+#   - workflow_dispatch, to rebuild everything on demand from the Actions tab.
+#
+# Build ONLY, never push: the Spark stays the builder of record (the recreate
+# scripts build there), CI proves the recipe still compiles. Known boundary:
+# runners are amd64, the GB10 is aarch64 (sm_121) — this catches Dockerfile
+# errors, missing files, failing pip resolves and broken entrypoints, not the
+# arm-specific compilation, which only the box can do.
+#
+# Same token discipline as ci.yml: read-only, nothing more.
+name: GPU images
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"  # Monday 03:17 UTC — off the top of the hour
+  push:
+    branches: [master]
+    paths:
+      - "asr/**"
+      - "voice/**"
+      - "voice-kyutai/**"
+      - "voice-qwen/**"
+      - "image-gen/**"
+      - ".github/workflows/docker-gpu.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "asr/**"
+      - "voice/**"
+      - "voice-kyutai/**"
+      - "voice-qwen/**"
+      - "image-gen/**"
+      - ".github/workflows/docker-gpu.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpu-images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.dir }}
+    runs-on: ubuntu-latest
+    # fail-fast: false — five independent images: one red must not hide the
+    # state of the four others (the fix is per-directory anyway).
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [asr, voice, voice-kyutai, voice-qwen, image-gen]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Build the image (no push)
+        run: docker build "${{ matrix.dir }}" -t "gpu-ci:${{ matrix.dir }}"

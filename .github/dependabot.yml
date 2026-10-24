@@ -114,3 +114,65 @@ updates:
       actions:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+
+  # vLLM runner (Rust) — the second shipped crate (vllm-runner.service). Watch
+  # and policy identical to the portal: alerts active, PRs on hold, bumps by
+  # hand in one readable commit.
+  - package-ecosystem: cargo
+    directory: /vllm-runner-rs
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 0
+    groups:
+      runner-rust:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Base images of the Dockerfiles that ship under the standard `Dockerfile`
+  # name. All are digest-pinned, so they do NOT drift on their own — this
+  # entry exists for the day someone re-pins (Dependabot then proposes the
+  # new digest, PRs stay on hold like everything else, the alert shows in the
+  # Security tab if a base image turns out to carry a CVE).
+  #
+  # BLIND SPOTS, deliberately documented: `Dockerfile.portal-rs` (non-standard
+  # filename — Dependabot only reads files named `Dockerfile`) and the
+  # digest-pinned third-party images in docker-compose.yml (litellm, postgres,
+  # traefik, searxng…). Both move by hand: when you re-pin one, check
+  # <image>/tags on the registry and pick the digest, not the tag.
+  - package-ecosystem: docker
+    directory: /dgx-portal-frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 0
+  - package-ecosystem: docker
+    directory: /asr
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 0
+  - package-ecosystem: docker
+    directory: /voice
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 0
+  - package-ecosystem: docker
+    directory: /voice-kyutai
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 0
+  - package-ecosystem: docker
+    directory: /voice-qwen
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 0
+  - package-ecosystem: docker
+    directory: /image-gen
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 0

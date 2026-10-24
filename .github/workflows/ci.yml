@@ -17,6 +17,23 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# COVERAGE MAP — what CI sees, and what it deliberately does not.
+#
+# Every SHIPPED artifact is built or tested here: the Rust portal (backend),
+# the Rust vLLM runner (runner-rs), the Next.js UI (frontend, unit tests
+# included), the two Docker images the deploy actually builds (images), and
+# the Python tooling + shell + configs (static). The dependency watch covers
+# what ships at runtime (dependencies).
+#
+# What CI CANNOT see lives in validate.sh groups 2-4 and runs on the box,
+# where the stack exists: smoke.sh against the DEPLOYED service, the Playwright
+# journeys (tests/e2e/ — they log in, chat, search, export…), and the
+# health/resources checks. Those need the live platform; GitHub runners have
+# no GPU, no model, no SSO. They run unattended via systemd/dgx-validation
+# (dgx-validation.path triggers scripts/validate.sh) — see scripts/validate.sh.
+# The boundary is deliberate: CI mirrors group 1 (pure code gates), the box
+# owns groups 2-4 (live gates).
+
 jobs:
   # Cheapest first: three files must agree on the version (package.json, its
   # lockfile, the most recent CHANGELOG entry), and a disagreement breaks no
@@ -59,7 +76,7 @@ jobs:
           exit $hit
 
   backend:
-    name: Backend tests (cargo test)
+    name: Backend tests (cargo test + clippy)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -67,18 +84,51 @@ jobs:
       - name: Run test suite
         working-directory: portal-rs
         run: cargo test --locked
+      # Clippy on top of the tests: it compiles every target again with the
+      # lints on, and catches the correctness patterns rustc stays silent on.
+      # Deliberately WITHOUT `-D warnings`: the code base carries ~60 accepted
+      # warnings, and a gate nobody can pass is a gate nobody reads (same
+      # lesson as ruff.toml — style is not enforced, the code base has its
+      # own). This step still reddens on hard errors and deny-by-default
+      # lints, which is the net we want.
+      - name: Clippy (errors only, warnings accepted)
+        working-directory: portal-rs
+        run: cargo clippy --locked --all-targets
+
+  runner-rs:
+    name: vLLM runner (cargo test + clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      # The second shipped Rust binary: vllm-runner.service runs it on the box
+      # as the GPU services' supervisor (launch, recreate scripts, sudoers
+      # gate). Until 2026-10-24 it had NO CI at all — a break there reached
+      # production without a single test having seen it. Same bar as the
+      # portal: tests locked, clippy without -D warnings (same reasoning).
+      - name: Run test suite
+        working-directory: vllm-runner-rs
+        run: cargo test --locked
+      - name: Clippy (errors only, warnings accepted)
+        working-directory: vllm-runner-rs
+        run: cargo clippy --locked --all-targets
 
   frontend:
-    name: Frontend (types + lint)
+    name: Frontend (types + lint + unit tests)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: dgx-portal-frontend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      # Node 24, not the 20 of the runtime image: the unit tests below are
+      # TypeScript run NATIVELY by `node --test` (type stripping, Node >= 23),
+      # the same command the pre-push gate runs on the dev box (v24). tsc and
+      # eslint only need A runtime, not THE runtime — the @types/node pin
+      # (tied to the node:20 image, see dependabot.yml) is what defines the
+      # type surface, and it does not move with this choice.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: dgx-portal-frontend/package-lock.json
       - name: Install dependencies
@@ -103,6 +153,40 @@ jobs:
       - name: i18n coverage
         working-directory: .
         run: python3 scripts/check-i18n.py
+      # The playground parsers (parseAsk, the JSON repair chain, the rust
+      # routing table) turn model output into UI: a silent regression shows up
+      # as raw JSON in a chat bubble, which no type check can see. They run in
+      # the pre-push hook since their introduction — CI now runs the same
+      # command, so a push from a machine without the hook cannot skip them.
+      - name: Unit tests (node --test)
+        run: npm test
+
+  # The two images the deploy builds on the box (compose: portal-rs and
+  # dgx-portal-frontend). Until 2026-10-24 CI never ran a `docker build`: a
+  # Dockerfile or a `next build` break reached production untested — the
+  # frontend build bakes the BACKEND_URL rewrite at build time, exactly the
+  # kind of step that rots silently. Build ONLY, never push: the box stays the
+  # builder of record (install.sh), CI proves the recipe still works.
+  # Known boundary: runners are amd64, the Spark is aarch64 — this validates
+  # the recipe and the build inputs, not the arm compilation. The arm build
+  # happens at deploy, as before.
+  images:
+    name: Ship images build (portal-rs + frontend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Build the portal-rs image
+        run: docker build -f Dockerfile.portal-rs -t ci-portal-rs .
+      - name: Build the frontend image
+        working-directory: dgx-portal-frontend
+        # Same value as compose's default: next.config.ts bakes it into the
+        # rewrites at build time, an empty one would build a broken router.
+        # Assembled, not inlined, for the same reason compose writes it
+        # expanded: the site's .env value is injected verbatim at deploy, and
+        # the secret hooks refuse any diff repeating it literally.
+        run: |
+          PORT="${PORTAL_RUST_PORT:-5100}"
+          docker build -f Dockerfile --build-arg BACKEND_URL="http://portal-rs:${PORT}" -t ci-frontend .
 
   # The repo's own rules, beyond tests: static analysis of Python and shell,
   # English-only code, no monolith, valid compose file and sudoers rules. Same
@@ -134,21 +218,27 @@ jobs:
           SEARXNG_SECRET: ci-placeholder
         run: docker compose config -q
 
-  # Dependency watch: ADVISORY, and advisory all the way through.
+  # Dependency watch, two layers with opposite contracts.
   #
-  # Two lessons from 2026-10-01. First, an upstream advisory does not
-  # necessarily concern this repo and often has no fix available: blocking, it
-  # turns an announcement into a permanently red pipeline — and a permanent red
-  # is no longer read. Next, `continue-on-error` on the JOB was not enough: the
-  # run stayed green but the job still carried a red cross, which reads as a
-  # failure (exactly what we were seeing).
+  # Layer 1 (advisory): `npm audit` reports, never reddens. Two lessons from
+  # 2026-10-01. First, an upstream advisory does not necessarily concern this
+  # repo and often has no fix available: blocking, it turns an announcement
+  # into a permanently red pipeline — and a permanent red is no longer read.
+  # Next, `continue-on-error` on the JOB was not enough: the run stayed green
+  # but the job still carried a red cross, which reads as a failure (exactly
+  # what we were seeing). So the signal is KEPT, but no longer reddens: every
+  # step exits 0, the full output stays in the log, the run summary includes
+  # the advisories found, and a `::warning::` flags them in yellow.
   #
-  # So the signal is KEPT, but no longer reddens: every step exits 0, the full
-  # output stays in the log, the run summary includes the advisories found, and
-  # a `::warning::` flags them in yellow on the run page. The background watch
-  # remains the Dependabot alerts (Security tab).
+  # Layer 2 (blocking): scripts/check-deps.py. Same data, opposite contract —
+  # it FAILS the run only when a high/critical advisory HAS a published fix
+  # (upgrade and move on), and only reports the ones without. That is the
+  # difference between noise and work: an unfixed advisory is information, a
+  # fixable one is a task. The 2026-10-24 run caught exactly that case (next
+  # 16.4.0 RCE, fixed by 16.4.3 — bumped in the same commit that wired this
+  # step). The Dependabot alerts (Security tab) remain the background watch.
   dependencies:
-    name: Dependency audit (advisory)
+    name: Dependency audit (advisory + fixable-CVE gate)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -168,3 +258,5 @@ jobs:
             echo "::warning title=npm dependencies::npm audit reports an advisory (non-blocking) — details in this run's summary."
           fi
           exit 0
+      - name: Fixable high/critical CVEs (check-deps.py — blocking)
+        run: python3 scripts/check-deps.py

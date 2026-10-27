@@ -21,6 +21,40 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ### Added
 
+- **Decisions — a decision model, its page and its API**: Cloudflare **Clef**
+  (`bartowski/Cloudflare_clef-GGUF`, `Q4_K_M`) answers typed questions — yes/no,
+  one option out of a list, a score on a scale — and returns probabilities
+  instead of text. New `/decisions` page (state as text or JSON, the three
+  question types, probabilities and confidence), a capability card on the home
+  page, a backend card in **Admin → Models** and a **Decisions** tab in the
+  catalog. On the API: `POST /v1/systemone` and `POST /v1/decisions`, model
+  `clef-q4km`, with the existing keys, budgets and spend logs.
+- **The decision engine is a second `llama-server`** on its own port (`8002`),
+  started and stopped explicitly (`/decisions/{status,start,stop,logs}` on the
+  runner). It never replaces the chat model: the same memory floor refuses the
+  start instead, and the runtime guard kills only its own process.
+  `LLAMA_BIN_DECISIONS` lets a build that knows Clef (llama.cpp **b11430+**,
+  `/v1/systemone`) serve it without upgrading the binary serving chat.
+- **`reasoning_effort` is honoured**: an agentic client that asks for thinking
+  through `reasoning_effort` used to be silently ignored (the chat template
+  never reads it). A LiteLLM callback turns a requested effort into
+  `enable_thinking: true`; an explicit `enable_thinking` always wins.
+
+### Changed
+
+- **LiteLLM pinned to `v1.104.3`** (was `1.104.0`): the decision routes exist
+  from `1.104.2` and the self-hosted `hosted_vllm` decision provider from
+  `1.104.3`. Re-verified after the bump: the `dgx_inflight` callback still
+  tracks chat requests (one row during a call, none after); decision calls do
+  not go through the chat hooks.
+- **The host perimeter admits `8002`** like `8000`/`8001` on the docker bridge,
+  and drops it on the VPN — a second engine must not widen the surface.
+
+### Fixed
+
+- **`scripts/check-tools.sh` dies without `HOME`** (systemd units, stripped
+  shells): the home is now resolved with `getent`.
+
 - **Admin can delete requests and notifications**: model and budget requests
   leave the queue with « Supprimer » (no notice goes to the requester), and any
   user can remove one notification from the bell.

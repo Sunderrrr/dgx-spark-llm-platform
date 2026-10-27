@@ -22,6 +22,7 @@ const EN: Record<string, string> = {
   "En service": "Running",
   "Erreur au dernier lancement": "Last launch failed",
   "Runner injoignable": "Runner unreachable",
+  "Service de décision non déployé sur le runner": "Decision service not deployed on the runner",
   "État inconnu": "Unknown state",
   "Modèle de décision non installé": "Decision model not installed",
   "Un administrateur doit télécharger le GGUF puis démarrer le service (DECISIONS_MODEL dans .env). La page reste utilisable dès qu'il tourne.":
@@ -35,6 +36,7 @@ const EN: Record<string, string> = {
   "Questions": "Questions",
   "Chaque réponse revient sous l'identifiant de sa question. Les options d'une note vont du plus bas au plus haut.":
     "Each answer comes back under its question's identifier. A score's options go from lowest to highest.",
+  "Identifiant de la question": "Question identifier",
   "Type": "Type",
   "Oui / non": "Yes / no",
   "Choix": "Choice",

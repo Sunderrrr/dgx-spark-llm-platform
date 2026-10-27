@@ -79,6 +79,7 @@ const STATUS_LABEL: Record<string, string> = {
   stopped: "Arrêté",
   error: "Erreur au dernier lancement",
   unreachable: "Runner injoignable",
+  unsupported: "Service de décision non déployé sur le runner",
 };
 
 /** What the server rendered: the service's state at load time. */
@@ -180,7 +181,14 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
           </VStack>
 
           <HStack gap={3} vAlign="center" wrap="wrap">
-            <StatusDot variant={serviceUp ? "success" : status?.status === "starting" ? "warning" : status?.status === "error" || !status ? "error" : "neutral"} label={statusLabel} />
+            <StatusDot
+              variant={
+                serviceUp ? "success"
+                  : status?.status === "starting" || status?.status === "unsupported" ? "warning"
+                    : status?.status === "error" || !status ? "error" : "neutral"
+              }
+              label={statusLabel}
+            />
             <Text type="supporting">{statusLabel}</Text>
             {status && (
               <Text type="supporting" color="secondary">
@@ -269,7 +277,7 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
                 <VStack key={index} gap={2}>
                   <HStack gap={3} vAlign="end" wrap="wrap">
                     <TextInput
-                      label={t("Identifiant")}
+                      label={t("Identifiant de la question")}
                       value={draft.id}
                       onChange={(value: string) => update(index, { id: value })}
                       width={200}

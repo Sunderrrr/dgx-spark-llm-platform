@@ -53,6 +53,11 @@ async fn runner(path: &str, body: Option<&Value>) -> Option<(u16, Value)> {
     };
     let r = req.bearer_auth(runner_token()).send().await.ok()?;
     let code = r.status().as_u16();
+    // A route the runner does not know answers 404 with no JSON: that is NOT
+    // "the runner is down", and the page must not say so.
+    if code == 404 {
+        return Some((404, Value::Null));
+    }
     let body = r.json::<Value>().await.ok()?;
     Some((code, body))
 }
@@ -60,9 +65,24 @@ async fn runner(path: &str, body: Option<&Value>) -> Option<(u16, Value)> {
 /// `GET /decisions/status` on the runner, as the page needs it: enabled, state,
 /// port, memory left. An unreachable runner is a state, not an error.
 pub async fn status() -> Value {
-    let runner = runner("/decisions/status", None).await.map(|(_, v)| v);
+    let runner = runner("/decisions/status", None).await;
     let name = model_name();
-    match runner {
+    if let Some((404, _)) = runner {
+        // The runner predates the decision routes (an update not yet shipped):
+        // enabled=false + its own status, so the page names the real reason.
+        return json!({
+            "model": name,
+            "enabled": false,
+            "status": "unsupported",
+            "port": null,
+            "uptime_s": null,
+            "libre_gib": crate::asr_ondemand::mem_available_gb(),
+            "max_state_bytes": MAX_STATE_BYTES,
+            "max_questions": MAX_QUESTIONS,
+            "service": "runner",
+        });
+    }
+    match runner.map(|(_, v)| v) {
         Some(v) => json!({
             "model": name,
             "enabled": v.get("enabled").cloned().unwrap_or(json!(false)),

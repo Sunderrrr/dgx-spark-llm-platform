@@ -196,12 +196,17 @@ Rules, all of them measured or structural:
 Nothing below happens on its own: no weight is downloaded by the platform.
 
 1. **Get a `llama-server` that knows the architecture and the endpoint.** Clef
-   needs llama.cpp **b11430 or newer** (the GGUF card says so, and the binary it
-   was quantized with); older builds do not know `clef` and have no
-   `/v1/systemone`. Build it for the GB10 (CUDA 13, sm_121) or take a prebuilt
-   aarch64 release, and keep it **separate** from the chat binary:
-   `LLAMA_BIN_DECISIONS=/path/to/llama-server-b11430`. Do not compile while a
-   large chat model is loaded (that has rebooted this box once).
+   landed in llama.cpp around **b11430**; the chat binary on this box is older
+   and knows neither the `clef` architecture nor `/v1/systemone` (checked with
+   `strings`: no `systemone` at all). The project publishes prebuilt aarch64
+   CUDA builds, and they work on the GB10: **b11936**
+   (`llama-b11936-bin-ubuntu-cuda-13.4-arm64.tar.gz` plus its
+   `cudart-…-cuda-13.4-arm64.tar.gz` runtime, unpacked side by side) runs on the
+   r580 driver **without `LD_LIBRARY_PATH`** — the binary carries an `$ORIGIN`
+   rpath. Measured end to end on this box: a real request came back with
+   *facturation* at 0.9899, confidence 0.98, and an urgency score of 2.49 on 3.
+   Keep it **separate** from the chat binary (`LLAMA_BIN_DECISIONS`): upgrading
+   the one serving chat is the risk this split removes.
 2. **Download the quant** into the models directory, under the slug you will
    reference:
    ```bash
@@ -211,9 +216,10 @@ Nothing below happens on its own: no weight is downloaded by the platform.
    ```
    `DECISIONS_MODEL=local:clef-q4km` resolves the first `*.gguf` shard of that
    folder, the same resolver the chat models use.
-3. **Set the keys in `.env`** (see [configuration](configuration.md#configuration)):
-   `DECISIONS_MODEL`, `DECISIONS_NAME` (default `clef-q4km`),
-   `LLAMA_BIN_DECISIONS`, and `DECISIONS_PORT` if `8002` is taken.
+3. **Set the keys** — in `/etc/vllm-runner/paths.env` for the runner (which
+   needs `DECISIONS_MODEL`, `LLAMA_BIN_DECISIONS`, `DECISIONS_PORT`), and in
+   `.env` for the portal if you want it to know the declaration before the
+   runner reports it. See [configuration](configuration.md#configuration).
 4. **Restart `vllm-runner`** so it reads them — the environment is read at
    startup. This **kills the chat model**: do it in a window, it is not a
    zero-downtime change.

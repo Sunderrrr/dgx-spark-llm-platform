@@ -15,7 +15,6 @@
 //! process under `CRITICAL_FREE_GIB`.
 
 use crate::service::Config;
-use crate::state::RunLog;
 use crate::supervisor::{kill, Supervisor};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};

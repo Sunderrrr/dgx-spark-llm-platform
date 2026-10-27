@@ -438,6 +438,21 @@ async fn decisions_logs(Extension(d): Extension<Arc<Decisions>>, Query(q): Query
     Json(d.logs(tail))
 }
 
+/// The decision routes, with the `Extension` they need.
+///
+/// ONE function, used by `main` and by the test below: the layer was missing
+/// for a while (declared, built, never attached), so every call would have
+/// answered 500 — a wiring bug no handler test can see. Attaching it here makes
+/// the two inseparable.
+fn decisions_routes(d: Arc<Decisions>) -> Router<Arc<App>> {
+    Router::new()
+        .route("/decisions/status", get(decisions_status))
+        .route("/decisions/start", post(decisions_start))
+        .route("/decisions/stop", post(decisions_stop))
+        .route("/decisions/logs", get(decisions_logs))
+        .layer(axum::Extension(d))
+}
+
 fn config_or_exit() -> Config {
     match Config::from_env() {
         Ok(c) => c,
@@ -469,10 +484,7 @@ async fn main() {
         .route("/stop", post(stop))
         .route("/models/delete-files", post(delete_files))
         .route("/metrics", get(metrics))
-        .route("/decisions/status", get(decisions_status))
-        .route("/decisions/start", post(decisions_start))
-        .route("/decisions/stop", post(decisions_stop))
-        .route("/decisions/logs", get(decisions_logs))
+        .merge(decisions_routes(decisions.clone()))
         .route("/video/status", get(video_status))
         .route("/video/start", post(video_start))
         .route("/video/stop", post(video_stop))
@@ -496,4 +508,63 @@ async fn main() {
         .with_state(app.clone());
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8001").await.expect("bind :8001");
     axum::serve(listener, router).await.expect("serve");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    /// A Config that touches nothing: no sudo, temp paths, a token of the
+    /// minimum length. The test only needs the router to be constructible.
+    fn quiet_config() -> Config {
+        let tmp = std::env::temp_dir();
+        Config {
+            paths: runner_rs::build::Paths::from_env(),
+            runner_token: "0123456789abcdef".into(),
+            log_dir: tmp.clone(),
+            state_file: tmp.join("last_model.json"),
+            resume_file: tmp.join("resume_failures"),
+            min_free_gib: 30.0,
+            critical_free_gib: 2.0,
+            stable_seconds: 600,
+            max_auto_retries: 3,
+            hf_home: String::new(),
+            sudo: false,
+        }
+    }
+
+    fn quiet_decisions() -> Arc<Decisions> {
+        Arc::new(Decisions::new(DecisionsCfg {
+            hf_id: "local:clef".into(),
+            name: "clef-q4km".into(),
+            port: 8123,
+            args: vec![],
+            bin: "/bin/false".into(),
+            log_dir: std::env::temp_dir(),
+            hf_home: String::new(),
+            min_free_gib: 30.0,
+        }))
+    }
+
+    /// The decision routes and their `Extension` travel together. Without the
+    /// layer the router answers 500 ("missing request extension") — this is the
+    /// bug that was shipped once, and this test is what catches it.
+    #[tokio::test]
+    async fn the_decision_routes_carry_their_extension() {
+        let app = Arc::new(App { cfg: quiet_config(), sup: Arc::new(Supervisor::default()), ops: Mutex::new(()), log_stamp_clock: runner_rs::service::file_stamp });
+        let router = decisions_routes(quiet_decisions()).with_state(app);
+        let response = router
+            .oneshot(Request::builder().uri("/decisions/status").body(Body::empty()).unwrap())
+            .await
+            .expect("the router answers");
+        assert_eq!(response.status(), StatusCode::OK, "a missing Extension answers 500");
+        let body = axum::body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        let status: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(status["status"], "stopped");
+        assert_eq!(status["name"], "clef-q4km");
+        assert_eq!(status["port"], 8123);
+    }
 }

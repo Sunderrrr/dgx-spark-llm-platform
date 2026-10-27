@@ -31,3 +31,6 @@ regex = "1"
 tokio-stream = "0.1"
 
 [dev-dependencies]
+# `oneshot`, to call the router in memory: the decision routes' Extension is a
+# wiring detail no handler test can see (cf. decisions_routes).
+tower = { version = "0.4", features = ["util"] }

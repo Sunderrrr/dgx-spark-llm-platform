@@ -96,6 +96,8 @@ services:
       # mounted separately to stay readable, and PYTHONPATH=/app makes it
       # importable.
       - ./litellm/litellm_inflight.py:/app/dgx_inflight.py:ro
+      # Turns `reasoning_effort` into thinking (see config.yaml callbacks).
+      - ./litellm/thinking_effort.py:/app/dgx_thinking.py:ro
       - ./runtime:/run/dgx
     environment:
       PYTHONPATH: /app

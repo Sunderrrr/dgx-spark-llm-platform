@@ -253,12 +253,18 @@ pub fn stored_messages(messages: &[Value]) -> Vec<Value> {
             .take(MSG_MAX_CHARS)
             .collect();
         item.insert("content".into(), Value::String(content));
-        for flag in ["hidden", "isError", "truncated"] {
+        for flag in ["hidden", "isError", "truncated", "pending"] {
             if obj.get(flag).is_some_and(crate::keys::truthy) {
                 item.insert(flag.into(), Value::Bool(true));
             }
         }
         if role == "assistant" {
+            // The thinking is kept too: without it, a reload lost the reasoning
+            // block even though the answer was there.
+            let reasoning: String = py_str(obj.get("reasoning")).chars().take(MSG_MAX_CHARS).collect();
+            if !reasoning.is_empty() {
+                item.insert("reasoning".into(), Value::String(reasoning));
+            }
             let edits = parse_files(obj.get("fileEdits"));
             if !edits.is_empty() {
                 item.insert(

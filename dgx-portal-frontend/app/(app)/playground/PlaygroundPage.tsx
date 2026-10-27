@@ -36,6 +36,10 @@ import {
 } from "@/lib/export";
 // Pure model-output parsers, extracted for unit tests (tests/playground-parsers.test.ts).
 import { parseAsk, closedContent, openCodeFence, splitInlineThink } from "@/lib/playground-parsers";
+import {
+  CHECKPOINT_MS, beginLiveTurn, endLiveTurn, forSave, fromSaved, getLiveTurn, isLooping,
+  recentImages, usePendingFollow, withoutImages,
+} from "@/lib/playground-messages";
 // Thread/artifact helpers shared with the extracted child components
 // (message bubbles, document panel): moved out verbatim, behaviour unchanged.
 import {
@@ -131,10 +135,6 @@ const IMAGE_SOURCE_MAX_BYTES = 25 * 1024 * 1024;
 const IMAGES_PER_MESSAGE = 4;
 /** Images replayed to the model per request: the most recent ones (same bound as the server). */
 const MAX_IMAGES_PER_REQUEST = 8;
-/** Image budget of a SAVED conversation (characters): the server bounds
- *  the conversation to 2 M and the form field to 4 Mo. Beyond that, the
- *  oldest images are no longer kept (the text, however, is). */
-const IMAGES_SAVE_BUDGET = 1_500_000;
 /** Estimated weight of an image in the context window, in characters (~1 500 tokens). */
 const IMAGE_WEIGHT_CHARS = 1500 * 4;
 
@@ -199,55 +199,6 @@ async function prepareImage(file: File): Promise<string> {
   return canvas.toDataURL("image/jpeg", 0.85);
 }
 
-/** Keeps images only on the most recent messages, within `max`
- *  images or `budget` characters. Text is never touched. */
-function recentImages<M extends { images?: string[] }>(msgs: M[], max: number, budget = Infinity): M[] {
-  let remaining = max;
-  let weight = 0;
-  const out = [...msgs];
-  for (let i = out.length - 1; i >= 0; i--) {
-    const imgs = out[i].images;
-    if (!imgs?.length) continue;
-    const guard: string[] = [];
-    for (let k = imgs.length - 1; k >= 0 && remaining > 0; k--) {
-      if (weight + imgs[k].length > budget) { remaining = 0; break; }
-      guard.unshift(imgs[k]);
-      weight += imgs[k].length;
-      remaining--;
-    }
-    out[i] = { ...out[i], images: guard.length ? guard : undefined };
-  }
-  return out;
-}
-
-/** A saved message back in the thread. Everything the server keeps comes
- *  back: only `role`/`content`/`hidden` used to, so a reopened conversation
- *  lost its EDITED files (the next edit worked on the old version), and a
- *  cut answer looked finished again. */
-function fromSaved(m: Conversation["messages"][number]): ChatMsg {
-  return {
-    role: m.role, content: m.content, hidden: m.hidden,
-    ...(m.isError ? { isError: true } : {}),
-    ...(m.truncated ? { truncated: true } : {}),
-    ...(m.images?.length ? { images: m.images } : {}),
-    ...(m.fileEdits?.length ? { fileEdits: m.fileEdits } : {}),
-  };
-}
-
-/** Title and summary only read the text: no need to ship megabytes of images through them. */
-function withoutImages(msgs: ChatMsg[]) {
-  return msgs.map((m) => ({ role: m.role, content: m.content, hidden: m.hidden }));
-}
-
-/** Messages as they are saved (flags + images within the budget). */
-function forSave(msgs: ChatMsg[]) {
-  return recentImages(
-    msgs.map((m) => ({
-      role: m.role, content: m.content, hidden: m.hidden,
-      truncated: m.truncated, isError: m.isError, images: m.images,
-    })),
-    Infinity, IMAGES_SAVE_BUDGET);
-}
 
 
 // Appended to the system prompt so the model can ask the user one or several
@@ -662,9 +613,7 @@ export default function PlaygroundPage({
   // characters/token ratio is auto-calibrated at the end of each generation on the
   // exact `usage`, so it adapts to the model and the language (measured: ~4,5 in
   // French, ~5,0 in English). Refs: updated on every delta without re-render.
-  const liveCharsRef = useRef(0);
   const charsPerTokenRef = useRef(4.8);
-  const liveStartRef = useRef<number | null>(null);
   const [liveStats, setLiveStats] = useState<{ tokens: number; tps: number } | null>(null);
 
   // Refreshes the displayed counter 4x/s during the stream — smooth enough to the eye,
@@ -672,11 +621,11 @@ export default function PlaygroundPage({
   useEffect(() => {
     if (!streaming) return;
     const id = setInterval(() => {
-      const start = liveStartRef.current;
-      const chars = liveCharsRef.current;
-      if (!start || !chars) return;
-      const secs = (performance.now() - start) / 1000;
-      const tokens = Math.round(chars / charsPerTokenRef.current);
+      // The turn lives outside the page: a page that adopted this stream shows it too.
+      const turn = getLiveTurn();
+      if (!turn?.start || !turn.chars) return;
+      const secs = (performance.now() - turn.start) / 1000;
+      const tokens = Math.round(turn.chars / turn.charsPerToken);
       if (secs > 0 && tokens > 0) setLiveStats({ tokens, tps: Number((tokens / secs).toFixed(1)) });
     }, 250);
     return () => clearInterval(id);
@@ -693,6 +642,7 @@ export default function PlaygroundPage({
   // below, "did the thread change during the generation").
   const currentIdRef = useRef<string | null>(null);
   useEffect(() => { currentIdRef.current = currentId; }, [currentId]);
+
   // The server sends the list's METADATA only (titles for the sidebar, at
   // once); the full list — up to 8 MB — still comes from the effect below.
   const [conversations, setConversations] = useState<Conversation[]>(initial.conversations ?? []);
@@ -742,6 +692,7 @@ export default function PlaygroundPage({
   const openLiveDoc = () => { setLiveDocOpen(true); liveDocOpenRef.current = true; };
 
   const abortRef = useRef<AbortController | null>(null);
+  usePendingFollow(messages, streaming, currentId, currentIdRef, setMessages, setStreaming, abortRef);
   // « Répondre maintenant »: the stop of a long reasoning, then the same turn
   // again WITHOUT thinking (set by answerNow, consumed at the end of runStream).
   const answerNowRef = useRef(false);
@@ -1396,6 +1347,7 @@ export default function PlaygroundPage({
     liveDocOpenRef.current = docWriting;
     const controller = new AbortController();
     abortRef.current = controller;
+    const turnLive = beginLiveTurn(currentId, controller, charsPerTokenRef.current);
      
     const startTs = Date.now();
     const withPlaceholder = [...nextMessages, { role: "assistant", content: "", ts: startTs } as ChatMsg];
@@ -1403,8 +1355,6 @@ export default function PlaygroundPage({
 
      
     const t0 = performance.now();
-    liveCharsRef.current = 0;
-    liveStartRef.current = null;
     setLiveStats(null);
     let tf: number | null = null;
     let acc = "";
@@ -1426,6 +1376,9 @@ export default function PlaygroundPage({
     const skillForTurn = invokedSkill;
     setInvokedSkill(null);
     const updateLast = () => {
+      // Published for a page that adopts this stream (see usePendingFollow).
+      turnLive.text = acc;
+      turnLive.reasoning = allReasoning();
       setMessages((prev) => {
         const copy = [...prev];
         copy[copy.length - 1] = { role: "assistant", content: acc, reasoning: allReasoning(), ts: copy[copy.length - 1]?.ts , reasoningMs: reasoningStart ? Math.round((thoughtEnd ?? performance.now()) - reasoningStart) : undefined, fileEdits: fileEdits.length ? [...fileEdits] : undefined };
@@ -1436,6 +1389,11 @@ export default function PlaygroundPage({
     let isError = false;
     let truncated = false;
     let wasAborted = false;
+    // Set when the answer falls into a loop: we stop the stream ourselves.
+    let loopHit = false;
+    // The conversation's id as soon as the checkpoint creates it (see below).
+    let liveId: string | null = currentId;
+    let checkpoint: number | undefined;
     try {
       // We remove the "asking questions" capability ONLY on the turn that
       // immediately follows answers — where the model would be tempted to chain
@@ -1480,6 +1438,26 @@ export default function PlaygroundPage({
             ]
         ).filter(Boolean).join("\n\n"),
       };
+      // Checkpoint: the answer so far is saved while it streams, flagged
+      // `pending`. Leaving the page does not stop the stream, but the page
+      // would otherwise come back empty until the end — a visit elsewhere
+      // and back finds the text where it was, and follows it (see the poll).
+      checkpoint = window.setInterval(() => {
+        if (!csrf || (!acc && !allReasoning())) return;
+        const live: ChatMsg[] = [...nextMessages, {
+          role: "assistant", content: acc, reasoning: allReasoning() || undefined,
+          ts: startTs, pending: true,
+        }];
+        void persistConversation(csrf, {
+          id: liveId ?? String(startTs),
+          title: (nextMessages.find((m) => m.role === "user")?.content || t("Conversation")).slice(0, 80),
+          ts: Date.now(),
+          model,
+          messages: forSave(live),
+        });
+        liveId = liveId ?? String(startTs);
+        turnLive.convId = liveId;
+      }, CHECKPOINT_MS);
       await streamChat(
         csrf,
         model,
@@ -1522,21 +1500,25 @@ export default function PlaygroundPage({
           if (delta.reasoningChunk) {
             if (tf === null) tf = performance.now();
             if (reasoningStart === null) reasoningStart = performance.now();
-            if (liveStartRef.current === null) liveStartRef.current = tf;
-            liveCharsRef.current += delta.reasoningChunk.length;
+            if (turnLive.start === null) turnLive.start = tf;
+            turnLive.chars += delta.reasoningChunk.length;
             reason += delta.reasoningChunk;
             updateLast();
           }
           if (delta.contentChunk) {
             if (tf === null) tf = performance.now();
             if (thoughtEnd === null) thoughtEnd = performance.now();
-            if (liveStartRef.current === null) liveStartRef.current = tf;
-            liveCharsRef.current += delta.contentChunk.length;
+            if (turnLive.start === null) turnLive.start = tf;
+            turnLive.chars += delta.contentChunk.length;
             if (beforeContent === null) beforeContent = acc;
             rawContent += delta.contentChunk;
             const split = splitInlineThink(rawContent);
             inlineThought = split.thought;
             acc = beforeContent + split.answer;
+            if (!loopHit && isLooping(acc)) {
+              loopHit = true;
+              controller.abort();
+            }
             updateLast();
           }
         },
@@ -1558,6 +1540,8 @@ export default function PlaygroundPage({
     }
 
      
+    window.clearInterval(checkpoint);
+    if (loopHit) acc += "\n\n" + t("⚠ Réponse arrêtée : le modèle répétait les mêmes lignes en boucle.");
     const te = performance.now();
     const finalMessages = [...nextMessages];
     if (acc || reason) {
@@ -1625,7 +1609,7 @@ export default function PlaygroundPage({
     if (sameThread && (typeof usage?.prompt_tokens === "number" || typeof usage?.completion_tokens === "number")) {
       setIoTokens({ prompt: usage?.prompt_tokens ?? 0, completion: usage?.completion_tokens ?? 0 });
     }
-    const savedId = persist(finalMessages, currentId, model);
+    const savedId = persist(finalMessages, liveId, model);
     if (sameThread) {
       setCurrentId(savedId ?? null);
       // The active tab immediately carries this conversation (even before
@@ -1638,6 +1622,7 @@ export default function PlaygroundPage({
     setQueueInfo(null);
     setLiveStats(null);
     abortRef.current = null;
+    endLiveTurn(turnLive);
     if (answerNowRef.current) {
       answerNowRef.current = false;
       void runStream(nextMessages, { reasoning: false });

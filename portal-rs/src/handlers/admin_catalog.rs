@@ -24,7 +24,7 @@ pub async fn admin_model_add(State(state): State<AppState>, headers: HeaderMap, 
     let hf_id = field(&form, "hf_model_id");
     let args = field(&form, "vllm_args");
     let mut engine = crate::memory::py_strip(form.get("engine").map(String::as_str).unwrap_or("vllm")).to_lowercase();
-    if !["vllm", "llamacpp", "ds4", "exllamav3"].contains(&engine.as_str()) {
+    if !["vllm", "vllm-docker", "llamacpp", "ds4", "exllamav3"].contains(&engine.as_str()) {
         engine = "vllm".into();
     }
     if name.is_empty() || hf_id.is_empty() {

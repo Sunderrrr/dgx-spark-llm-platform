@@ -595,20 +595,6 @@ export default function HomePage({ seed }: { seed?: Seed<{ [K in keyof HomeSeed]
 
                     {who?.is_admin && data.active_users && (
                       <VStack gap={2}>
-                        <HStack gap={2} wrap="wrap">
-                          <Text type="supporting" color="secondary">{t("Qui utilise le modèle · 30 dernières minutes · visible admin uniquement")}</Text>
-                          {/* GLOBAL engine throughput, never per person: the admin sees
-                              WHO works here, and the speed at which the machine
-                              serves everyone at once. */}
-                          {data.modelhealth && (
-                            <Text type="supporting" color="secondary" hasTabularNumbers>
-                              {t("débit global {n} tok/s").replace("{n}", String(data.modelhealth.tps ?? "—"))}
-                              {data.modelhealth.tps_avg != null
-                                ? " · " + t("moyenne {n} tok/s").replace("{n}", String(data.modelhealth.tps_avg))
-                                : ""}
-                            </Text>
-                          )}
-                        </HStack>
                         {/* IN-FLIGHT activity. LiteLLM only writes its row at the end of
                             a request: measured on 14/09, 44 minutes without a write while
                             two sessions were working, so an empty panel that made it

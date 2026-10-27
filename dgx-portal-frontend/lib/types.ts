@@ -20,6 +20,8 @@ export type ChatMsg = {
   /** Response cut short by the token ceiling: we flag it and offer
    *  to resume where the model stopped. */
   truncated?: boolean;
+  /** Checkpoint of an answer still streaming (saved while it is written). */
+  pending?: boolean;
   /** Files the platform edited during this turn (str_replace / create_file
    *  tools): their NEW version. The text only summarizes the change. */
   fileEdits?: EditedFile[];
@@ -51,6 +53,10 @@ export type Conversation = {
     // without them, a truncated answer looked complete again (see persist()).
     isError?: boolean;
     truncated?: boolean;
+    /** Checkpoint of an answer still streaming (see the playground). */
+    pending?: boolean;
+    /** The thinking of the answer (kept so a reload shows it). */
+    reasoning?: string;
     images?: string[];
     /** The files the edit tools changed in that turn: dropping them on
      *  reload put the conversation back on the OLD versions. */

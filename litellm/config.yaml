@@ -44,4 +44,6 @@ litellm_settings:
   # working). This callback records the opening at start and removes it at the
   # end, into a small SQLite the portal mounts read-only. It cannot fail a
   # request: every error is traced then ignored.
-  callbacks: ["dgx_inflight.inflight"]
+  # Thinking requested through `reasoning_effort` (agentic clients) is turned on
+  # here: the route default is off, and the chat template ignores the effort.
+  callbacks: ["dgx_inflight.inflight", "dgx_thinking.effort"]

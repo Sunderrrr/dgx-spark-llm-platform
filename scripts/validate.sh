@@ -312,7 +312,7 @@ if group_wanted 1; then
   run_check "1.12 No monolith (scripts/check-structure.py)" 60 \
     python3 scripts/check-structure.py
   run_check "1.13 LiteLLM in-flight callback (unittest, litellm/)" 120 \
-    bash -c 'cd litellm && python3 -m unittest test_inflight_callback'
+    bash -c 'cd litellm && python3 -m unittest test_inflight_callback test_thinking_effort'
   close_group "Code gates"
 fi
 

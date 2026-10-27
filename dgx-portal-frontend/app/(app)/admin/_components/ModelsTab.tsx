@@ -491,6 +491,12 @@ const ENGINES: Record<string, { label: string; id: string; exampleId: string; ar
     exampleId: "Qwen/Qwen3-8B",
     args: "--max-model-len 32768 --gpu-memory-utilization 0.85",
   },
+  "vllm-docker": {
+    label: "vLLM (conteneur Docker)",
+    id: "Dépôt Hugging Face (organisation/modèle).",
+    exampleId: "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
+    args: "--max-model-len 1048576 --max-num-seqs 4 --gpu-memory-utilization 0.75",
+  },
   llamacpp: {
     label: "llama.cpp (GGUF)",
     id: "Dépôt Hugging Face, ou local:<dossier> pour un GGUF déjà téléchargé.",

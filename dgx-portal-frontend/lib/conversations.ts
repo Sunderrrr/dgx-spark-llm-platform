@@ -20,6 +20,8 @@ type ApiConversation = {
     hidden?: boolean;
     isError?: boolean;
     truncated?: boolean;
+    pending?: boolean;
+    reasoning?: string;
     images?: string[];
     fileEdits?: { name: string; content: string }[];
   }[];

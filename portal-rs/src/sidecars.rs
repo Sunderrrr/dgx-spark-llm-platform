@@ -280,7 +280,7 @@ pub async fn metrics(db: &Database, kind: &str) -> Value {
 /// and the sidecars' metrics. The probes run together: the page then costs
 /// the slowest probe, not their sum.
 pub async fn running_and_metrics(db: &Database) -> (Vec<Value>, Value) {
-    let (chat, ocr, comfy, image, voice, image_name, m_ocr, m_video, m_voice) = tokio::join!(
+    let (chat, ocr, comfy, image, voice, image_name, m_ocr, m_video, m_voice, decision) = tokio::join!(
         models::running_models(),
         ocr_model(),
         comfyui_up(),
@@ -290,6 +290,7 @@ pub async fn running_and_metrics(db: &Database) -> (Vec<Value>, Value) {
         metrics(db, "ocr"),
         metrics(db, "video"),
         metrics(db, "voice"),
+        crate::decisions::running_name(),
     );
     let mut running: Vec<Value> = chat.into_iter().map(|m| json!({"name": m, "kind": "chat", "exposed": true})).collect();
     let mut out = serde_json::Map::new();
@@ -303,6 +304,11 @@ pub async fn running_and_metrics(db: &Database) -> (Vec<Value>, Value) {
     }
     if image {
         running.push(json!({"name": image_name.unwrap_or_else(|| "Image".to_string()), "kind": "image", "exposed": false}));
+    }
+    if let Some(m) = decision {
+        // A separate engine on its own port (never the chat model's): the home
+        // page shows it like the other capabilities, with its own page.
+        running.push(json!({"name": m, "kind": "decisions", "exposed": false}));
     }
     if let Some(v) = voice {
         let label = if voice_engine().await == "qwen3-tts" { "Qwen3-TTS" } else { "Chatterbox" };

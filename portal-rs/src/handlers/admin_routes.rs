@@ -153,9 +153,11 @@ pub async fn api_admin(State(state): State<AppState>, uri: Uri, headers: HeaderM
     let shown = requests.len();
     let st = crate::chat::support_tools::sidecar_status;
     let asr = media::asr_info();
-    let (running, spend, ocr_s, ocr_m, video_s, voice_s, voice_m, asr_s, asr_i, image_s, image_m, v_status, logs) = tokio::join!(
+    let (running, spend, ocr_s, ocr_m, video_s, voice_s, voice_m, asr_s, asr_i, image_s, image_m, v_status, logs, decisions) = tokio::join!(
         models::running_models(), user_consumption(&state), st("ocr"), sidecars::ocr_model(), st("video"), st("voice"), sidecars::voice_model(),
-        st("asr"), asr, st("image"), sidecars::image_model(), crate::system::runner_status(), runner_logs(120)
+        st("asr"), asr, st("image"), sidecars::image_model(), crate::system::runner_status(), runner_logs(120),
+        // Its own engine, its own port: the admin sees it next to the others.
+        crate::decisions::status()
     );
     let loaded = asr_i.get("loaded").is_some_and(keys::truthy);
     let mut out = json!({
@@ -177,6 +179,7 @@ pub async fn api_admin(State(state): State<AppState>, uri: Uri, headers: HeaderM
         "asr_model_name": if loaded { asr_i.get("type").cloned().unwrap_or(Value::Null) } else { Value::Null },
         "asr_load_error": if loaded { Value::Null } else { asr_i.get("error").filter(|v| keys::truthy(v)).cloned().unwrap_or(Value::Null) },
         "image_status": image_s, "image_model_name": image_m, "v_status": v_status, "init_logs": logs,
+        "decisions": decisions,
     });
     if let (Some(o), Some(e)) = (out.as_object_mut(), extra.as_object()) {
         o.extend(e.clone());

@@ -108,6 +108,19 @@ pub async fn status() -> Value {
     }
 }
 
+/// The decision model's public name when its engine actually serves.
+///
+/// The home page lists it as a capability, and a card that names a stopped
+/// service reads as « it works » — so a stopped engine returns None. The runner
+/// answers in milliseconds; the timeout is only a guard for a runner that hangs.
+pub async fn running_name() -> Option<String> {
+    let (code, v) = runner("/decisions/status", None).await?;
+    if code != 200 || v.get("status").and_then(Value::as_str) != Some("running") {
+        return None;
+    }
+    v.get("name").and_then(Value::as_str).map(str::to_string)
+}
+
 /// Start/stop the decision engine. The runner answers the memory refusals; the
 /// portal only relays them (never hides a refusal behind « démarré »).
 pub async fn start() -> (u16, Value) {

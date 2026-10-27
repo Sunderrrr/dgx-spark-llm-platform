@@ -35,6 +35,16 @@ import {
   type ModelCfg,
 } from "./adminTypes";
 
+/** The decision engine's states, named as the page names them. */
+const DECISIONS_LABEL: Record<string, string> = {
+  running: "En ligne",
+  starting: "Démarrage…",
+  stopped: "Arrêté",
+  error: "Erreur",
+  unsupported: "Service non déployé",
+  unreachable: "Runner inaccessible",
+};
+
 export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: AdminTabProps) {
   const t = useT();
   const [newOcr, setNewOcr] = useState({ name: "", hf_model_id: "", vllm_args: "" });
@@ -218,6 +228,43 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
                 </HStack>
                 <Text type="supporting" color="secondary" wordBreak="break-all">
                   {data.image_model_name || t("aucun modèle")}
+                </Text>
+              </VStack>
+            </Card>
+            <Card>
+              <VStack gap={2}>
+                <HStack hAlign="between" vAlign="center" gap={2}>
+                  <HStack gap={2} vAlign="center">
+                    <StatusDot
+                      variant={
+                        data.decisions?.status === "running" ? "success"
+                          : data.decisions?.status === "starting" || data.decisions?.status === "unsupported" ? "warning"
+                            : data.decisions?.status === "error" ? "error" : "neutral"
+                      }
+                      label={t(DECISIONS_LABEL[data.decisions?.status ?? ""] ?? "Arrêté")}
+                    />
+                    <Text weight="semibold">{t("Décisions")}</Text>
+                  </HStack>
+                  {data.decisions?.status === "running" || data.decisions?.status === "starting" ? (
+                    <Button label={t("Arrêter")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={StopIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/api/decisions/stop")} />
+                  ) : (
+                    <Button
+                      label={t("Démarrer")}
+                      variant="primary"
+                      size="sm"
+                      isIconOnly
+                      icon={<Icon icon={PlayIcon} size="sm" />}
+                      isDisabled={actionDisabled || data.decisions?.enabled === false}
+                      onClick={() => act("/api/decisions/start")}
+                    />
+                  )}
+                </HStack>
+                <Text type="supporting" color="secondary" wordBreak="break-all">
+                  {data.decisions?.status === "unsupported"
+                    ? t("Mettre à jour le runner pour l'activer")
+                    : data.decisions?.enabled === false
+                      ? t("Modèle de décision non installé")
+                      : data.decisions?.name || t("aucun modèle")}
                 </Text>
               </VStack>
             </Card>

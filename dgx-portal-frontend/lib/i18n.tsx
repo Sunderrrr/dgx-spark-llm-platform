@@ -15,6 +15,9 @@ export type Lang = "fr" | "en";
 const EN: Record<string, string> = {
   // ── Décisions (decision model page) ─────────────────────────────────────
   "Décisions": "Decisions",
+  "Service non déployé": "Service not deployed",
+  "Mettre à jour le runner pour l'activer": "Update the runner to activate it",
+  "Ouvrir les décisions": "Open decisions",
   "Pose des questions fermées à un modèle de décision : oui/non, choix parmi une liste, note sur une échelle. Il ne rédige pas de texte — il renvoie des probabilités.":
     "Ask a decision model closed questions: yes/no, a pick from a list, a score on a scale. It writes no text — it returns probabilities.",
   "port": "port",

@@ -26,6 +26,7 @@ import {
   DocumentMagnifyingGlassIcon,
   FilmIcon,
   SpeakerWaveIcon,
+  ScaleIcon,
   PhotoIcon,
   ChatBubbleLeftRightIcon,
 } from "@heroicons/react/24/outline";
@@ -82,7 +83,7 @@ interface ModelRequest extends Record<string, unknown> {
   created_at: string;
 }
 
-type RunningModel = { name: string; kind: "chat" | "image" | "video" | "ocr" | "voice"; exposed: boolean };
+type RunningModel = { name: string; kind: "chat" | "image" | "video" | "ocr" | "voice" | "decisions"; exposed: boolean };
 
 type SidecarMetric = {
   count_today: number;
@@ -164,6 +165,7 @@ const KIND_OPEN: Record<RunningModel["kind"], { label: string; href: string }> =
   video: { label: "Ouvrir la génération vidéo", href: "/video" },
   ocr: { label: "Ouvrir l'OCR", href: "/ocr" },
   voice: { label: "Ouvrir le clonage de voix", href: "/voice" },
+  decisions: { label: "Ouvrir les décisions", href: "/decisions" },
 };
 // Short name of the media backends (for the "Media services" block).
 const KIND_NAME: Record<"ocr" | "video" | "voice", string> = { ocr: "OCR", video: "Vidéo", voice: "Voix" };
@@ -176,6 +178,7 @@ const CAPS: { kind: RunningModel["kind"]; label: string; icon: typeof PhotoIcon 
   { kind: "video", label: "Vidéo", icon: FilmIcon },
   { kind: "ocr", label: "OCR", icon: DocumentMagnifyingGlassIcon },
   { kind: "voice", label: "Voix", icon: SpeakerWaveIcon },
+  { kind: "decisions", label: "Décisions", icon: ScaleIcon },
 ];
 
 type HomeData = {

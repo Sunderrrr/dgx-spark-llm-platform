@@ -53,6 +53,8 @@ export type AdminData = {
       a load has failed. */
   asr_load_error?: string | null;
   image_status: string;
+  /** The decision model: a second engine on its own port, never the chat one. */
+  decisions?: { status: string; name?: string; model?: string; enabled?: boolean; port?: number | null; libre_gib?: number | null };
   image_model_name: string | null;
   image_model_ids: string[];
   ocr_cfgs: OcrCfg[];

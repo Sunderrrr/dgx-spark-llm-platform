@@ -27,6 +27,39 @@ const EN: Record<string, string> = {
   "Les décisions, leurs probabilités et leur confiance s'afficheront ici, une ligne par question.":
     "The decisions, their probabilities and their confidence appear here, one line per question.",
   "Réponses": "Responses",
+  "Une réponse oui / non, avec sa probabilité.": "A yes / no answer, with its probability.",
+  "Une option parmi une liste fermée.": "One option out of a closed list.",
+  "Une position sur une échelle ordonnée.": "A position on an ordered scale.",
+  "Le client demande-t-il un remboursement ?": "Is the customer asking for a refund?",
+  "Quelle équipe doit traiter ce message ?": "Which team should handle this message?",
+  "À quel point est-ce urgent ?": "How urgent is this?",
+
+  "Apprendre au modèle à décider": "Teaching the model to decide",
+  "CE QUE LE MODÈLE SAIT FAIRE": "WHAT THE MODEL CAN DO",
+  "Ce modèle-ci lit du texte seulement : un exemple avec image est envoyé comme du texte.":
+    "This model reads text only: an example with an image is sent as text.",
+  "Charger l'exemple": "Load the example",
+  "Choisis un point de départ : l'état et les questions sont chargés dans les deux éditeurs, à toi de les adapter.":
+    "Pick a starting point: the state and the questions load into the two editors, then adapt them.",
+  "Des exemples": "Examples",
+  "EXEMPLES": "EXAMPLES",
+  "Le modèle ne rédige pas de réponse : il rend une probabilité par option, et sa confiance dans ce choix.":
+    "The model writes no answer: it returns a probability per option, and its confidence in that choice.",
+  "Les images, pas encore": "Images, not yet",
+  "MODÈLE DE DÉCISION · CLEF Q4_K_M": "DECISION MODEL · CLEF Q4_K_M",
+  "Oui/non, un choix parmi une liste, ou une note sur une échelle.":
+    "Yes/no, one option out of a list, or a score on a scale.",
+  "Trois formes de question": "Three shapes of question",
+  "Une décision, pas une rédaction": "A decision, not prose",
+  "Voir des exemples de requêtes": "View example requests",
+  "Réclamation client": "Customer complaint",
+  "Facturé deux fois : remboursement, équipe, urgence.": "Charged twice: refund, team, urgency.",
+  "Ticket de support": "Support ticket",
+  "Trier un incident : gravité, catégorie, blocage.": "Triage an incident: severity, category, blocker.",
+  "Photo de produit": "Product photo",
+  "Contrôle qualité sur une photo — image, non lue par ce modèle.":
+    "Quality check on a photo — an image, not read by this model.",
+
   "{n} options": "{n} options",
   "Trois types : noul (oui/non), choice (un choix parmi une liste), score (une échelle ordonnée).":
     "Three types: noul (yes/no), choice (one of a list), score (an ordered scale).",

@@ -3,14 +3,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
+import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
+import { Card } from "@astryxdesign/core/Card";
+import { ClickableCard } from "@astryxdesign/core/ClickableCard";
 import { Divider } from "@astryxdesign/core/Divider";
-import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Icon } from "@astryxdesign/core/Icon";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
@@ -19,15 +21,20 @@ import {
   ArrowPathIcon,
   BeakerIcon,
   CodeBracketIcon,
+  CubeIcon,
+  DocumentTextIcon,
+  PhotoIcon,
   PlayIcon,
-  StopIcon,
   SparklesIcon,
+  StopIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { getJSON, sendJSON } from "@/lib/api";
 import { useSeed, type Seed } from "@/lib/seed";
 import { useCsrf } from "@/lib/useCsrf";
 import { useIsNarrow } from "@/lib/useIsNarrow";
 import { tServer, useT } from "@/lib/i18n";
+import { DEFAULT_EXAMPLE, EXAMPLES, type DecisionExample } from "@/lib/decision-examples";
 import {
   answerHeadline,
   answerOptions,
@@ -60,29 +67,22 @@ const STATUS_LABEL: Record<string, string> = {
   unreachable: "Runner injoignable",
 };
 
-const EXAMPLE_STATE = `{
-  "commande": {
-    "id": 4411,
-    "montant": 89.9,
-    "debite_deux_fois": true
-  },
-  "message": "Ma commande 4411 a été débitée deux fois, personne ne répond depuis une semaine et je veux un remboursement immédiat."
+/** The three question types, shown while the editor is still empty. */
+const TYPE_HINTS: { type: string; description: string; example: string }[] = [
+  { type: "noul", description: "Une réponse oui / non, avec sa probabilité.", example: "Le client demande-t-il un remboursement ?" },
+  { type: "choice", description: "Une option parmi une liste fermée.", example: "Quelle équipe doit traiter ce message ?" },
+  { type: "score", description: "Une position sur une échelle ordonnée.", example: "À quel point est-ce urgent ?" },
+];
+
+const STATE_PLACEHOLDER = `{
+  "commande": { "id": 4411, "debite_deux_fois": true },
+  "message": "Ma commande a été débitée deux fois…"
 }`;
 
-const EXAMPLE_QUESTIONS = `{
+const QUESTIONS_PLACEHOLDER = `{
   "remboursement": {
     "type": "noul",
     "instructions": "Le client demande-t-il un remboursement ?"
-  },
-  "equipe": {
-    "type": "choice",
-    "instructions": "Quelle équipe doit traiter ce message ?",
-    "criteria": { "facturation": null, "livraison": null, "technique": null }
-  },
-  "urgence": {
-    "type": "score",
-    "instructions": "À quel point ce message est-il urgent ?",
-    "criteria": ["peut attendre", "cette semaine", "dans la journée", "tout de suite"]
   }
 }`;
 
@@ -99,11 +99,14 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
   const { data: initial } = useSeed<DecisionsSeed>(seed);
   const [status, setStatus] = useState<DecisionsStatus | null>(initial.status ?? null);
   const [stateText, setStateText] = useState("");
-  const [questionsText, setQuestionsText] = useState(EXAMPLE_QUESTIONS);
+  const [questionsText, setQuestionsText] = useState("");
   const [result, setResult] = useState<RunResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [adminBusy, setAdminBusy] = useState(false);
+  // The right column shows one thing at a time: the examples browser, the
+  // result, or what to do first. Running a request closes the browser.
+  const [examplesOpen, setExamplesOpen] = useState(false);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -118,9 +121,11 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
     const built = validatePayload(stateText, questionsText);
     if (!built.ok) {
       setError(tServer(built.error, t));
+      setExamplesOpen(false);
       return;
     }
     setBusy(true);
+    setExamplesOpen(false);
     setResult(null);
     try {
       const answer = await sendJSON<RunResult & { ok: boolean; error?: string }>("/api/decisions/run", csrf, built.body);
@@ -182,6 +187,15 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
     else setQuestionsText(pretty);
   };
 
+  /** Load an example into the editors and get out of the way. */
+  const pickExample = (example: DecisionExample) => {
+    setStateText(example.state);
+    setQuestionsText(example.questions);
+    setExamplesOpen(false);
+    setResult(null);
+    setError(null);
+  };
+
   /** The instructions of each question, read back from the editor: they are
    *  what makes a result row readable ("Why is this urgent?"), and the engine
    *  does not echo them. */
@@ -199,12 +213,10 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
   const answers = useMemo(() => (result ? Object.entries(result.answers) : []), [result]);
   const serviceUp = status?.status === "running";
   const statusLabel = t(STATUS_LABEL[status?.status ?? ""] ?? "État inconnu");
+  const questionsEmpty = questionsText.trim() === "";
 
   return (
     <Layout height="fill">
-      {/* padding: like every other page (the workbench is NOT inside the shell's
-          padded area — without it the result column sat flush against the right
-          edge and its "Type" label was cut). */}
       <LayoutContent padding={6}>
         <VStack gap={4} width="100%">
           <HStack gap={3} vAlign="center" justify="between" wrap="wrap">
@@ -269,9 +281,9 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
                   isLabelHidden
                   value={stateText}
                   onChange={setStateText}
-                  rows={9}
+                  rows={8}
                   hasSpellCheck={false}
-                  placeholder={`${t("Le texte ou le JSON à évaluer.")}\n\n${EXAMPLE_STATE}`}
+                  placeholder={STATE_PLACEHOLDER}
                   style={CODE}
                 />
               </VStack>
@@ -290,13 +302,26 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
                   isLabelHidden
                   value={questionsText}
                   onChange={setQuestionsText}
-                  rows={14}
+                  rows={questionsEmpty ? 4 : 12}
                   hasSpellCheck={false}
+                  placeholder={QUESTIONS_PLACEHOLDER}
                   style={CODE}
                 />
-                <Text type="supporting" color="secondary">
-                  {t("Trois types : noul (oui/non), choice (un choix parmi une liste), score (une échelle ordonnée).")}
-                </Text>
+                {/* The three types, explained where they are needed: an empty
+                    editor says nothing about what can go in it. */}
+                {questionsEmpty && (
+                  <Grid columns={{ minWidth: 120, max: 3 }} gap={2}>
+                    {TYPE_HINTS.map((hint) => (
+                      <Card key={hint.type}>
+                        <VStack gap={0.5}>
+                          <Badge label={hint.type} />
+                          <Text type="supporting">{t(hint.description)}</Text>
+                          <Text type="supporting" color="secondary" style={{ fontStyle: "italic" }}>{t(hint.example)}</Text>
+                        </VStack>
+                      </Card>
+                    ))}
+                  </Grid>
+                )}
               </VStack>
 
               <HStack gap={3} vAlign="center">
@@ -312,12 +337,12 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
                 <StackItem>
                   <HStack justify="end">
                     <Button
-                      label={t("Exemple")}
+                      label={t("Des exemples")}
                       variant="ghost"
                       size="sm"
                       onClick={() => {
-                        setStateText(EXAMPLE_STATE);
-                        setQuestionsText(EXAMPLE_QUESTIONS);
+                        setExamplesOpen(true);
+                        setError(null);
                       }}
                     />
                   </HStack>
@@ -325,90 +350,196 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
               </HStack>
             </VStack>
 
-            {/* ── Right: the answers ─────────────────────────────────────── */}
+            {/* ── Right: examples, then the answers ──────────────────────── */}
             <StackItem size="fill" style={{ minWidth: 0 }}>
               <VStack gap={3} width="100%">
-                <HStack gap={2} vAlign="center" justify="between">
-                  <Text weight="semibold">{t("Réponses")}</Text>
-                  <HStack gap={3} vAlign="center">
-                    {result?.usage?.input_tokens !== undefined && (
-                      <Text type="supporting" color="secondary">
-                        {t("{n} tokens d'entrée").replace("{n}", String(result.usage.input_tokens))}
-                      </Text>
-                    )}
-                    <Text type="supporting" color="secondary">{t("Type")}</Text>
-                  </HStack>
-                </HStack>
-                <Divider />
-
-                {error && <Banner status="error" title={t("Échec")} description={error} />}
-
-                {answers.length === 0 && !error && (
-                  <EmptyState
-                    icon={<Icon icon={BeakerIcon} size="lg" />}
-                    title={t("Lance une requête pour voir la sortie")}
-                    description={t("Les décisions, leurs probabilités et leur confiance s'afficheront ici, une ligne par question.")}
-                  />
-                )}
-
-                {answers.map(([id, answer]) => {
-                  const options = answerOptions(answer);
-                  const confidence = answer.confidence;
-                  const scale = answerScale(answer);
-                  const noul = typeof answer.noul === "number" ? answer.noul : null;
-                  return (
-                    <VStack key={id} gap={2} width="100%">
-                      <HStack gap={3} vAlign="start" justify="between">
-                        <VStack gap={0}>
-                          <Text weight="semibold">{id}</Text>
-                          {instructions[id] && (
-                            <Text type="supporting" color="secondary" style={{ fontStyle: "italic" }}>{instructions[id]}</Text>
-                          )}
-                        </VStack>
-                        <VStack gap={0} hAlign="end">
-                          <Text type="supporting">{answerTypeLabel(answer)}</Text>
-                          {scale && <Text type="supporting" color="secondary">{scale}</Text>}
-                          {answer.type === "choice" && options.length > 0 && (
-                            <Text type="supporting" color="secondary">
-                              {t("{n} options").replace("{n}", String(options.length))}
-                            </Text>
-                          )}
-                        </VStack>
+                {examplesOpen ? (
+                  <ExamplesPanel onPick={pickExample} onClose={() => setExamplesOpen(false)} />
+                ) : (
+                  <>
+                    <HStack gap={2} vAlign="center" justify="between">
+                      <Text weight="semibold">{t("Réponses")}</Text>
+                      <HStack gap={3} vAlign="center">
+                        {result?.usage?.input_tokens !== undefined && (
+                          <Text type="supporting" color="secondary">
+                            {t("{n} tokens d'entrée").replace("{n}", String(result.usage.input_tokens))}
+                          </Text>
+                        )}
+                        <Text type="supporting" color="secondary">{t("Type")}</Text>
                       </HStack>
+                    </HStack>
+                    <Divider />
 
-                      {noul !== null && (
-                        <VStack gap={1} width="100%">
-                          <Text weight="semibold" size="lg">{answerHeadline(answer)}</Text>
-                          <ProgressBar label={id} isLabelHidden value={noul * 100} variant={noul >= 0.5 ? "success" : "neutral"} />
-                        </VStack>
-                      )}
+                    {error && <Banner status="error" title={t("Échec")} description={error} />}
 
-                      {typeof answer.score === "number" && <Text weight="semibold" size="lg">{answerHeadline(answer)}</Text>}
+                    {answers.length === 0 && !error && (
+                      <VStack gap={3} hAlign="center" vAlign="center" padding={8}>
+                        <Icon icon={CubeIcon} size="lg" />
+                        <Text weight="semibold">{t("Lance une requête pour voir la sortie")}</Text>
+                        <Button
+                          label={t("Voir des exemples de requêtes")}
+                          variant="primary"
+                          onClick={() => setExamplesOpen(true)}
+                        />
+                      </VStack>
+                    )}
 
-                      {options.map(([label, probability]) => (
-                        <VStack key={label} gap={0.5} width="100%">
-                          <HStack gap={2} justify="between" vAlign="center">
-                            <Text type="supporting">{label}</Text>
-                            <Text type="supporting">{formatProbability(probability)}</Text>
-                          </HStack>
-                          <ProgressBar label={label} isLabelHidden value={probability * 100} variant="accent" />
-                        </VStack>
-                      ))}
-
-                      {confidence !== undefined && (
-                        <Text type="supporting" color="secondary">
-                          {t("Confiance : {p}").replace("{p}", formatProbability(confidence))}
-                        </Text>
-                      )}
-                      <Divider />
-                    </VStack>
-                  );
-                })}
+                    {answers.map(([id, answer]) => (
+                      <AnswerRow key={id} id={id} answer={answer} instruction={instructions[id]} />
+                    ))}
+                  </>
+                )}
               </VStack>
             </StackItem>
           </HStack>
         </VStack>
       </LayoutContent>
     </Layout>
+  );
+}
+
+/** One answer: what was asked, what was decided, how sure, and the field. */
+function AnswerRow({ id, answer, instruction }: { id: string; answer: DecisionAnswer; instruction?: string }) {
+  const t = useT();
+  const options = answerOptions(answer);
+  const confidence = answer.confidence;
+  const scale = answerScale(answer);
+  const noul = typeof answer.noul === "number" ? answer.noul : null;
+
+  return (
+    <VStack gap={2} width="100%">
+      <HStack gap={3} vAlign="start" justify="between">
+        <VStack gap={0}>
+          <Text weight="semibold">{id}</Text>
+          {instruction && (
+            <Text type="supporting" color="secondary" style={{ fontStyle: "italic" }}>{instruction}</Text>
+          )}
+        </VStack>
+        <VStack gap={0} hAlign="end">
+          <Text type="supporting">{answerTypeLabel(answer)}</Text>
+          {scale && <Text type="supporting" color="secondary">{scale}</Text>}
+          {answer.type === "choice" && options.length > 0 && (
+            <Text type="supporting" color="secondary">
+              {t("{n} options").replace("{n}", String(options.length))}
+            </Text>
+          )}
+        </VStack>
+      </HStack>
+
+      {noul !== null && (
+        <VStack gap={1} width="100%">
+          <Text weight="semibold" size="lg">{answerHeadline(answer)}</Text>
+          <ProgressBar label={id} isLabelHidden value={noul * 100} variant={noul >= 0.5 ? "success" : "neutral"} />
+        </VStack>
+      )}
+
+      {typeof answer.score === "number" && <Text weight="semibold" size="lg">{answerHeadline(answer)}</Text>}
+
+      {options.map(([label, probability]) => (
+        <VStack key={label} gap={0.5} width="100%">
+          <HStack gap={2} justify="between" vAlign="center">
+            <Text type="supporting">{label}</Text>
+            <Text type="supporting">{formatProbability(probability)}</Text>
+          </HStack>
+          <ProgressBar label={label} isLabelHidden value={probability * 100} variant="accent" />
+        </VStack>
+      ))}
+
+      {confidence !== undefined && (
+        <Text type="supporting" color="secondary">
+          {t("Confiance : {p}").replace("{p}", formatProbability(confidence))}
+        </Text>
+      )}
+      <Divider />
+    </VStack>
+  );
+}
+
+/**
+ * The examples browser, on the right where the answers appear: the same place,
+ * so choosing an example does not move the eye. Picking one fills the editors
+ * and closes it.
+ */
+function ExamplesPanel({ onPick, onClose }: { onPick: (example: DecisionExample) => void; onClose: () => void }) {
+  const t = useT();
+  return (
+    <VStack gap={4} width="100%">
+      <HStack gap={2} vAlign="center" justify="between">
+        <Text type="supporting" color="secondary">{t("MODÈLE DE DÉCISION · CLEF Q4_K_M")}</Text>
+        <Button
+          label={t("Fermer")}
+          variant="ghost"
+          size="sm"
+          isIconOnly
+          icon={<Icon icon={XMarkIcon} size="sm" />}
+          onClick={onClose}
+        />
+      </HStack>
+
+      <VStack gap={1}>
+        <Heading level={2}>{t("Apprendre au modèle à décider")}</Heading>
+        <Text type="supporting" color="secondary">
+          {t("Choisis un point de départ : l'état et les questions sont chargés dans les deux éditeurs, à toi de les adapter.")}
+        </Text>
+      </VStack>
+
+      <Card>
+        <VStack gap={1}>
+          <Text weight="semibold">{t("Une décision, pas une rédaction")}</Text>
+          <Text type="supporting" color="secondary">
+            {t("Le modèle ne rédige pas de réponse : il rend une probabilité par option, et sa confiance dans ce choix.")}
+          </Text>
+        </VStack>
+      </Card>
+
+      <VStack gap={2}>
+        <Text type="supporting" color="secondary">{t("CE QUE LE MODÈLE SAIT FAIRE")}</Text>
+        <Grid columns={{ minWidth: 180, max: 2 }} gap={3}>
+          <Card>
+            <VStack gap={1}>
+              <Icon icon={DocumentTextIcon} size="sm" />
+              <Text weight="semibold">{t("Trois formes de question")}</Text>
+              <Text type="supporting" color="secondary">{t("Oui/non, un choix parmi une liste, ou une note sur une échelle.")}</Text>
+            </VStack>
+          </Card>
+          <Card>
+            <VStack gap={1}>
+              <Icon icon={PhotoIcon} size="sm" />
+              <Text weight="semibold">{t("Les images, pas encore")}</Text>
+              <Text type="supporting" color="secondary">
+                {t("Ce modèle-ci lit du texte seulement : un exemple avec image est envoyé comme du texte.")}
+              </Text>
+            </VStack>
+          </Card>
+        </Grid>
+      </VStack>
+
+      <VStack gap={2}>
+        <Text type="supporting" color="secondary">{t("EXEMPLES")}</Text>
+        {EXAMPLES.map((example) => (
+          <ClickableCard
+            key={example.id}
+            label={t(example.title)}
+            variant="muted"
+            onClick={() => onPick(example)}
+          >
+            <HStack gap={3} vAlign="center" justify="between" width="100%">
+              <HStack gap={3} vAlign="center">
+                <Icon icon={example.kind === "image" ? PhotoIcon : DocumentTextIcon} size="sm" />
+                <VStack gap={0}>
+                  <Text weight="semibold">{t(example.title)}</Text>
+                  <Text type="supporting" color="secondary">{t(example.description)}</Text>
+                </VStack>
+              </HStack>
+              <Badge label={t(example.kind === "image" ? "Image" : "Texte")} />
+            </HStack>
+          </ClickableCard>
+        ))}
+      </VStack>
+
+      <HStack justify="end">
+        <Button label={t("Charger l'exemple")} variant="secondary" size="sm" onClick={() => onPick(DEFAULT_EXAMPLE)} />
+      </HStack>
+    </VStack>
   );
 }

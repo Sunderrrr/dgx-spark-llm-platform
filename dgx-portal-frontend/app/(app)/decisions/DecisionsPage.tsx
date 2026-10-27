@@ -1,45 +1,42 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
-import { VStack, HStack } from "@astryxdesign/core/Stack";
+import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
-import { Card } from "@astryxdesign/core/Card";
 import { TextArea } from "@astryxdesign/core/TextArea";
-import { TextInput } from "@astryxdesign/core/TextInput";
 import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
+import { Divider } from "@astryxdesign/core/Divider";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { Item } from "@astryxdesign/core/Item";
 import { Icon } from "@astryxdesign/core/Icon";
+import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
-import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { useToast } from "@astryxdesign/core/Toast";
-import { useSeed, type Seed } from "@/lib/seed";
 import {
-  AdjustmentsHorizontalIcon,
   ArrowPathIcon,
+  BeakerIcon,
+  CodeBracketIcon,
   PlayIcon,
-  PlusIcon,
   StopIcon,
-  TrashIcon,
-  ScaleIcon,
+  SparklesIcon,
 } from "@heroicons/react/24/outline";
 import { getJSON, sendJSON } from "@/lib/api";
+import { useSeed, type Seed } from "@/lib/seed";
 import { useCsrf } from "@/lib/useCsrf";
+import { useIsNarrow } from "@/lib/useIsNarrow";
 import { tServer, useT } from "@/lib/i18n";
 import {
   answerHeadline,
   answerOptions,
-  buildDecisionRequest,
+  answerScale,
+  answerTypeLabel,
   formatProbability,
-  MAX_QUESTIONS,
-  MAX_STATE_BYTES,
+  prettyJson,
+  validatePayload,
   type DecisionAnswer,
-  type QuestionDraft,
-  type QuestionType,
 } from "@/lib/decisions";
 
 type DecisionsStatus = {
@@ -48,52 +45,61 @@ type DecisionsStatus = {
   status: string;
   port: number | null;
   libre_gib: number | null;
-  max_state_bytes: number;
-  max_questions: number;
+  ref?: string;
   admin?: boolean;
 };
 
 type RunResult = { ok: true; model: string; answers: Record<string, DecisionAnswer>; usage: { input_tokens?: number } | null };
-
-/** Two questions that show the three types at once: an urgency scale, a
- * routing choice, and a yes/no. The ids are what the answers come back under. */
-const DEFAULT_QUESTIONS: QuestionDraft[] = [
-  {
-    id: "urgence",
-    type: "score",
-    instructions: "À quel point ce message est-il urgent ?",
-    options: "peut attendre\ncette semaine\ndans la journée\ntout de suite",
-  },
-  {
-    id: "equipe",
-    type: "choice",
-    instructions: "Quelle équipe doit traiter ce message ?",
-    options: "facturation\nlivraison\ntechnique",
-  },
-  { id: "mecontent", type: "noul", instructions: "Le client est-il mécontent ?", options: "" },
-];
 
 const STATUS_LABEL: Record<string, string> = {
   running: "En service",
   starting: "Démarrage…",
   stopped: "Arrêté",
   error: "Erreur au dernier lancement",
+  unsupported: "Service non déployé sur le runner",
   unreachable: "Runner injoignable",
-  unsupported: "Service de décision non déployé sur le runner",
 };
 
-/** What the server rendered: the service's state at load time. */
+const EXAMPLE_STATE = `{
+  "commande": {
+    "id": 4411,
+    "montant": 89.9,
+    "debite_deux_fois": true
+  },
+  "message": "Ma commande 4411 a été débitée deux fois, personne ne répond depuis une semaine et je veux un remboursement immédiat."
+}`;
+
+const EXAMPLE_QUESTIONS = `{
+  "remboursement": {
+    "type": "noul",
+    "instructions": "Le client demande-t-il un remboursement ?"
+  },
+  "equipe": {
+    "type": "choice",
+    "instructions": "Quelle équipe doit traiter ce message ?",
+    "criteria": { "facturation": null, "livraison": null, "technique": null }
+  },
+  "urgence": {
+    "type": "score",
+    "instructions": "À quel point ce message est-il urgent ?",
+    "criteria": ["peut attendre", "cette semaine", "dans la journée", "tout de suite"]
+  }
+}`;
+
+/** The mono style of a code editor, from the theme's code font token. */
+const CODE: React.CSSProperties = { fontFamily: "var(--font-family-code)" };
+
 export type DecisionsSeed = { status: DecisionsStatus | null };
 
 export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | null }) {
   const t = useT();
   const csrf = useCsrf();
   const showToast = useToast();
+  const isNarrow = useIsNarrow();
   const { data: initial } = useSeed<DecisionsSeed>(seed);
   const [status, setStatus] = useState<DecisionsStatus | null>(initial.status ?? null);
   const [stateText, setStateText] = useState("");
-  const [isJson, setIsJson] = useState(false);
-  const [drafts, setDrafts] = useState<QuestionDraft[]>(DEFAULT_QUESTIONS);
+  const [questionsText, setQuestionsText] = useState(EXAMPLE_QUESTIONS);
   const [result, setResult] = useState<RunResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -107,25 +113,9 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
     }
   }, []);
 
-  const serviceUp = status?.status === "running";
-  const statusLabel = t(STATUS_LABEL[status?.status ?? ""] ?? "État inconnu");
-
-  const update = (index: number, patch: Partial<QuestionDraft>) => {
-    setDrafts((current) => current.map((d, i) => (i === index ? { ...d, ...patch } : d)));
-  };
-
-  const addQuestion = () => {
-    if (drafts.length >= MAX_QUESTIONS) return;
-    setDrafts((current) => [...current, { id: `question_${current.length + 1}`, type: "noul", instructions: "", options: "" }]);
-  };
-
-  const removeQuestion = (index: number) => {
-    setDrafts((current) => current.filter((_, i) => i !== index));
-  };
-
-  const run = async () => {
+  const run = useCallback(async () => {
     setError(null);
-    const built = buildDecisionRequest(stateText, isJson, drafts);
+    const built = validatePayload(stateText, questionsText);
     if (!built.ok) {
       setError(tServer(built.error, t));
       return;
@@ -139,21 +129,38 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
         return;
       }
       setResult(answer as RunResult);
-      void loadStatus();
     } catch {
       setError(t("La décision a échoué."));
     } finally {
       setBusy(false);
     }
-  };
+  }, [csrf, questionsText, stateText, t]);
+
+  // Ctrl/⌘ + ↵ launches the request, like the System One playground. The ref
+  // holds the current `run` so the listener is installed once.
+  const runRef = useRef(run);
+  useEffect(() => {
+    runRef.current = run;
+  }, [run]);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        event.preventDefault();
+        void runRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const control = async (action: "start" | "stop") => {
     setAdminBusy(true);
     try {
       const answer = await sendJSON<{ ok?: boolean; error?: string }>(`/api/decisions/${action}`, csrf);
       if (answer.error) {
-        setError(tServer(answer.error, t));
-        showToast({ body: tServer(answer.error, t), type: "error" });
+        const message = tServer(answer.error, t);
+        setError(message);
+        showToast({ body: message, type: "error" });
       } else {
         showToast({ body: t(action === "start" ? "Service de décision démarré." : "Service de décision arrêté."), type: "info" });
       }
@@ -165,239 +172,241 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
     }
   };
 
+  const format = (which: "state" | "questions") => {
+    const pretty = prettyJson(which === "state" ? stateText : questionsText);
+    if (pretty === null) {
+      setError(t("Ce JSON ne se lit pas : rien à formater."));
+      return;
+    }
+    if (which === "state") setStateText(pretty);
+    else setQuestionsText(pretty);
+  };
+
+  /** The instructions of each question, read back from the editor: they are
+   *  what makes a result row readable ("Why is this urgent?"), and the engine
+   *  does not echo them. */
+  const instructions = useMemo(() => {
+    try {
+      const parsed = JSON.parse(questionsText) as Record<string, { instructions?: unknown }>;
+      return Object.fromEntries(
+        Object.entries(parsed).map(([id, q]) => [id, typeof q?.instructions === "string" ? q.instructions : ""]),
+      );
+    } catch {
+      return {} as Record<string, string>;
+    }
+  }, [questionsText]);
+
   const answers = useMemo(() => (result ? Object.entries(result.answers) : []), [result]);
+  const serviceUp = status?.status === "running";
+  const statusLabel = t(STATUS_LABEL[status?.status ?? ""] ?? "État inconnu");
 
   return (
-    <Layout>
-      <LayoutContent>
-        <VStack gap={5} width="100%">
-          <VStack gap={1}>
-            <Heading level={1}>{t("Décisions")}</Heading>
-            <Text type="supporting" color="secondary">
-              {t(
-                "Pose des questions fermées à un modèle de décision : oui/non, choix parmi une liste, note sur une échelle. Il ne rédige pas de texte — il renvoie des probabilités.",
-              )}
-            </Text>
-          </VStack>
-
-          <HStack gap={3} vAlign="center" wrap="wrap">
-            <StatusDot
-              variant={
-                serviceUp ? "success"
-                  : status?.status === "starting" || status?.status === "unsupported" ? "warning"
-                    : status?.status === "error" || !status ? "error" : "neutral"
-              }
-              label={statusLabel}
-            />
-            <Text type="supporting">{statusLabel}</Text>
-            {status && (
+    <Layout height="fill">
+      {/* padding: like every other page (the workbench is NOT inside the shell's
+          padded area — without it the result column sat flush against the right
+          edge and its "Type" label was cut). */}
+      <LayoutContent padding={6}>
+        <VStack gap={4} width="100%">
+          <HStack gap={3} vAlign="center" justify="between" wrap="wrap">
+            <VStack gap={0}>
+              <Heading level={1}>{t("Décisions")}</Heading>
               <Text type="supporting" color="secondary">
-                {t("Modèle")} : {status.model}
-                {status.port ? ` · ${t("port")} ${status.port}` : ""}
-                {status.libre_gib !== null ? ` · ${t("mémoire libre")} ${status.libre_gib.toFixed(0)} Go` : ""}
+                {t(
+                  "Un modèle de décision lit un état et répond à des questions typées. Il ne rédige pas de texte : il renvoie des probabilités.",
+                )}
               </Text>
-            )}
-            {status?.admin && (
-              <HStack gap={2}>
+            </VStack>
+            <HStack gap={3} vAlign="center" wrap="wrap">
+              <StatusDot
+                variant={
+                  serviceUp ? "success"
+                    : status?.status === "starting" || status?.status === "unsupported" ? "warning"
+                      : status?.status === "error" || !status ? "error" : "neutral"
+                }
+                label={statusLabel}
+              />
+              <Text type="supporting">{statusLabel}</Text>
+              {status && (
+                <Text type="supporting" color="secondary">
+                  {status.model}
+                  {status.port ? ` · ${t("port")} ${status.port}` : ""}
+                  {status.libre_gib !== null ? ` · ${status.libre_gib.toFixed(0)} ${t("Go libres")}` : ""}
+                </Text>
+              )}
+              <Button
+                label={t("Actualiser l'état")}
+                variant="ghost"
+                size="sm"
+                icon={<Icon icon={ArrowPathIcon} size="sm" />}
+                onClick={() => void loadStatus()}
+              />
+              {status?.admin && (
                 <Button
-                  label={t("Actualiser l'état")}
-                  variant="ghost"
-                  size="sm"
-                  icon={<Icon icon={ArrowPathIcon} size="sm" />}
-                  onClick={() => void loadStatus()}
-                />
-                <Button
-                  label={t("Démarrer")}
+                  label={t(serviceUp ? "Arrêter" : "Démarrer")}
                   variant="secondary"
                   size="sm"
-                  icon={<Icon icon={PlayIcon} size="sm" />}
+                  icon={<Icon icon={serviceUp ? StopIcon : PlayIcon} size="sm" />}
                   isLoading={adminBusy}
-                  isDisabled={serviceUp}
-                  onClick={() => void control("start")}
+                  onClick={() => void control(serviceUp ? "stop" : "start")}
                 />
-                <Button
-                  label={t("Arrêter")}
-                  variant="ghost"
-                  size="sm"
-                  icon={<Icon icon={StopIcon} size="sm" />}
-                  isLoading={adminBusy}
-                  isDisabled={!serviceUp}
-                  onClick={() => void control("stop")}
-                />
-              </HStack>
-            )}
+              )}
+            </HStack>
           </HStack>
 
-          {status && !status.enabled && (
-            <Banner
-              status="warning"
-              title={t("Modèle de décision non installé")}
-              description={t(
-                "Un administrateur doit télécharger le GGUF puis démarrer le service (DECISIONS_MODEL dans .env). La page reste utilisable dès qu'il tourne.",
-              )}
-            />
-          )}
+          <HStack gap={6} vAlign="start" width="100%" wrap={isNarrow ? "wrap" : "nowrap"}>
+            {/* ── Left: the request, as JSON ─────────────────────────────── */}
+            <VStack gap={4} width={isNarrow ? "100%" : 460}>
+              <VStack gap={1}>
+                <HStack gap={2} vAlign="center" justify="between">
+                  <HStack gap={2} vAlign="center">
+                    <Icon icon={CodeBracketIcon} size="sm" />
+                    <Text weight="semibold">{t("État")}</Text>
+                  </HStack>
+                  <Button label={t("Formater")} variant="ghost" size="sm" onClick={() => format("state")} isDisabled={!stateText.trim()} />
+                </HStack>
+                <TextArea
+                  label={t("État")}
+                  isLabelHidden
+                  value={stateText}
+                  onChange={setStateText}
+                  rows={9}
+                  hasSpellCheck={false}
+                  placeholder={`${t("Le texte ou le JSON à évaluer.")}\n\n${EXAMPLE_STATE}`}
+                  style={CODE}
+                />
+              </VStack>
 
-          <Card>
-            <VStack gap={4}>
-              <HStack gap={2} vAlign="center">
-                <Icon icon={AdjustmentsHorizontalIcon} size="sm" />
-                <Heading level={2}>{t("État à évaluer")}</Heading>
-              </HStack>
-              <SegmentedControl label={t("Format de l'état")} value={isJson ? "json" : "text"} onChange={(v) => setIsJson(v === "json")}>
-                <SegmentedControlItem value="text" label={t("Texte")} />
-                <SegmentedControlItem value="json" label={t("JSON")} />
-              </SegmentedControl>
-              <TextArea
-                label={t("Contenu")}
-                description={
-                  isJson
-                    ? t("Un objet ou un tableau JSON : il est envoyé tel quel au modèle.")
-                    : t("Le message, le document ou l'extrait à évaluer.")
-                }
-                value={stateText}
-                onChange={(value: string) => setStateText(value)}
-                rows={6}
-                maxLength={MAX_STATE_BYTES}
-                placeholder={t("Colle ici le message, le ticket ou le document à évaluer…")}
-              />
-            </VStack>
-          </Card>
+              <VStack gap={1}>
+                <HStack gap={2} vAlign="center" justify="between">
+                  <HStack gap={2} vAlign="center">
+                    <Icon icon={SparklesIcon} size="sm" />
+                    <Text weight="semibold">{t("Questions")}</Text>
+                    <Badge label={String(Object.keys(instructions).length)} />
+                  </HStack>
+                  <Button label={t("Formater")} variant="ghost" size="sm" onClick={() => format("questions")} isDisabled={!questionsText.trim()} />
+                </HStack>
+                <TextArea
+                  label={t("Questions")}
+                  isLabelHidden
+                  value={questionsText}
+                  onChange={setQuestionsText}
+                  rows={14}
+                  hasSpellCheck={false}
+                  style={CODE}
+                />
+                <Text type="supporting" color="secondary">
+                  {t("Trois types : noul (oui/non), choice (un choix parmi une liste), score (une échelle ordonnée).")}
+                </Text>
+              </VStack>
 
-          <Card>
-            <VStack gap={4}>
-              <HStack gap={2} vAlign="center">
-                <Icon icon={ScaleIcon} size="sm" />
-                <Heading level={2}>{t("Questions")}</Heading>
-              </HStack>
-              <Text type="supporting" color="secondary">
-                {t("Chaque réponse revient sous l'identifiant de sa question. Les options d'une note vont du plus bas au plus haut.")}
-              </Text>
-              {drafts.map((draft, index) => (
-                <VStack key={index} gap={2}>
-                  <HStack gap={3} vAlign="end" wrap="wrap">
-                    <TextInput
-                      label={t("Identifiant de la question")}
-                      value={draft.id}
-                      onChange={(value: string) => update(index, { id: value })}
-                      width={200}
-                    />
-                    <SegmentedControl
-                      label={t("Type")}
-                      value={draft.type}
-                      onChange={(value) => update(index, { type: value as QuestionType })}
-                    >
-                      <SegmentedControlItem value="noul" label={t("Oui / non")} />
-                      <SegmentedControlItem value="choice" label={t("Choix")} />
-                      <SegmentedControlItem value="score" label={t("Note")} />
-                    </SegmentedControl>
+              <HStack gap={3} vAlign="center">
+                <Button
+                  label={t("Lancer la requête")}
+                  variant="primary"
+                  icon={<Icon icon={BeakerIcon} size="sm" />}
+                  isLoading={busy}
+                  isDisabled={!stateText.trim()}
+                  onClick={() => void run()}
+                />
+                <Text type="supporting" color="secondary">{t("Ctrl + ↵")}</Text>
+                <StackItem>
+                  <HStack justify="end">
                     <Button
-                      label={t("Retirer")}
+                      label={t("Exemple")}
                       variant="ghost"
                       size="sm"
-                      icon={<Icon icon={TrashIcon} size="sm" />}
-                      onClick={() => removeQuestion(index)}
+                      onClick={() => {
+                        setStateText(EXAMPLE_STATE);
+                        setQuestionsText(EXAMPLE_QUESTIONS);
+                      }}
                     />
                   </HStack>
-                  <TextInput
-                    label={t("Question posée")}
-                    value={draft.instructions}
-                    onChange={(value: string) => update(index, { instructions: value })}
-                    width="100%"
-                  />
-                  {draft.type !== "noul" && (
-                    <TextArea
-                      label={draft.type === "choice" ? t("Choix possibles") : t("Niveaux, du plus bas au plus haut")}
-                      description={t("Une valeur par ligne (ou séparées par des virgules).")}
-                      value={draft.options}
-                      onChange={(value: string) => update(index, { options: value })}
-                      rows={3}
-                    />
-                  )}
-                </VStack>
-              ))}
-              <HStack gap={2}>
-                <Button
-                  label={t("Ajouter une question")}
-                  variant="secondary"
-                  size="sm"
-                  icon={<Icon icon={PlusIcon} size="sm" />}
-                  onClick={addQuestion}
-                  isDisabled={drafts.length >= MAX_QUESTIONS}
-                />
-                <Badge label={t("{n} / {max}").replace("{n}", String(drafts.length)).replace("{max}", String(MAX_QUESTIONS))} />
+                </StackItem>
               </HStack>
             </VStack>
-          </Card>
 
-          <HStack gap={3} vAlign="center">
-            <Button
-              label={t("Obtenir les décisions")}
-              variant="primary"
-              icon={<Icon icon={ScaleIcon} size="sm" />}
-              isLoading={busy}
-              isDisabled={!stateText.trim()}
-              onClick={() => void run()}
-            />
-            {!serviceUp && status?.enabled && (
-              <Text type="supporting" color="secondary">
-                {t("Le service de décision n'est pas démarré : la requête sera refusée.")}
-              </Text>
-            )}
-          </HStack>
+            {/* ── Right: the answers ─────────────────────────────────────── */}
+            <StackItem size="fill" style={{ minWidth: 0 }}>
+              <VStack gap={3} width="100%">
+                <HStack gap={2} vAlign="center" justify="between">
+                  <Text weight="semibold">{t("Réponses")}</Text>
+                  <HStack gap={3} vAlign="center">
+                    {result?.usage?.input_tokens !== undefined && (
+                      <Text type="supporting" color="secondary">
+                        {t("{n} tokens d'entrée").replace("{n}", String(result.usage.input_tokens))}
+                      </Text>
+                    )}
+                    <Text type="supporting" color="secondary">{t("Type")}</Text>
+                  </HStack>
+                </HStack>
+                <Divider />
 
-          {error && <Banner status="error" title={t("Échec")} description={error} />}
+                {error && <Banner status="error" title={t("Échec")} description={error} />}
 
-          {answers.length === 0 && !error && (
-            <EmptyState
-              icon={<Icon icon={ScaleIcon} size="lg" />}
-              title={t("Aucune décision pour le moment")}
-              description={t("Renseigne un état et lance les questions : les réponses et leurs probabilités s'afficheront ici.")}
-            />
-          )}
-
-          {answers.length > 0 && (
-            <VStack gap={4}>
-              <HStack gap={3} vAlign="center">
-                <Heading level={2}>{t("Résultats")}</Heading>
-                {result?.usage?.input_tokens !== undefined && (
-                  <Text type="supporting" color="secondary">
-                    {t("{n} tokens d'entrée").replace("{n}", String(result.usage.input_tokens))}
-                  </Text>
+                {answers.length === 0 && !error && (
+                  <EmptyState
+                    icon={<Icon icon={BeakerIcon} size="lg" />}
+                    title={t("Lance une requête pour voir la sortie")}
+                    description={t("Les décisions, leurs probabilités et leur confiance s'afficheront ici, une ligne par question.")}
+                  />
                 )}
-              </HStack>
-              {answers.map(([id, answer]) => {
-                const draft = drafts.find((d) => d.id === id);
-                const options = answerOptions(answer);
-                return (
-                  <Card key={id}>
-                    <VStack gap={2}>
-                      <HStack gap={3} vAlign="center" justify="between">
+
+                {answers.map(([id, answer]) => {
+                  const options = answerOptions(answer);
+                  const confidence = answer.confidence;
+                  const scale = answerScale(answer);
+                  const noul = typeof answer.noul === "number" ? answer.noul : null;
+                  return (
+                    <VStack key={id} gap={2} width="100%">
+                      <HStack gap={3} vAlign="start" justify="between">
                         <VStack gap={0}>
                           <Text weight="semibold">{id}</Text>
-                          {draft && <Text type="supporting" color="secondary">{draft.instructions}</Text>}
-                        </VStack>
-                        <HStack gap={2} vAlign="center">
-                          <Text weight="semibold" size="lg">{answerHeadline(answer)}</Text>
-                          {answer.confidence !== undefined && (
-                            <Badge label={t("confiance {p}").replace("{p}", formatProbability(answer.confidence))} />
+                          {instructions[id] && (
+                            <Text type="supporting" color="secondary" style={{ fontStyle: "italic" }}>{instructions[id]}</Text>
                           )}
-                        </HStack>
+                        </VStack>
+                        <VStack gap={0} hAlign="end">
+                          <Text type="supporting">{answerTypeLabel(answer)}</Text>
+                          {scale && <Text type="supporting" color="secondary">{scale}</Text>}
+                          {answer.type === "choice" && options.length > 0 && (
+                            <Text type="supporting" color="secondary">
+                              {t("{n} options").replace("{n}", String(options.length))}
+                            </Text>
+                          )}
+                        </VStack>
                       </HStack>
+
+                      {noul !== null && (
+                        <VStack gap={1} width="100%">
+                          <Text weight="semibold" size="lg">{answerHeadline(answer)}</Text>
+                          <ProgressBar label={id} isLabelHidden value={noul * 100} variant={noul >= 0.5 ? "success" : "neutral"} />
+                        </VStack>
+                      )}
+
+                      {typeof answer.score === "number" && <Text weight="semibold" size="lg">{answerHeadline(answer)}</Text>}
+
                       {options.map(([label, probability]) => (
-                        <Item
-                          key={label}
-                          density="compact"
-                          label={label}
-                          endContent={<Text type="supporting">{formatProbability(probability)}</Text>}
-                        />
+                        <VStack key={label} gap={0.5} width="100%">
+                          <HStack gap={2} justify="between" vAlign="center">
+                            <Text type="supporting">{label}</Text>
+                            <Text type="supporting">{formatProbability(probability)}</Text>
+                          </HStack>
+                          <ProgressBar label={label} isLabelHidden value={probability * 100} variant="accent" />
+                        </VStack>
                       ))}
+
+                      {confidence !== undefined && (
+                        <Text type="supporting" color="secondary">
+                          {t("Confiance : {p}").replace("{p}", formatProbability(confidence))}
+                        </Text>
+                      )}
+                      <Divider />
                     </VStack>
-                  </Card>
-                );
-              })}
-            </VStack>
-          )}
+                  );
+                })}
+              </VStack>
+            </StackItem>
+          </HStack>
         </VStack>
       </LayoutContent>
     </Layout>

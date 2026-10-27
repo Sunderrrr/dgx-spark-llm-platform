@@ -1,10 +1,6 @@
 /**
- * The « Décisions » request format and answer rendering helpers.
- *
- * Run with `npm test` (node --test, like the other frontend unit tests): these
- * cases are the screen's contract with the API, and the backend validates the
- * same shape again — a drift between the two would only surface as a 400 far
- * from the form.
+ * The « Décisions » workbench's contract: the two JSON editors' values, the
+ * answers LiteLLM returns, and nothing else. Run with `npm test`.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -14,41 +10,44 @@ import {
   MAX_QUESTIONS,
   answerHeadline,
   answerOptions,
-  buildDecisionRequest,
+  answerScale,
+  answerTypeLabel,
   formatProbability,
   parseState,
-  splitOptions,
-  type QuestionDraft,
+  prettyJson,
+  validatePayload,
+  type DecisionAnswer,
 } from "../lib/decisions.ts";
 
-const noul = (id: string): QuestionDraft => ({ id, type: "noul", instructions: "Est-ce urgent ?", options: "" });
-
-test("un state texte est envoyé tel quel", () => {
-  assert.deepEqual(parseState("  Client mécontent  ", false), { ok: true, value: "  Client mécontent  " });
+const QUESTIONS = JSON.stringify({
+  urgent: { type: "noul", instructions: "Est-ce urgent ?" },
+  equipe: { type: "choice", instructions: "Quelle équipe ?", criteria: { facturation: null, livraison: null } },
+  urgence: { type: "score", instructions: "À quel point ?", criteria: ["peut attendre", "cette semaine", "aujourd'hui"] },
 });
 
 test("un state JSON est analysé", () => {
-  const out = parseState('{"commande": 4411}', true);
+  const out = parseState('{"commande": 4411}');
   assert.equal(out.ok, true);
   if (out.ok) assert.deepEqual(out.value, { commande: 4411 });
 });
 
-test("un état vide ou un JSON invalide est refusé", () => {
-  assert.equal(parseState("   ", false).ok, false);
-  assert.equal(parseState("{oops", true).ok, false);
+test("un state en texte libre est envoyé tel quel", () => {
+  const out = parseState("Client mécontent, facturé deux fois");
+  assert.equal(out.ok, true);
+  if (out.ok) assert.equal(out.value, "Client mécontent, facturé deux fois");
 });
 
-test("les options se séparent par virgule ou retour à la ligne", () => {
-  assert.deepEqual(splitOptions("a, b\nc ,, a"), ["a", "b", "c", "a"]);
+test("un state vide est refusé", () => {
+  assert.equal(parseState("   ").ok, false);
 });
 
-test("noul, choice et score produisent le corps System One", () => {
-  const drafts: QuestionDraft[] = [
-    noul("urgent"),
-    { id: "equipe", type: "choice", instructions: "Quelle équipe ?", options: "facturation, livraison" },
-    { id: "urgence", type: "score", instructions: "À quel point ?", options: "peut attendre, cette semaine, aujourd'hui" },
-  ];
-  const built = buildDecisionRequest("Client facturé deux fois.", false, drafts);
+test("le bouton Formater réindente, et ne casse rien sur un JSON invalide", () => {
+  assert.equal(prettyJson('{"a":1}'), '{\n  "a": 1\n}');
+  assert.equal(prettyJson("{oops"), null);
+});
+
+test("les trois types passent, dans la forme System One", () => {
+  const built = validatePayload("Client facturé deux fois.", QUESTIONS);
   assert.equal(built.ok, true);
   if (!built.ok) return;
   assert.deepEqual(built.body.questions, {
@@ -59,47 +58,46 @@ test("noul, choice et score produisent le corps System One", () => {
   assert.equal(built.body.state, "Client facturé deux fois.");
 });
 
+test("un state JSON imbriqué est accepté", () => {
+  assert.equal(validatePayload('{"commande": {"id": 4411, "double": true}}', QUESTIONS).ok, true);
+});
+
+test("un JSON de questions invalide est refusé et nommé", () => {
+  const built = validatePayload("s", "{ pas du json");
+  assert.equal(built.ok, false);
+  if (!built.ok) assert.match(built.error, /JSON des questions/);
+});
+
+test("un type inconnu est refusé", () => {
+  const built = validatePayload("s", JSON.stringify({ x: { type: "predicate", instructions: "?" } }));
+  assert.equal(built.ok, false);
+  if (!built.ok) assert.match(built.error, /predicate/);
+});
+
 test("une question sans énoncé est refusée et nommée", () => {
-  const built = buildDecisionRequest("s", false, [{ id: "x", type: "noul", instructions: "  ", options: "" }]);
+  const built = validatePayload("s", JSON.stringify({ x: { type: "noul", instructions: "  " } }));
   assert.equal(built.ok, false);
   if (!built.ok) assert.match(built.error, /x/);
 });
 
 test("un choix à une seule option est refusé", () => {
-  const built = buildDecisionRequest("s", false, [{ id: "c", type: "choice", instructions: "?", options: "seul" }]);
+  const built = validatePayload("s", JSON.stringify({ c: { type: "choice", instructions: "?", criteria: { a: null } } }));
   assert.equal(built.ok, false);
   if (!built.ok) assert.match(built.error, /2 à 255/);
 });
 
 test("un score hors 2–10 niveaux est refusé", () => {
-  const many = Array.from({ length: MAX_LEVELS + 1 }, (_, i) => `n${i}`).join(", ");
-  const built = buildDecisionRequest("s", false, [{ id: "n", type: "score", instructions: "?", options: many }]);
-  assert.equal(built.ok, false);
-});
-
-test("un identifiant en double est refusé", () => {
-  const built = buildDecisionRequest("s", false, [noul("a"), noul("a")]);
-  assert.equal(built.ok, false);
-  if (!built.ok) assert.match(built.error, /double/);
+  const many = Array.from({ length: MAX_LEVELS + 1 }, (_, i) => `n${i}`);
+  assert.equal(validatePayload("s", JSON.stringify({ n: { type: "score", instructions: "?", criteria: many } })).ok, false);
 });
 
 test("plus de questions que la limite est refusé", () => {
-  const drafts = Array.from({ length: MAX_QUESTIONS + 1 }, (_, i) => noul(`q${i}`));
-  assert.equal(buildDecisionRequest("s", false, drafts).ok, false);
+  const drafts = Object.fromEntries(Array.from({ length: MAX_QUESTIONS + 1 }, (_, i) => [`q${i}`, { type: "noul", instructions: "?" }]));
+  assert.equal(validatePayload("s", JSON.stringify(drafts)).ok, false);
 });
 
 test("sans question, rien n'est envoyé", () => {
-  assert.equal(buildDecisionRequest("s", false, []).ok, false);
-});
-
-test("les lignes vides ne sont pas des questions", () => {
-  const drafts: QuestionDraft[] = [
-    { id: "", type: "noul", instructions: "", options: "" },
-    noul("vraie"),
-  ];
-  const built = buildDecisionRequest("s", false, drafts);
-  assert.equal(built.ok, true);
-  if (built.ok) assert.deepEqual(Object.keys(built.body.questions), ["vraie"]);
+  assert.equal(validatePayload("s", "{}").ok, false);
 });
 
 test("les probabilités s'affichent en pourcentage", () => {
@@ -114,6 +112,13 @@ test("la réponse en évidence suit le type", () => {
 });
 
 test("les options d'une réponse sont triées par probabilité", () => {
-  const rows = answerOptions({ probabilities: { a: 0.1, b: 0.9 } });
-  assert.deepEqual(rows, [["b", 0.9], ["a", 0.1]]);
+  assert.deepEqual(answerOptions({ probabilities: { a: 0.1, b: 0.9 } }), [["b", 0.9], ["a", 0.1]]);
+});
+
+test("le type et l'échelle sont nommés comme dans la colonne de droite", () => {
+  const score: DecisionAnswer = { type: "score", score: 0.62, legend: { "0": "a", "1": "b" }, probabilities: { "0": 0.38, "1": 0.62 } };
+  assert.equal(answerTypeLabel(score), "Score");
+  assert.equal(answerScale(score), "2 niveaux · 0~1");
+  assert.equal(answerTypeLabel({ type: "choice", choice: "x" }), "Choice");
+  assert.equal(answerScale({ type: "noul", noul: 0.5 }), null);
 });

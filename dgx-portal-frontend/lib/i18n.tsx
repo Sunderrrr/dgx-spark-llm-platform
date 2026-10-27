@@ -15,6 +15,25 @@ export type Lang = "fr" | "en";
 const EN: Record<string, string> = {
   // ── Décisions (decision model page) ─────────────────────────────────────
   "Décisions": "Decisions",
+  "Ce JSON ne se lit pas : rien à formater.": "This JSON does not parse: nothing to format.",
+  "Confiance : {p}": "Confidence: {p}",
+  "Ctrl + ↵": "Ctrl + ↵",
+  "Exemple": "Example",
+  "Formater": "Format",
+  "Go libres": "GB free",
+  "Lance une requête pour voir la sortie": "Run a request to see the output",
+  "Lancer la requête": "Run request",
+  "Le texte ou le JSON à évaluer.": "The text or JSON to evaluate.",
+  "Les décisions, leurs probabilités et leur confiance s'afficheront ici, une ligne par question.":
+    "The decisions, their probabilities and their confidence appear here, one line per question.",
+  "Réponses": "Responses",
+  "{n} options": "{n} options",
+  "Trois types : noul (oui/non), choice (un choix parmi une liste), score (une échelle ordonnée).":
+    "Three types: noul (yes/no), choice (one of a list), score (an ordered scale).",
+  "Un modèle de décision lit un état et répond à des questions typées. Il ne rédige pas de texte : il renvoie des probabilités.":
+    "A decision model reads a state and answers typed questions. It writes no text: it returns probabilities.",
+  "État": "State",
+
   "Arguments définis par DECISIONS_ARGS": "Arguments set by DECISIONS_ARGS",
   "Définir DECISIONS_MODEL dans .env": "Set DECISIONS_MODEL in .env",
   "Service non déployé": "Service not deployed",

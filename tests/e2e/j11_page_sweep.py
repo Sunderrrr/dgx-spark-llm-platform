@@ -30,9 +30,11 @@ PAGES = [
     ("/", "home",
      [("Disponibilité par capacité", "Availability by capability", "text")]),
     ("/playground", "playground", [("@composer", "@composer", "text")]),
+    # The workbench's own words: two editors on the left, the result list on the
+    # right. « Décisions » alone is the nav entry, present on every page.
     ("/decisions", "decisions",
-     [("État à évaluer", "State to evaluate", "text"),
-      ("Modèle de décision non installé", "Decision model not installed", "text")]),
+     [("Lance une requête pour voir la sortie", "Run a request to see the output", "text"),
+      ("Un modèle de décision lit un état", "A decision model reads a state", "text")]),
     ("/support", "Support assistant", [("Support", "Support", "title")]),
     ("/image", "image generation",
      [("Génération d'image", "Image generation", "title"),

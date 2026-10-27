@@ -1,91 +1,105 @@
 /**
- * The « Décisions » page's request building, kept out of the component so the
- * format is unit-tested (the backend validates the same rules again — this is
- * the screen's own guard, not the authority).
+ * The « Décisions » workbench: the request format and the answer rendering.
  *
- * The System One API takes a `state` (text or JSON) and a map of typed
- * questions: `noul` (yes/no), `choice` (one of a list) and `score` (an ordered
- * scale). See docs/api.md.
+ * Two JSON editors (state, questions) like the System One playground, and a
+ * result list. Kept out of the component so the rules are unit-tested — the
+ * backend validates the same shape again, and a drift between the two would
+ * only surface as a 400 far from the editor.
  */
 
 export type QuestionType = "noul" | "choice" | "score";
-
-export type QuestionDraft = {
-  /** The key the answer comes back under. */
-  id: string;
-  type: QuestionType;
-  instructions: string;
-  /** `choice` → the options, `score` → the levels (lowest first). One per
-   * line or comma-separated; ignored for `noul`. */
-  options: string;
-};
 
 export const MAX_QUESTIONS = 32;
 export const MAX_STATE_BYTES = 64 * 1024;
 export const MAX_CHOICES = 255;
 export const MAX_LEVELS = 10;
 
-export type BuiltRequest =
-  | { ok: true; body: { state: unknown; questions: Record<string, unknown> } }
-  | { ok: false; error: string };
+export type Validated = { ok: true; body: { state: unknown; questions: Record<string, unknown> } } | { ok: false; error: string };
 
 /** The state as the API wants it: a JSON value, or the text as it was typed. */
-export function parseState(text: string, isJson: boolean): { ok: true; value: unknown } | { ok: false; error: string } {
+export function parseState(text: string): { ok: true; value: unknown } | { ok: false; error: string } {
   const trimmed = text.trim();
   if (!trimmed) return { ok: false, error: "Le champ « state » est vide." };
-  if (!isJson) return { ok: true, value: text };
   try {
     return { ok: true, value: JSON.parse(trimmed) };
   } catch {
-    return { ok: false, error: "Le JSON du « state » est invalide." };
+    // A plainly-textual state is the common case, and the quotes are what
+    // people forget: the raw text is sent rather than refused.
+    return { ok: true, value: text };
   }
 }
 
-/** One option per line, or comma-separated; blanks dropped, order kept. */
-export function splitOptions(raw: string): string[] {
-  return raw
-    .split(/[\n,]/)
-    .map((o) => o.trim())
-    .filter((o) => o.length > 0);
+/** `JSON.stringify` for the « Formater » button; null when it does not parse. */
+export function prettyJson(text: string): string | null {
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2);
+  } catch {
+    return null;
+  }
+}
+
+function oneQuestion(id: string, raw: unknown): { ok: true; question: Record<string, unknown> } | { ok: false; error: string } {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return { ok: false, error: `La question « ${id} » doit être un objet.` };
+  }
+  const q = raw as Record<string, unknown>;
+  const type = typeof q.type === "string" ? q.type : "";
+  if (!["noul", "choice", "score"].includes(type)) {
+    return { ok: false, error: `La question « ${id} » : type « ${type || "?"} » inconnu (noul, choice, score).` };
+  }
+  if (typeof q.instructions !== "string" || q.instructions.trim() === "") {
+    return { ok: false, error: `La question « ${id} » n'a pas d'énoncé.` };
+  }
+  const question: Record<string, unknown> = { type, instructions: q.instructions };
+  if (type === "noul") return { ok: true, question };
+  if (type === "choice") {
+    const criteria = q.criteria;
+    if (typeof criteria !== "object" || criteria === null || Array.isArray(criteria)) {
+      return { ok: false, error: `La question « ${id} » (choice) exige « criteria » : {"valeur": description|null}.` };
+    }
+    const n = Object.keys(criteria).length;
+    if (n < 2 || n > MAX_CHOICES) return { ok: false, error: `La question « ${id} » doit offrir 2 à ${MAX_CHOICES} choix.` };
+    question.criteria = criteria;
+    return { ok: true, question };
+  }
+  const criteria = q.criteria;
+  if (!Array.isArray(criteria) || criteria.length < 2 || criteria.length > MAX_LEVELS) {
+    return { ok: false, error: `La question « ${id} » doit avoir 2 à ${MAX_LEVELS} niveaux.` };
+  }
+  if (!criteria.every((c) => typeof c === "string")) {
+    return { ok: false, error: `La question « ${id} » : chaque niveau doit être un texte.` };
+  }
+  question.criteria = criteria;
+  return { ok: true, question };
 }
 
 /**
- * The body `POST /api/decisions/run` takes. Every refusal names the question
- * concerned: a generic « requête invalide » teaches nothing.
+ * The body `POST /api/decisions/run` takes, from the two editors' values.
+ * Every refusal names the question concerned.
  */
-export function buildDecisionRequest(stateText: string, isJson: boolean, drafts: QuestionDraft[]): BuiltRequest {
-  const state = parseState(stateText, isJson);
+export function validatePayload(stateText: string, questionsText: string): Validated {
+  const state = parseState(stateText);
   if (!state.ok) return state;
-  if (new TextEncoder().encode(JSON.stringify(state.value)).length > MAX_STATE_BYTES) {
-    return { ok: false, error: `Le « state » dépasse ${MAX_STATE_BYTES} octets.` };
+  const size = new TextEncoder().encode(JSON.stringify(state.value)).length;
+  if (size > MAX_STATE_BYTES) return { ok: false, error: `Le « state » dépasse ${MAX_STATE_BYTES} octets.` };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(questionsText.trim() || "{}");
+  } catch {
+    return { ok: false, error: "Le JSON des questions est invalide." };
   }
-  const filled = drafts.filter((d) => d.id.trim() !== "" || d.instructions.trim() !== "" || d.options.trim() !== "");
-  if (filled.length === 0) return { ok: false, error: "Ajoute au moins une question." };
-  if (filled.length > MAX_QUESTIONS) return { ok: false, error: `${MAX_QUESTIONS} questions au maximum.` };
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, error: "Les questions doivent être un objet (id → question)." };
+  }
+  const entries = Object.entries(parsed as Record<string, unknown>);
+  if (entries.length === 0) return { ok: false, error: "Ajoute au moins une question." };
+  if (entries.length > MAX_QUESTIONS) return { ok: false, error: `${MAX_QUESTIONS} questions au maximum.` };
   const questions: Record<string, unknown> = {};
-  for (const draft of filled) {
-    const id = draft.id.trim();
-    if (!id) return { ok: false, error: "Chaque question a besoin d'un identifiant." };
-    if (id.length > 64) return { ok: false, error: `Identifiant trop long : « ${id} » (64 caractères au maximum).` };
-    if (id in questions) return { ok: false, error: `Identifiant « ${id} » en double.` };
-    const instructions = draft.instructions.trim();
-    if (!instructions) return { ok: false, error: `La question « ${id} » n'a pas d'énoncé.` };
-    if (draft.type === "noul") {
-      questions[id] = { type: "noul", instructions };
-      continue;
-    }
-    const options = splitOptions(draft.options);
-    if (draft.type === "choice") {
-      if (options.length < 2 || options.length > MAX_CHOICES) {
-        return { ok: false, error: `La question « ${id} » doit offrir 2 à ${MAX_CHOICES} choix.` };
-      }
-      questions[id] = { type: "choice", instructions, criteria: Object.fromEntries(options.map((o) => [o, null])) };
-      continue;
-    }
-    if (options.length < 2 || options.length > MAX_LEVELS) {
-      return { ok: false, error: `La question « ${id} » doit avoir 2 à ${MAX_LEVELS} niveaux.` };
-    }
-    questions[id] = { type: "score", instructions, criteria: options };
+  for (const [id, raw] of entries) {
+    if (id === "" || id.length > 64) return { ok: false, error: "Identifiant de question invalide (1 à 64 caractères)." };
+    const built = oneQuestion(id, raw);
+    if (!built.ok) return built;
+    questions[id] = built.question;
   }
   return { ok: true, body: { state: state.value, questions } };
 }
@@ -126,4 +140,25 @@ export function answerOptions(answer: DecisionAnswer): [string, number][] {
     ? probs.map((p) => [String(p.value), p.probability])
     : Object.entries(probs).map(([k, v]) => [answer.legend?.[k] ?? k, v]);
   return rows.sort((a, b) => b[1] - a[1]);
+}
+
+/** The type, spelled as the result list shows it. */
+export function answerTypeLabel(answer: DecisionAnswer): string {
+  switch (answer.type) {
+    case "noul":
+      return "Noul";
+    case "choice":
+      return "Choice";
+    case "score":
+      return "Score";
+    default:
+      return answer.type ?? "—";
+  }
+}
+
+/** « 2 levels · 0~1 » — the extra line the right column shows for a score. */
+export function answerScale(answer: DecisionAnswer): string | null {
+  if (answer.type !== "score") return null;
+  const levels = answerOptions(answer).length;
+  return levels > 0 ? `${levels} ${levels > 1 ? "niveaux" : "niveau"} · 0~${levels - 1}` : null;
 }

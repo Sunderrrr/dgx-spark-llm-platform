@@ -270,6 +270,13 @@ services:
       # LiteLLM reaches the engine through the same gateway: its routes are written
       # with this address (host.docker.internal resolves to docker0, not to the publish).
       VLLM_API_BASE: http://172.19.0.1:8000/v1
+      # The declared decision model: the portal shows its reference in Admin →
+      # Models even before the runner knows the decision routes. Same keys as
+      # the runner's own environment — one source, `.env`, no drift.
+      DECISIONS_NAME: ${DECISIONS_NAME:-clef-q4km}
+      DECISIONS_MODEL: ${DECISIONS_MODEL:-}
+      DECISIONS_ARGS: ${DECISIONS_ARGS:-}
+      DECISIONS_API_BASE: ${DECISIONS_API_BASE:-http://172.19.0.1:8002/v1}
       LITELLM_URL: http://litellm:4001
       LITELLM_DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env (run setup.sh)}@postgres/litellm
       DGX_WEB: ${DGX_WEB:?set DGX_WEB in .env (see .env.example)}

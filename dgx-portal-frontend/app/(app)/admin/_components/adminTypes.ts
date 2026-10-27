@@ -54,14 +54,14 @@ export type AdminData = {
   asr_load_error?: string | null;
   image_status: string;
   /** The decision model: a second engine on its own port, never the chat one. */
-  decisions?: { status: string; name?: string; model?: string; enabled?: boolean; port?: number | null; libre_gib?: number | null };
+  decisions?: { status: string; name?: string; model?: string; ref?: string; args?: string; enabled?: boolean; port?: number | null; libre_gib?: number | null };
   image_model_name: string | null;
   image_model_ids: string[];
   ocr_cfgs: OcrCfg[];
   voice_cfgs: VoiceCfg[];
 };
 
-export type CatalogKind = "llm" | "ocr" | "voice" | "video" | "image";
+export type CatalogKind = "llm" | "ocr" | "voice" | "video" | "image" | "decisions";
 
 /** Result of an admin action, as the backend now answers it:
  * {ok: false, error} on refusal, {ok: true, message?, warning?} otherwise. */

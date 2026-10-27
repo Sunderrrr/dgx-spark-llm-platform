@@ -15,6 +15,8 @@ export type Lang = "fr" | "en";
 const EN: Record<string, string> = {
   // ── Décisions (decision model page) ─────────────────────────────────────
   "Décisions": "Decisions",
+  "Arguments définis par DECISIONS_ARGS": "Arguments set by DECISIONS_ARGS",
+  "Définir DECISIONS_MODEL dans .env": "Set DECISIONS_MODEL in .env",
   "Service non déployé": "Service not deployed",
   "Mettre à jour le runner pour l'activer": "Update the runner to activate it",
   "Ouvrir les décisions": "Open decisions",

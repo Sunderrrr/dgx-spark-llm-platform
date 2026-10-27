@@ -289,6 +289,7 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
             <SegmentedControlItem value="voice" label={t("Voix")} />
             <SegmentedControlItem value="image" label={t("Image")} />
             <SegmentedControlItem value="video" label={t("Vidéo")} />
+            <SegmentedControlItem value="decisions" label={t("Décisions")} />
           </SegmentedControl>
         </HStack>
 
@@ -335,6 +336,41 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
               </Card>
             ))}
             {llmCfgs.length === 0 && emptyCatalog}
+          </Grid>
+        )}
+
+        {data && catalogKind === "decisions" && (
+          <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
+            <Card>
+              <VStack gap={2}>
+                <HStack gap={2} vAlign="center">
+                  <Text weight="semibold">{data.decisions?.name || t("Décisions")}</Text>
+                  <Badge label="decisions" variant="neutral" />
+                </HStack>
+                <Text type="supporting" color="secondary" wordBreak="break-all">
+                  {data.decisions?.ref || t("Définir DECISIONS_MODEL dans .env")}
+                </Text>
+                {/* The arguments come from DECISIONS_ARGS, not from a form: shown
+                    as they are, so what runs is what is read. */}
+                <Text type="supporting" color="secondary" wordBreak="break-all">
+                  {data.decisions?.args || t("Arguments définis par DECISIONS_ARGS")}
+                </Text>
+                <HStack gap={2}>
+                  {data.decisions?.status === "running" || data.decisions?.status === "starting" ? (
+                    <Button label={t("Arrêter")} variant="secondary" size="sm" icon={<Icon icon={StopIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/api/decisions/stop")} />
+                  ) : (
+                    <Button
+                      label={t("Lancer")}
+                      variant="primary"
+                      size="sm"
+                      icon={<Icon icon={PlayIcon} size="sm" />}
+                      isDisabled={actionDisabled || data.decisions?.enabled === false}
+                      onClick={() => act("/api/decisions/start")}
+                    />
+                  )}
+                </HStack>
+              </VStack>
+            </Card>
           </Grid>
         )}
 

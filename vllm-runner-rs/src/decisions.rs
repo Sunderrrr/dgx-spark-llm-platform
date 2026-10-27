@@ -139,6 +139,10 @@ impl Decisions {
         json!({
             "enabled": self.enabled(),
             "name": self.cfg.name,
+            // What the catalog shows: the weights reference and the arguments
+            // actually used (they come from the environment, not from a form).
+            "ref": self.cfg.hf_id,
+            "args": self.cfg.args.join(" "),
             "port": self.cfg.port,
             "status": s.status,
             "pid": s.proc.as_ref().map(|p| p.pid),

@@ -72,7 +72,11 @@ pub async fn status() -> Value {
         // enabled=false + its own status, so the page names the real reason.
         return json!({
             "model": name,
-            "enabled": false,
+            // The declaration, so the catalog can show what WILL be served
+            // instead of a dash while the runner predates the routes.
+            "ref": env("DECISIONS_MODEL", ""),
+            "args": env("DECISIONS_ARGS", ""),
+            "enabled": !env("DECISIONS_MODEL", "").is_empty(),
             "status": "unsupported",
             "port": null,
             "uptime_s": null,
@@ -85,6 +89,8 @@ pub async fn status() -> Value {
     match runner.map(|(_, v)| v) {
         Some(v) => json!({
             "model": name,
+            "ref": v.get("ref").cloned().filter(|x| crate::keys::truthy(x)).unwrap_or_else(|| json!(env("DECISIONS_MODEL", ""))),
+            "args": v.get("args").cloned().filter(|x| crate::keys::truthy(x)).unwrap_or_else(|| json!(env("DECISIONS_ARGS", ""))),
             "enabled": v.get("enabled").cloned().unwrap_or(json!(false)),
             "status": v.get("status").cloned().unwrap_or(json!("unknown")),
             "port": v.get("port").cloned().unwrap_or(json!(null)),

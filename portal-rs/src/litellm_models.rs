@@ -106,6 +106,48 @@ pub async fn register(name: &str, args: &str, engine: &str) -> bool {
     upsert(name, &upstream(name, engine), max_input, max_output).await
 }
 
+/// Where LiteLLM reaches the decision engine: its own port, never :8000.
+fn decisions_base() -> String {
+    std::env::var("DECISIONS_API_BASE").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| "http://172.19.0.1:8002/v1".into())
+}
+
+/// `_register_decision_model`: the route LiteLLM serves on `/v1/systemone`.
+///
+/// `mode: "decisions"` is what makes the proxy answer it on the decision routes
+/// instead of the chat ones; the provider is `hosted_vllm`, the only
+/// self-hosted decision provider LiteLLM has, and its transport IS the System
+/// One API (`POST {api_base}/v1/systemone`) that llama.cpp implements for Clef.
+/// Costs are stamped at 1 like the chat models: the platform bills tokens, not
+/// a vendor price. No `chat_template_kwargs` here — there is no chat template.
+pub async fn register_decisions(name: &str) -> bool {
+    if key().is_empty() {
+        return false;
+    }
+    let body = json!({
+        "model_name": name,
+        "litellm_params": {
+            "model": format!("hosted_vllm/{name}"),
+            "api_base": decisions_base(),
+            "api_key": "dummy",
+            "input_cost_per_token": 1,
+            "output_cost_per_token": 1,
+        },
+        "model_info": {"mode": "decisions"},
+    });
+    let (existing, before) = entry(name).await;
+    if let Some(id) = &existing {
+        let _ = post("/model/delete", &json!({"id": id}), 5).await;
+    }
+    let Some(r) = post("/model/new", &body, 8).await else { return false };
+    if r.status().as_u16() < 300 {
+        return true;
+    }
+    if let (Some(_), Some(prev)) = (existing, before) {
+        let _ = restore(&prev).await;
+    }
+    false
+}
+
 /// `_unregister_litellm_model(name)`: true when no route of that name is left.
 pub async fn unregister(name: &str) -> bool {
     if key().is_empty() {

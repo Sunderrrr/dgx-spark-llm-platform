@@ -67,6 +67,13 @@ impl Default for Supervisor {
 }
 
 impl Supervisor {
+    /// A supervisor whose readiness probe targets `addr`. The decision service
+    /// is a second engine on its own port: same lifecycle, same guards, other
+    /// socket. `next_gen` stays private, so this is the only way in.
+    pub fn with_probe(addr: &str) -> Supervisor {
+        Supervisor { probe_addr: addr.to_string(), ..Supervisor::default() }
+    }
+
     pub fn lock(&self) -> MutexGuard<'_, Shared> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }

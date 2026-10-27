@@ -13,6 +13,69 @@ export type Lang = "fr" | "en";
  * dictionary; a missing entry falls back to French rather than
  * showing a key name. */
 const EN: Record<string, string> = {
+  // ── Décisions (decision model page) ─────────────────────────────────────
+  "Décisions": "Decisions",
+  "Pose des questions fermées à un modèle de décision : oui/non, choix parmi une liste, note sur une échelle. Il ne rédige pas de texte — il renvoie des probabilités.":
+    "Ask a decision model closed questions: yes/no, a pick from a list, a score on a scale. It writes no text — it returns probabilities.",
+  "port": "port",
+  "mémoire libre": "free memory",
+  "En service": "Running",
+  "Erreur au dernier lancement": "Last launch failed",
+  "Runner injoignable": "Runner unreachable",
+  "État inconnu": "Unknown state",
+  "Modèle de décision non installé": "Decision model not installed",
+  "Un administrateur doit télécharger le GGUF puis démarrer le service (DECISIONS_MODEL dans .env). La page reste utilisable dès qu'il tourne.":
+    "An administrator must download the GGUF then start the service (DECISIONS_MODEL in .env). The page works as soon as it runs.",
+  "État à évaluer": "State to evaluate",
+  "Format de l'état": "State format",
+  "Un objet ou un tableau JSON : il est envoyé tel quel au modèle.":
+    "A JSON object or array: it is sent to the model as it is.",
+  "Le message, le document ou l'extrait à évaluer.": "The message, document or excerpt to evaluate.",
+  "Colle ici le message, le ticket ou le document à évaluer…": "Paste the message, ticket or document to evaluate here…",
+  "Questions": "Questions",
+  "Chaque réponse revient sous l'identifiant de sa question. Les options d'une note vont du plus bas au plus haut.":
+    "Each answer comes back under its question's identifier. A score's options go from lowest to highest.",
+  "Type": "Type",
+  "Oui / non": "Yes / no",
+  "Choix": "Choice",
+  "Note": "Score",
+  "Question posée": "Question",
+  "Choix possibles": "Possible choices",
+  "Niveaux, du plus bas au plus haut": "Levels, lowest first",
+  "Une valeur par ligne (ou séparées par des virgules).": "One value per line (or comma-separated).",
+  "Ajouter une question": "Add a question",
+  "{n} / {max}": "{n} / {max}",
+  "Obtenir les décisions": "Get the decisions",
+  "Le service de décision n'est pas démarré : la requête sera refusée.":
+    "The decision service is not running: the request will be refused.",
+  "Aucune décision pour le moment": "No decision yet",
+  "Renseigne un état et lance les questions : les réponses et leurs probabilités s'afficheront ici.":
+    "Fill in a state and run the questions: the answers and their probabilities appear here.",
+  "Résultats": "Results",
+  "confiance {p}": "confidence {p}",
+  "La décision a échoué.": "The decision failed.",
+  "Service de décision démarré.": "Decision service started.",
+  "Service de décision arrêté.": "Decision service stopped.",
+  "Le service de décision n'a pas répondu.": "The decision service did not answer.",
+  // Messages the portal's validation returns (tServer re-injects the values).
+  "Le champ « state » est vide.": "The « state » field is empty.",
+  "Le JSON du « state » est invalide.": "The « state » JSON is invalid.",
+  "Le « state » dépasse {n} octets.": "The « state » exceeds {n} bytes.",
+  "Ajoute au moins une question.": "Add at least one question.",
+  "{n} questions au maximum.": "At most {n} questions.",
+  "Chaque question a besoin d'un identifiant.": "Every question needs an identifier.",
+  "Identifiant trop long : « {id} » (64 caractères au maximum).": "Identifier too long: « {id} » (64 characters at most).",
+  "Identifiant « {id} » en double.": "Duplicate identifier « {id} ».",
+  "La question « {id} » n'a pas d'énoncé.": "Question « {id} » has no wording.",
+  "La question « {id} » doit offrir 2 à {n} choix.": "Question « {id} » must offer 2 to {n} choices.",
+  "La question « {id} » doit avoir 2 à {n} niveaux.": "Question « {id} » must have 2 to {n} levels.",
+  "Aucune clé API — crée une clé dans Réglages ▸ Clés API.": "No API key — create one in Settings ▸ API keys.",
+  "La passerelle n'a pas répondu.": "The gateway did not answer.",
+  "Budget épuisé pour ta clé, ou trop de requêtes.": "Your key's budget is spent, or too many requests.",
+  "Requête refusée par la passerelle.": "Request refused by the gateway.",
+  "Le service de décision n'est pas démarré.": "The decision service is not running.",
+  "Réponse sans résultat : le modèle n'a renvoyé aucune réponse.": "Empty answer: the model returned no result.",
+  "Réservé aux administrateurs.": "Administrators only.",
   "SMTP non configuré": "SMTP not configured",
   // {adresse} = shipping address, inserted AFTER mount: Cloudflare
   // rewrites the server-side HTML email addresses and would break hydration

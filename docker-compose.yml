@@ -46,8 +46,13 @@ services:
   # ─── LiteLLM — API gateway + key management ────────────────────────────────
   litellm:
     logging: *logging
-    # Pinned by digest (repro + anti supply-chain). Original tag: main-stable,
-    # embedded version verified: 1.104.0 (image of 2026-10-04).
+    # Pinned by digest (repro + anti supply-chain). Tag: v1.104.3, embedded
+    # version verified: 1.104.3 (image of 2026-10-27). Bumped from 1.104.0 on
+    # that day for the decision routes: `/v1/decisions` and `/v1/systemone`
+    # exist from 1.104.2, and the self-hosted `hosted_vllm` decisions provider
+    # from 1.104.3 (LiteLLM docs, decisions page). Measured on a throwaway
+    # container: a `mode: decisions` model on `hosted_vllm` answers both routes
+    # and parses llama.cpp's System One response shape.
     # To update: docker pull ghcr.io/berriai/litellm:main-stable then replace
     # the sha below with the new digest (and check the version with: docker run
     # --rm --entrypoint python <image> -c "from importlib.metadata import
@@ -56,10 +61,13 @@ services:
     # synchronous hooks (`log_pre_api_call` / `log_success_event` /
     # `log_failure_event`) — the async twins (`async_log_pre_api_call`) are
     # declared by `CustomLogger` but never called by LiteLLM (verified on
-    # 1.102.1 AND 1.104.0: zero call site), and a class implementing only them
-    # gets a table, no rows, and total silence. Send one real request and look
-    # at `runtime/inflight.db`.
-    image: ghcr.io/berriai/litellm@sha256:c1465d3eeb7c9f864f8a7bd057a694f9f3c092419ecdea1a9004624747b42e0e
+    # 1.102.1, 1.104.0 and 1.104.3: zero call site), and a class implementing only
+    # them gets a table, no rows, and total silence. Send one real request and
+    # look at `runtime/inflight.db`. Re-verified on 1.104.3 (2026-10-27): one row
+    # during a chat call, none after. Note: the CHAT hooks only — a
+    # `/v1/systemone` call does not go through them (measured), so the admin
+    # in-flight panel stays chat-only.
+    image: ghcr.io/berriai/litellm@sha256:c1909418aea76c798222f701ccd27a1b963d8cf713f797fa072fd222a6a774a4
     container_name: litellm
     restart: unless-stopped
     # Run tini as PID 1: the Prisma bootstrap spawns node helpers, and without

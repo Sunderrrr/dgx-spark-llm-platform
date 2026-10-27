@@ -1,9 +1,12 @@
 [Unit]
-Description=Host perimeter: vLLM (8000), vllm-runner (8001) and ComfyUI (8188) local-only, never reachable over the VPN
+Description=Host perimeter: vLLM (8000), vllm-runner (8001), decisions (8002) and ComfyUI (8188) local-only, never reachable over the VPN
 # Two layers.
 #
-# 1. filter/INPUT: 8000, 8001 and 8188 accept localhost and the ai-platform
-#    docker bridge (the portal reaches them via 172.19.0.1), drop the rest.
+# 1. filter/INPUT: 8000, 8001, 8002 and 8188 accept localhost and the
+#    ai-platform docker bridge (the portal reaches them via 172.19.0.1), drop
+#    the rest. 8002 is the decision model (Cloudflare Clef), a second
+#    llama-server the runner starts on demand: LiteLLM reaches it on the same
+#    bridge, exactly like :8000, and nobody else does.
 #
 # 2. raw/PREROUTING, chain DGX-PERIMETER: the VPN (netbird, `wt0`) rules.
 #    They used to live in filter/INPUT and LOST THE RACE every time: netbird
@@ -12,7 +15,7 @@ Description=Host perimeter: vLLM (8000), vllm-runner (8001) and ComfyUI (8188) l
 #    2026-09-17 and again 2026-10-13: any VPN peer reached the
 #    unauthenticated :8000 and :8188). `raw` is evaluated BEFORE `filter` and
 #    netbird does not touch it, so the order can no longer drift.
-#    wt0 → 8000/8001/8188: DROP (no VPN peer has any use for them).
+#    wt0 → 8000/8001/8002/8188: DROP (no VPN peer has any use for them).
 #    Site-specific rules (e.g. LiteLLM published with DGX_LITELLM_PUBLISH and
 #    admitted from wt0 only) belong in a machine-local drop-in
 #    (`vllm-restrict.service.d/*.conf`, ExecStartPost appending to
@@ -30,18 +33,18 @@ PartOf=netbird.service
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/bin/sh -c '\
-for PORT in 8000 8001 8188; do \
+for PORT in 8000 8001 8002 8188; do \
   iptables -C INPUT -p tcp --dport $PORT -j DROP 2>/dev/null || iptables -I INPUT -p tcp --dport $PORT -j DROP; \
   iptables -C INPUT -p tcp --dport $PORT -s 172.19.0.0/16 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport $PORT -s 172.19.0.0/16 -j ACCEPT; \
   iptables -C INPUT -p tcp --dport $PORT -s 127.0.0.1 -j ACCEPT 2>/dev/null || iptables -I INPUT -p tcp --dport $PORT -s 127.0.0.1 -j ACCEPT; \
 done; \
-iptables -D INPUT -i wt0 -p tcp -m multiport --dports 8000,8001,8188 -j DROP 2>/dev/null || true; \
+iptables -D INPUT -i wt0 -p tcp -m multiport --dports 8000,8001,8002,8188 -j DROP 2>/dev/null || true; \
 iptables -t raw -N DGX-PERIMETER 2>/dev/null || iptables -t raw -F DGX-PERIMETER; \
 iptables -t raw -A DGX-PERIMETER -i lo -j RETURN; \
-iptables -t raw -A DGX-PERIMETER -i wt0 -p tcp -m multiport --dports 8000,8001,8188 -j DROP; \
+iptables -t raw -A DGX-PERIMETER -i wt0 -p tcp -m multiport --dports 8000,8001,8002,8188 -j DROP; \
 iptables -t raw -C PREROUTING -j DGX-PERIMETER 2>/dev/null || iptables -t raw -I PREROUTING 1 -j DGX-PERIMETER'
 ExecStop=/bin/sh -c '\
-for PORT in 8000 8001 8188; do \
+for PORT in 8000 8001 8002 8188; do \
   iptables -D INPUT -p tcp --dport $PORT -j DROP 2>/dev/null || true; \
   iptables -D INPUT -p tcp --dport $PORT -s 172.19.0.0/16 -j ACCEPT 2>/dev/null || true; \
   iptables -D INPUT -p tcp --dport $PORT -s 127.0.0.1 -j ACCEPT 2>/dev/null || true; \

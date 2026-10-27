@@ -58,6 +58,13 @@ it belongs to Postgres and LiteLLM.
 | `IMAGE_URL` | Internal URL of the text-to-image container (default `http://image:8007`) |
 | `COMFYUI_URL` | Internal URL of the ComfyUI video backend (default `http://host.docker.internal:8188`) |
 | `PUBLIC_API_URL` | Public API URL shown to users (default `https://api.example.org/v1`) |
+| `DECISIONS_MODEL` | The decision model to serve: `local:<slug>` under `MODELS_DIR`, or an HF repository id. **Empty (the default) disables the service** — no process, no port, no memory; the Decisions page says so |
+| `DECISIONS_NAME` | Public name of the decision model in LiteLLM and in the page (default `clef-q4km`). Never `auto-model`: that alias follows the *chat* model |
+| `DECISIONS_PORT` | Port of the decision `llama-server` on the host (default `8002`), never published. `8000` is the chat model's, `8001` the runner's |
+| `DECISIONS_ARGS` | Engine arguments for the decision model (default `--ctx-size 8192 --ubatch-size 2048 --n-gpu-layers 999 --flash-attn on`). A Clef prompt is a state plus questions, evaluated in one batch: a big context buys nothing |
+| `DECISIONS_API_BASE` | Where **LiteLLM** reaches the decision engine (default `http://172.19.0.1:8002/v1`). Used both to register the route (`hosted_vllm`) and by the portal's status probe |
+| `LLAMA_BIN_DECISIONS` | The `llama-server` used **only** for decisions (default: `LLAMA_BIN`). Clef needs llama.cpp **b11430 or newer**; keeping a second binary avoids upgrading the one serving chat |
+
 | `SESSION_COOKIE_SECURE` | `1` behind an HTTPS proxy (Traefik), `0` for plain-HTTP LAN |
 | `KEY_MAX_BUDGET` / `KEY_BUDGET_DURATION` | Default per-account budget (default 200 M tokens / week) |
 

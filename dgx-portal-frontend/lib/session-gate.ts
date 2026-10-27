@@ -13,6 +13,7 @@
 export const PROTECTED_PAGES: ReadonlySet<string> = new Set([
   "/",
   "/admin",
+  "/decisions",
   "/image",
   "/memory",
   "/ocr",

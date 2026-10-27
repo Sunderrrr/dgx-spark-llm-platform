@@ -3,13 +3,14 @@
 //! those of the Flask service it replaces.
 use axum::{
     body::{Body, Bytes},
-    extract::{Query, Request, State},
+    extract::{Extension, Query, Request, State},
     http::{header, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
+use runner_rs::decisions::{Decisions, DecisionsCfg};
 use runner_rs::service::{self, App, Config};
 use runner_rs::state;
 use runner_rs::supervisor::Supervisor;
@@ -407,6 +408,36 @@ async fn metrics(State(app): State<Arc<App>>, axum::extract::Extension(prev): ax
     Json(json!({"cpu_pct": cpu_pct(&prev), "ram": ram(), "gpu": gpu(), "model": model, "model_status": status_now}))
 }
 
+
+/// `GET /decisions/status` — the decision model's own state (never the chat
+/// model's): what the portal page shows.
+async fn decisions_status(Extension(d): Extension<Arc<Decisions>>) -> Json<Value> {
+    Json(d.status())
+}
+
+/// `POST /decisions/start` — the memory floor refusal is the answer that
+/// matters: it leaves the chat model serving.
+async fn decisions_start(Extension(d): Extension<Arc<Decisions>>) -> Response {
+    match d.start() {
+        Ok(v) => (StatusCode::OK, Json(v)).into_response(),
+        Err((code, v)) => (StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_REQUEST), Json(v)).into_response(),
+    }
+}
+
+/// `POST /decisions/stop`.
+async fn decisions_stop(Extension(d): Extension<Arc<Decisions>>) -> Response {
+    match d.stop() {
+        Ok(v) => (StatusCode::OK, Json(v)).into_response(),
+        Err((code, v)) => (StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_REQUEST), Json(v)).into_response(),
+    }
+}
+
+/// `GET /decisions/logs` — the startup journal, capped like the chat model's.
+async fn decisions_logs(Extension(d): Extension<Arc<Decisions>>, Query(q): Query<HashMap<String, String>>) -> Json<Value> {
+    let tail = q.get("tail").and_then(|v| v.parse::<usize>().ok()).unwrap_or(LOGS_TAIL);
+    Json(d.logs(tail))
+}
+
 fn config_or_exit() -> Config {
     match Config::from_env() {
         Ok(c) => c,
@@ -420,6 +451,9 @@ fn config_or_exit() -> Config {
 #[tokio::main]
 async fn main() {
     let cfg = config_or_exit();
+    // Built before `cfg` is moved into the App: the decision service reads the
+    // same paths, but keeps its own process, port and log buffer.
+    let decisions = Arc::new(Decisions::new(DecisionsCfg::from_env(&cfg)));
     let app = Arc::new(App { cfg, sup: Arc::new(Supervisor::default()), ops: Mutex::new(()), log_stamp_clock: service::file_stamp });
     service::announce_start(&app);
     {
@@ -435,6 +469,10 @@ async fn main() {
         .route("/stop", post(stop))
         .route("/models/delete-files", post(delete_files))
         .route("/metrics", get(metrics))
+        .route("/decisions/status", get(decisions_status))
+        .route("/decisions/start", post(decisions_start))
+        .route("/decisions/stop", post(decisions_stop))
+        .route("/decisions/logs", get(decisions_logs))
         .route("/video/status", get(video_status))
         .route("/video/start", post(video_start))
         .route("/video/stop", post(video_stop))

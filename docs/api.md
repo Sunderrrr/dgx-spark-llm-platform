@@ -43,6 +43,69 @@ the Python SDK, cURL and env vars — key and endpoint pre-filled, with
 > For **OpenCode**, the config uses a dedicated `dgx` provider (not `openai`)
 > so it won't clash with an official OpenAI account.
 
+## Decisions
+
+A **decision model** answers typed questions about an input instead of writing
+text: a yes/no probability, a pick from a fixed list, a score on an ordered
+scale. The platform serves one — Cloudflare **Clef**, `Q4_K_M` — under the name
+**`clef-q4km`**, on the same gateway and with the same keys and budgets as chat.
+It is **not** a chat model: `/v1/chat/completions` does not exist for it.
+
+Two routes, one model (LiteLLM serves both from the same deployment; the model
+is registered with `mode: decisions`):
+
+```bash
+# System One — the native shape (state + typed questions)
+curl https://api.example.org/v1/systemone \
+  -H "Authorization: Bearer sk-your-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "clef-q4km",
+    "state": "Client : facturé deux fois pour la commande 4411, personne n a répondu.",
+    "questions": {
+      "remboursement": {"type": "noul", "instructions": "Le client demande-t-il un remboursement ?"},
+      "equipe": {"type": "choice", "instructions": "Quelle équipe doit traiter ce message ?",
+                 "criteria": {"facturation": null, "livraison": null, "technique": null}},
+      "urgence": {"type": "score", "instructions": "À quel point est-ce urgent ?",
+                  "criteria": ["peut attendre", "cette semaine", "dans la journée", "tout de suite"]}
+    }
+  }'
+```
+
+```bash
+# OpenAI Decisions — the same questions in OpenAI's format
+curl https://api.example.org/v1/decisions \
+  -H "Authorization: Bearer sk-your-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "clef-q4km",
+    "input": "Client : facturé deux fois pour la commande 4411.",
+    "questions": [
+      {"type": "predicate", "name": "remboursement", "instructions": "Demande-t-il un remboursement ?"},
+      {"type": "choice", "name": "equipe", "instructions": "Quelle équipe ?",
+       "choices": [{"value": "facturation"}, {"value": "livraison"}]}
+    ]
+  }'
+```
+
+The answer carries, per question, the decision and its probabilities
+(`noul` → `noul`; `choice` → `choice` + `probabilities` + `confidence`;
+`score` → `score` + `legend` + `probabilities` + `confidence`), plus `usage`.
+Facts worth knowing before writing a client:
+
+- **No streaming.** A decision is one forward pass; LiteLLM documents the
+  decision routes as non-streamed, and there is no `stream` field to send.
+- **`state` may be text or JSON.** JSON is sent to the model as JSON text.
+- **`choice` takes 2 to 255 options, `score` 2 to 10 levels, 128 questions at
+  most** (the System One API); the portal's own page caps at 32 questions and a
+  64 KiB state.
+- **Keys, budgets and spend apply**: the call goes through LiteLLM like chat, so
+  a spent budget answers **429**. The model has no vendor price; the route is
+  stamped at 1 like the other self-hosted models.
+- The model is **started by an administrator** (Admin, or the page's button) and
+  lives on its own port: starting it never replaces the chat model, and it is
+  refused when the memory left would not hold it.
+
 ## Thinking over the API
 
 Thinking is **off by default** for API clients and opt-in — pass

@@ -129,6 +129,26 @@ default** and opt-in — pass `"chat_template_kwargs": {"enable_thinking": true}
 (or a `reasoning_effort`) to ask for it. This default is registered at the
 LiteLLM model level; an explicit request always wins.
 
+### Decisions
+
+A decision model answers **closed questions** about a text or a JSON document —
+yes/no, one option out of a list, a score on an ordered scale — and returns
+probabilities, not prose. The page is not the playground: it has a state field
+(text or JSON), a list of typed questions and a result panel.
+
+Each answer shows the decision, its probabilities (highest first) and the
+confidence when the model provides one; the state and the questions are theirs to
+compose, and the default set shows the three types at once. An administrator
+starts or stops the engine from the same page (or Admin); the status line says
+whether it runs, on which port and how much memory is left. When the engine is
+not running, an explicit request is refused with that reason — the page never
+pretends the model answered.
+
+The same model is on the API at **`clef-q4km`**, on `/v1/systemone` and
+`/v1/decisions`, with the user's keys and budgets — see
+[api → decisions](api.md#decisions). It is not a chat model and has no chat
+endpoint.
+
 ### Memory
 
 A knowledge graph of what the assistant has learned about you, built as you

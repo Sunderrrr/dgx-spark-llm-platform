@@ -46,6 +46,7 @@ pub mod ldap;
 pub mod sso;
 pub mod webauthn;
 pub mod latency;
+pub mod decisions;
 
 pub use db::Database;
 pub use error::ApiError;

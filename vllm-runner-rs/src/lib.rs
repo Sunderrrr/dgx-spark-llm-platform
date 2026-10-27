@@ -2,6 +2,7 @@
 //! migration). Pure logic first: the argument allow-lists and their validation,
 //! the repository identity, the token check. Process supervision follows.
 pub mod build;
+pub mod decisions;
 pub mod flags;
 pub mod launch_env;
 pub mod service;

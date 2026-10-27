@@ -157,6 +157,87 @@ pitfalls behind these numbers (`--kv-unified`, YaRN, KV-cache quantization, the
 v0.5.0 binary A/B) are in
 [troubleshooting → the runner](troubleshooting.md#the-runner).
 
+## The decision model
+
+A decision model is not a chat model: Cloudflare **Clef** reads a state and a
+schema of typed questions and returns probabilities in **one forward pass**. It
+has no chat endpoint, so it cannot be served on `:8000` without replacing the
+chat model — and it must not. The runner therefore keeps a **second**
+`llama-server`, on its own port (`8002` by default), started and stopped
+explicitly:
+
+| Route (runner) | Effect |
+|---|---|
+| `GET /decisions/status` | state, port, pid, memory left — what the page shows |
+| `POST /decisions/start` | spawn it, after the memory floor check |
+| `POST /decisions/stop` | kill **that** process only |
+| `GET /decisions/logs` | its startup journal, capped like the chat model's |
+
+Rules, all of them measured or structural:
+
+- **It is never started automatically.** No auto-resume, no boot start: it costs
+  ~17.65 GB of the unified pool, and the chat model already holds most of it.
+- **The memory floor applies** (`MIN_FREE_TO_LAUNCH_GIB`, 30 GiB by default): a
+  start below it is **refused**, with the number in the message. The fix is to
+  stop a media sidecar — never to shrink the chat model.
+- **The runtime guard is the same**: the runner kills this process (only this
+  one) if `MemAvailable` falls under `CRITICAL_FREE_GIB`.
+- **LiteLLM reaches it on the docker bridge**, like `:8000`: `vllm-restrict.service`
+  admits `8002` from `172.19.0.0/16` and loopback, and drops it from the VPN.
+  Without that port admitted, the portal sees the engine and LiteLLM does not.
+- **No streaming.** A decision is one pass; LiteLLM documents the decision routes
+  as non-streamed.
+- **Concurrency is not promised.** llama-server's slot behaviour for a decision
+  model was not measured on this box; assume one request at a time until you have
+  measured otherwise.
+
+### Activating it (manual, not done by an update)
+
+Nothing below happens on its own: no weight is downloaded by the platform.
+
+1. **Get a `llama-server` that knows the architecture and the endpoint.** Clef
+   needs llama.cpp **b11430 or newer** (the GGUF card says so, and the binary it
+   was quantized with); older builds do not know `clef` and have no
+   `/v1/systemone`. Build it for the GB10 (CUDA 13, sm_121) or take a prebuilt
+   aarch64 release, and keep it **separate** from the chat binary:
+   `LLAMA_BIN_DECISIONS=/path/to/llama-server-b11430`. Do not compile while a
+   large chat model is loaded (that has rebooted this box once).
+2. **Download the quant** into the models directory, under the slug you will
+   reference:
+   ```bash
+   mkdir -p "$MODELS_DIR/clef-q4km"
+   hf download bartowski/Cloudflare_clef-GGUF \
+     --include "Cloudflare_clef-Q4_K_M.gguf" --local-dir "$MODELS_DIR/clef-q4km"
+   ```
+   `DECISIONS_MODEL=local:clef-q4km` resolves the first `*.gguf` shard of that
+   folder, the same resolver the chat models use.
+3. **Set the keys in `.env`** (see [configuration](configuration.md#configuration)):
+   `DECISIONS_MODEL`, `DECISIONS_NAME` (default `clef-q4km`),
+   `LLAMA_BIN_DECISIONS`, and `DECISIONS_PORT` if `8002` is taken.
+4. **Restart `vllm-runner`** so it reads them — the environment is read at
+   startup. This **kills the chat model**: do it in a window, it is not a
+   zero-downtime change.
+5. **Admit the port**: install/restart `vllm-restrict.service` (the tracked unit
+   now lists `8002`). A container that cannot reach it gets a timeout, not an
+   error message.
+6. **Start it** from Admin → Décisions (or `POST /decisions/start` on the runner
+   with the token). A successful start **registers the LiteLLM route** with
+   `mode: decisions`; a refused start registers nothing.
+7. **Verify end to end**, with a user key:
+   ```bash
+   curl https://api.example.org/v1/systemone \
+     -H "Authorization: Bearer sk-…" -H "Content-Type: application/json" \
+     -d '{"model":"clef-q4km","state":"test","questions":{"ok":{"type":"noul","instructions":"Is this a test?"}}}'
+   ```
+   `noul` must come back as a probability. A 400 naming the model means the route
+   is not registered; a 503 means the engine is not running.
+
+Optional: the repository also ships a multimodal projector
+(`mmproj-Cloudflare_clef-f16.gguf`). The page does **not** offer images in this
+version: adding it means passing `--mmproj` in `DECISIONS_ARGS` and teaching the
+page to send `files`. Until the whole path is validated, treat the served model
+as **text-only**.
+
 ## Media sidecars
 
 OCR, video, image, voice and dictation run in separate containers, each

@@ -207,6 +207,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/admin/model/add", post(handlers::admin_model_add))
         .route("/admin/model/launch", post(handlers::admin_model_launch))
         .route("/admin/model/stop", post(handlers::admin_model_stop))
+        // The console downloads the weights itself: no shell, the platform's own
+        // HF token, and a launch that no longer answers « download it first ».
+        .route("/admin/model/download", post(handlers::admin_model_download))
+        .route("/api/model/download", get(handlers::api_model_download))
         .route("/admin/ocr/catalog/launch", post(handlers::admin_ocr_launch))
         .route("/admin/voice/catalog/launch", post(handlers::admin_voice_launch))
         .route("/admin/image/launch", post(handlers::admin_image_launch))

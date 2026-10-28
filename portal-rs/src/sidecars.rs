@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 
 use crate::db::Database;
-use crate::{models, probes};
+use crate::probes;
 
 const PROBE: Duration = Duration::from_millis(300);
 

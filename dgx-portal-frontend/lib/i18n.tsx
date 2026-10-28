@@ -78,6 +78,11 @@ const EN: Record<string, string> = {
   "État": "State",
 
   "Arguments définis par DECISIONS_ARGS": "Arguments set by DECISIONS_ARGS",
+  "Téléchargement de {r}": "Downloading {r}",
+  "Téléchargement terminé : {r}": "Download finished: {r}",
+  "en cours": "in progress",
+  "Dépôt Hugging Face": "Hugging Face repository",
+  "propriétaire/dépôt (ex. Qwen/Qwen3-8B-GGUF)": "owner/repo (e.g. Qwen/Qwen3-8B-GGUF)",
   "Définir DECISIONS_MODEL dans .env": "Set DECISIONS_MODEL in .env",
   "Service non déployé": "Service not deployed",
   "Mettre à jour le runner pour l'activer": "Update the runner to activate it",

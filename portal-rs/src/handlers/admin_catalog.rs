@@ -212,6 +212,77 @@ pub async fn admin_model_launch(State(state): State<AppState>, headers: HeaderMa
     (if uncertain { StatusCode::ACCEPTED } else { StatusCode::SERVICE_UNAVAILABLE }, Json(json!({"ok": false, "error": msg, "uncertain": uncertain}))).into_response()
 }
 
+/// POST /admin/model/download — fetch a catalog model's weights.
+///
+/// The console must not need the operator's shell for this: the weights are
+/// tens of gigabytes, they need the platform's HF token, and until now adding
+/// a model only wrote a catalog row that a launch then refused with « not in HF
+/// cache — download it first ». The runner does the work (it owns the paths and
+/// the token); this route only says WHICH repository and WHERE.
+pub async fn admin_model_download(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let (s, form) = match admin_form(&state, &headers, &body, "/admin/model/download").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let name = field(&form, "model_name");
+    let pool = state.db.pool();
+    let cfg: Option<(String, String, String)> = sqlx::query_as("SELECT name, hf_model_id, engine FROM model_configs WHERE name=?")
+        .bind(&name)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+    let Some((cname, hf_id, engine)) = cfg else {
+        return (StatusCode::NOT_FOUND, Json(json!({"ok": false, "error": "Modèle introuvable."}))).into_response();
+    };
+    // A `local:` entry resolves its files under MODELS_DIR; a bare `owner/name`
+    // resolves them from the HF cache. The download must land where the launch
+    // will look, otherwise it is wasted bandwidth.
+    let (repo, target) = if hf_id.starts_with("local:") {
+        // `local:<slug>` does not name a repository: the catalog row's engine
+        // does not help either, so the UI sends the repo explicitly.
+        (field(&form, "repo"), "local")
+    } else {
+        (hf_id.clone(), "cache")
+    };
+    if repo.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "error": "Dépôt Hugging Face requis (propriétaire/nom) pour un modèle local."}))).into_response();
+    }
+    let payload = json!({"repo": repo.trim(), "target": target});
+    let sent = crate::launches::runner_post_public("/models/download", Some(&payload), 30).await;
+    let answer = match sent {
+        Err(e) => {
+            let msg = if e.is_timeout() { "Runner injoignable (délai dépassé)." } else { "Runner injoignable." };
+            crate::sessions::log_audit(pool, &s.username, "model.download_échec", &format!("{cname} : {msg}")).await;
+            return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "error": msg}))).into_response();
+        }
+        Ok(r) => r,
+    };
+    let status = answer.status();
+    let text = answer.text().await.unwrap_or_default();
+    let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+    if !status.is_success() {
+        let detail = parsed.get("detail").and_then(|v| v.as_str()).unwrap_or("téléchargement refusé").to_string();
+        crate::sessions::log_audit(pool, &s.username, "model.download_refusé", &format!("{cname} : {detail}")).await;
+        return (StatusCode::CONFLICT, Json(json!({"ok": false, "error": detail}))).into_response();
+    }
+    crate::sessions::log_audit(pool, &s.username, "model.download", &format!("{cname} ({repo}, {target}, {engine})")).await;
+    json_ok(&format!("Téléchargement de {cname} lancé ({repo})."), json!({"repo": repo, "target": target}))
+}
+
+/// GET /api/model/download — the runner's download state, for the console.
+/// Admin only: the log path and the repository names are operational data.
+pub async fn api_model_download(State(state): State<AppState>, uri: axum::http::Uri, headers: HeaderMap) -> Response {
+    if let Err(r) = admin_guard(&state, &headers, uri.path()).await {
+        return r;
+    }
+    let sent = crate::launches::runner_get_public("/models/download/status", 10).await;
+    match sent {
+        Ok(v) => Json(v).into_response(),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "error": "Runner injoignable."}))).into_response(),
+    }
+}
+
 /// POST /admin/model/stop - the chat model.
 pub async fn admin_model_stop(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
     let (s, _) = match admin_form(&state, &headers, &body, "/admin/model/stop").await {

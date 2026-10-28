@@ -3,6 +3,7 @@
 //! the repository identity, the token check. Process supervision follows.
 pub mod build;
 pub mod decisions;
+pub mod download;
 pub mod flags;
 pub mod launch_env;
 pub mod service;

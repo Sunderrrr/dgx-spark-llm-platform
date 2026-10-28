@@ -30,6 +30,27 @@ fn error_name(e: &reqwest::Error) -> &'static str {
     }
 }
 
+/// The runner's POST, for the modules that need it (`admin_catalog`'s model
+/// download). Kept next to the private one so there is ONE place that knows how
+/// the runner is addressed and authenticated.
+pub(crate) async fn runner_post_public(path: &str, body: Option<&Value>, secs: u64) -> Result<reqwest::Response, reqwest::Error> {
+    runner_post(path, body, secs).await
+}
+
+/// The runner's GET, same reason.
+pub(crate) async fn runner_get_public(path: &str, secs: u64) -> Result<Value, reqwest::Error> {
+    let url = format!("{}{path}", crate::probes::runner_url());
+    let token = std::env::var("RUNNER_TOKEN").unwrap_or_default();
+    let r = reqwest::Client::builder()
+        .timeout(Duration::from_secs(secs))
+        .build()?
+        .get(url)
+        .bearer_auth(token)
+        .send()
+        .await?;
+    r.json::<Value>().await
+}
+
 async fn runner_post(path: &str, body: Option<&Value>, secs: u64) -> Result<reqwest::Response, reqwest::Error> {
     let mut req = crate::sidecars::http().post(format!("{}{path}", crate::probes::runner_url())).bearer_auth(token()).timeout(Duration::from_secs(secs));
     if let Some(b) = body {

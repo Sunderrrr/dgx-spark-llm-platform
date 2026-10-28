@@ -4,7 +4,7 @@
 // the catalog, and how to add to it. One action = one tab: « I want to launch
 // or stop something » lands here.
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { VStack, HStack } from "@astryxdesign/core/Stack";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Text } from "@astryxdesign/core/Text";
@@ -24,6 +24,7 @@ import {
   TrashIcon,
   PlusIcon,
   MagnifyingGlassIcon,
+  ArrowDownTrayIcon,
 } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
 import {
@@ -34,6 +35,26 @@ import {
   type CatalogKind,
   type ModelCfg,
 } from "./adminTypes";
+
+/** The runner's download state (see vllm-runner-rs/src/download.rs). */
+type DownloadStatus = {
+  running?: boolean;
+  repo?: string | null;
+  target?: string | null;
+  bytes?: number;
+  total?: number | null;
+  error?: string | null;
+};
+
+/** Bytes, as a human reads them: « 12,3 Go / 83,9 Go ». */
+function go(n: number | null | undefined): string {
+  const v = n ?? 0;
+  const units = ["o", "Ko", "Mo", "Go", "To"];
+  let i = 0;
+  let x = v;
+  while (x >= 1024 && i < units.length - 1) { x /= 1024; i += 1; }
+  return `${x.toFixed(x >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
 
 /** The decision engine's states, named as the page names them. */
 const DECISIONS_LABEL: Record<string, string> = {
@@ -56,6 +77,29 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
   // voice, image); the video notice is not a list, so it has nothing to
   // filter.
   const [catalogFilter, setCatalogFilter] = useState("");
+  // The weights download (one at a time, on the runner): its state is POLLED
+  // while it runs, because a 90 GiB fetch outlives any reasonable request and
+  // the console must show progress rather than a spinner that lies.
+  const [dl, setDl] = useState<DownloadStatus | null>(null);
+  const [dlRepo, setDlRepo] = useState<Record<string, string>>({});
+
+  const refreshDl = useCallback(async () => {
+    try {
+      const r = await fetch("/api/model/download", { credentials: "include" });
+      if (!r.ok) return;
+      setDl(await r.json());
+    } catch {
+      /* the console must not break because the poll failed */
+    }
+  }, []);
+
+  // Polling only: the FIRST fetch happens when a download is started (and the
+  // interval covers the rest), so the effect never sets state synchronously —
+  // the lint rule is right, and it keeps the first paint honest.
+  useEffect(() => {
+    const id = window.setInterval(() => { void refreshDl(); }, 4000);
+    return () => window.clearInterval(id);
+  }, [refreshDl]);
 
   const st = data?.v_status.status;
   const q = catalogFilter.trim().toLowerCase();
@@ -316,6 +360,29 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
           />
         )}
 
+        {/* The download in progress, named: the console used to require a
+            shell and the operator's memory for this step. */}
+        {dl && (dl.running || dl.repo) && (
+          <Card>
+            <VStack gap={1}>
+              <HStack gap={2} vAlign="center">
+                <Text weight="semibold" size="sm">
+                  {dl.running ? t("Téléchargement de {r}") : t("Téléchargement terminé : {r}")}
+                </Text>
+                {dl.running
+                  ? <Badge label={dl.total ? `${Math.min(99, Math.round(((dl.bytes ?? 0) / dl.total) * 100))} %` : t("en cours")} variant="warning" />
+                  : dl.error
+                    ? <Badge label={t("Échec")} variant="error" />
+                    : <Badge label={t("Terminé")} variant="success" />}
+              </HStack>
+              <Text type="supporting" color="secondary">
+                {go(dl.bytes)}{dl.total ? ` / ${go(dl.total)}` : ""}
+                {dl.error ? ` — ${dl.error}` : ""}
+              </Text>
+            </VStack>
+          </Card>
+        )}
+
         {data && catalogKind === "llm" && (
           <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
             {llmCfgs.map((cfg) => (
@@ -328,12 +395,42 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
                   <Text type="supporting" color="secondary" wordBreak="break-all">
                     {cfg.hf_model_id}
                   </Text>
+                  {/* A `local:<slug>` entry names a DIRECTORY, not a repository:
+                      the console must also say where to fetch it from. */}
+                  {cfg.hf_model_id.startsWith("local:") && (
+                    <TextInput
+                      label={t("Dépôt Hugging Face")}
+                      isLabelHidden
+                      value={dlRepo[cfg.name] ?? ""}
+                      onChange={(v) => setDlRepo((s) => ({ ...s, [cfg.name]: v }))}
+                      placeholder={t("propriétaire/dépôt (ex. Qwen/Qwen3-8B-GGUF)")}
+                      size="sm"
+                    />
+                  )}
                   <HStack gap={2}>
                     {/* Lancer = load the model into memory (minutes,
                         heavy memory footprint) and Supprimer = remove
                         the entry (from the catalog AND the LiteLLM
                         routing): both go through a confirmation. */}
                     <Button label={t("Lancer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => setConfirmAction({ kind: "launch", name: cfg.name })} />
+                    {/* The weights: without them a launch answers « not in HF
+                        cache — download it first ». One click, the platform's
+                        own token, progress above. */}
+                    <Button
+                      label={t("Télécharger")}
+                      variant="secondary"
+                      size="sm"
+                      isIconOnly
+                      icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+                      isDisabled={actionDisabled || dl?.running}
+                      onClick={async () => {
+                        await act("/admin/model/download", {
+                          model_name: cfg.name,
+                          repo: cfg.hf_model_id.startsWith("local:") ? (dlRepo[cfg.name] ?? "").trim() : "",
+                        });
+                        void refreshDl();
+                      }}
+                    />
                     <ArgsEditForm
                       cfg={cfg}
                       isDisabled={actionDisabled}

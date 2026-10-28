@@ -298,6 +298,37 @@ async fn voice_launch(body: Bytes) -> Response {
     ok_detail(ok, out).into_response()
 }
 
+/// `POST /models/download` — start fetching a repository's weights.
+///
+/// `target=local` puts them under `MODELS_DIR/<slug>` (what a `local:<slug>`
+/// catalog entry resolves); `target=cache` fills the HF cache (what a bare
+/// `owner/name` resolves). The token is the runner's, never the caller's.
+async fn download_start(State(app): State<Arc<App>>, body: Bytes) -> Response {
+    let data = json_or_empty(&body);
+    let repo = data.get("repo").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let target = match data.get("target").and_then(|v| v.as_str()).unwrap_or("cache") {
+        "local" => runner_rs::download::Target::Local,
+        "cache" => runner_rs::download::Target::Cache,
+        other => return (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "detail": format!("unknown target « {other} »")}))).into_response(),
+    };
+    let cli = std::env::var("HF_CLI").unwrap_or_else(|_| "/root/venvs/exl3/bin/hf".to_string());
+    match runner_rs::download::start(&app.cfg.paths, &app.cfg.log_dir, &repo, target, &cli) {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => (StatusCode::CONFLICT, Json(json!({"ok": false, "detail": e}))).into_response(),
+    }
+}
+
+/// `GET /models/download/status` — measured progress, or "no job".
+async fn download_status() -> Json<Value> {
+    Json(runner_rs::download::status())
+}
+
+/// `POST /models/download/clear` — forget a finished job (its log stays).
+async fn download_clear() -> Json<Value> {
+    runner_rs::download::clear();
+    Json(json!({"ok": true}))
+}
+
 async fn asr_launch(body: Bytes) -> Response {
     let data = json_or_empty(&body);
     let model = data.get("model_id").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
@@ -483,6 +514,11 @@ async fn main() {
         .route("/launch", post(launch))
         .route("/stop", post(stop))
         .route("/models/delete-files", post(delete_files))
+        // Downloading weights, from the console: one job at a time, with the
+        // platform's own HF token (see src/download.rs).
+        .route("/models/download", post(download_start))
+        .route("/models/download/status", get(download_status))
+        .route("/models/download/clear", post(download_clear))
         .route("/metrics", get(metrics))
         .merge(decisions_routes(decisions.clone()))
         .route("/video/status", get(video_status))

@@ -22,7 +22,6 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 anyhow = "1.0"
 thiserror = "1.0"
-dotenv = "0.15"
 clap = { version = "4", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 libc = "0.2"

@@ -34,7 +34,7 @@ chrono-tz = "0.10"
 uuid = { version = "1", features = ["v4", "serde"] }
 anyhow = "1.0"
 thiserror = "1.0"
-dotenv = "0.15"
+dotenvy = "0.15"
 clap = { version = "4", features = ["derive"] }
 sha2 = { version = "0.10", features = ["oid"] }
 hex = "0.4"

@@ -14,7 +14,7 @@ async fn main() -> anyhow::Result<()> {
     // Setup logging
     tracing_subscriber::fmt::init();
     
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
     
     // Get config from env
     let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:/app/data/portal.db".to_string());

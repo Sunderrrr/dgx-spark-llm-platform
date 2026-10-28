@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.99 AS builder
+FROM rust:1.99@sha256:53766005847cbe02c3f59bfa49c1c4bb16695f2c9e5829c3d576a15406f5e733 AS builder
 
 WORKDIR /app
 
@@ -20,7 +20,7 @@ COPY portal-rs/workflows ./workflows
 RUN cargo build --release
 
 # Runtime stage
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
 
 RUN apt-get update && apt-get install -y \
     ca-certificates curl \

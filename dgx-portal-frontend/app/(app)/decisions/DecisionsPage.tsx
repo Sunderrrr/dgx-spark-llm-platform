@@ -17,18 +17,13 @@ import { ClickableCard } from "@astryxdesign/core/ClickableCard";
 import { Divider } from "@astryxdesign/core/Divider";
 import { Icon } from "@astryxdesign/core/Icon";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
-import { StatusDot } from "@astryxdesign/core/StatusDot";
-import { useToast } from "@astryxdesign/core/Toast";
 import {
-  ArrowPathIcon,
   BeakerIcon,
   CodeBracketIcon,
   CubeIcon,
   DocumentTextIcon,
   PhotoIcon,
-  PlayIcon,
   SparklesIcon,
-  StopIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { getJSON, sendJSON } from "@/lib/api";
@@ -60,14 +55,6 @@ type DecisionsStatus = {
 
 type RunResult = { ok: true; model: string; answers: Record<string, DecisionAnswer>; usage: { input_tokens?: number } | null };
 
-const STATUS_LABEL: Record<string, string> = {
-  running: "En service",
-  starting: "Démarrage…",
-  stopped: "Arrêté",
-  error: "Erreur au dernier lancement",
-  unsupported: "Service non déployé sur le runner",
-  unreachable: "Runner injoignable",
-};
 
 /** The three question types, shown while the editor is still empty. */
 const TYPE_HINTS: { type: string; description: string; example: string }[] = [
@@ -96,7 +83,6 @@ export type DecisionsSeed = { status: DecisionsStatus | null };
 export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | null }) {
   const t = useT();
   const csrf = useCsrf();
-  const showToast = useToast();
   const isNarrow = useIsNarrow();
   const { data: initial } = useSeed<DecisionsSeed>(seed);
   const [status, setStatus] = useState<DecisionsStatus | null>(initial.status ?? null);
@@ -105,7 +91,6 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
   const [result, setResult] = useState<RunResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [adminBusy, setAdminBusy] = useState(false);
   // The right column shows one thing at a time: the examples browser, the
   // result, or what to do first. Running a request closes the browser.
   const [examplesOpen, setExamplesOpen] = useState(false);
@@ -144,9 +129,12 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
     } catch {
       setError(t("La décision a échoué."));
     } finally {
+      // The banner's truth follows the engine: a run that just failed on a
+      // stopped service must show it, not the state of the last page load.
+      await loadStatus();
       setBusy(false);
     }
-  }, [assets, csrf, questionsText, stateText, t]);
+  }, [assets, csrf, loadStatus, questionsText, stateText, t]);
 
   // Ctrl/⌘ + ↵ launches the request, like the System One playground. The ref
   // holds the current `run` so the listener is installed once.
@@ -164,25 +152,6 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-
-  const control = async (action: "start" | "stop") => {
-    setAdminBusy(true);
-    try {
-      const answer = await sendJSON<{ ok?: boolean; error?: string }>(`/api/decisions/${action}`, csrf);
-      if (answer.error) {
-        const message = tServer(answer.error, t);
-        setError(message);
-        showToast({ body: message, type: "error" });
-      } else {
-        showToast({ body: t(action === "start" ? "Service de décision démarré." : "Service de décision arrêté."), type: "info" });
-      }
-      await loadStatus();
-    } catch {
-      setError(t("Le service de décision n'a pas répondu."));
-    } finally {
-      setAdminBusy(false);
-    }
-  };
 
   const format = (which: "state" | "questions") => {
     const pretty = prettyJson(which === "state" ? stateText : questionsText);
@@ -240,58 +209,23 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
 
   const answers = useMemo(() => (result ? Object.entries(result.answers) : []), [result]);
   const serviceUp = status?.status === "running";
-  const statusLabel = t(STATUS_LABEL[status?.status ?? ""] ?? "État inconnu");
   const questionsEmpty = questionsText.trim() === "";
 
   return (
     <Layout height="fill">
       <LayoutContent padding={6}>
         <VStack gap={4} width="100%">
-          <HStack gap={3} vAlign="center" justify="between" wrap="wrap">
-            <VStack gap={0}>
-              <Heading level={1}>{t("Décisions")}</Heading>
-              <Text type="supporting" color="secondary">
-                {t(
-                  "Un modèle de décision lit un état et répond à des questions typées. Il ne rédige pas de texte : il renvoie des probabilités.",
-                )}
-              </Text>
-            </VStack>
-            <HStack gap={3} vAlign="center" wrap="wrap">
-              <StatusDot
-                variant={
-                  serviceUp ? "success"
-                    : status?.status === "starting" || status?.status === "unsupported" ? "warning"
-                      : status?.status === "error" || !status ? "error" : "neutral"
-                }
-                label={statusLabel}
-              />
-              <Text type="supporting">{statusLabel}</Text>
-              {status && (
-                <Text type="supporting" color="secondary">
-                  {status.model}
-                  {status.port ? ` · ${t("port")} ${status.port}` : ""}
-                  {status.libre_gib !== null ? ` · ${status.libre_gib.toFixed(0)} ${t("Go libres")}` : ""}
-                </Text>
+          {/* No status bar: the workbench is the page. The service's state lives
+              in Admin → Modèles (start/stop there), and a stopped engine still
+              announces itself, in the result column, before anything runs. */}
+          <VStack gap={0}>
+            <Heading level={1}>{t("Décisions")}</Heading>
+            <Text type="supporting" color="secondary">
+              {t(
+                "Un modèle de décision lit un état et répond à des questions typées. Il ne rédige pas de texte : il renvoie des probabilités.",
               )}
-              <Button
-                label={t("Actualiser l'état")}
-                variant="ghost"
-                size="sm"
-                icon={<Icon icon={ArrowPathIcon} size="sm" />}
-                onClick={() => void loadStatus()}
-              />
-              {status?.admin && (
-                <Button
-                  label={t(serviceUp ? "Arrêter" : "Démarrer")}
-                  variant="secondary"
-                  size="sm"
-                  icon={<Icon icon={serviceUp ? StopIcon : PlayIcon} size="sm" />}
-                  isLoading={adminBusy}
-                  onClick={() => void control(serviceUp ? "stop" : "start")}
-                />
-              )}
-            </HStack>
-          </HStack>
+            </Text>
+          </VStack>
 
           <HStack gap={6} vAlign="start" width="100%" wrap={isNarrow ? "wrap" : "nowrap"}>
             {/* ── Left: the request, as JSON ─────────────────────────────── */}
@@ -439,6 +373,14 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
                       </HStack>
                     </HStack>
                     <Divider />
+
+                    {!serviceUp && (
+                      <Banner
+                        status="warning"
+                        title={t("Le service de décision n'est pas démarré")}
+                        description={t("Un administrateur le démarre dans Admin ▸ Modèles, carte Décisions.")}
+                      />
+                    )}
 
                     {error && <Banner status="error" title={t("Échec")} description={error} />}
 

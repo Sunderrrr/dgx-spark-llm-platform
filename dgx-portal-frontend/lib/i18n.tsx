@@ -27,6 +27,10 @@ const EN: Record<string, string> = {
   "Les décisions, leurs probabilités et leur confiance s'afficheront ici, une ligne par question.":
     "The decisions, their probabilities and their confidence appear here, one line per question.",
   "Réponses": "Responses",
+  "Le service de décision n'est pas démarré": "The decision service is not running",
+  "Un administrateur le démarre dans Admin ▸ Modèles, carte Décisions.":
+    "An administrator starts it in Admin ▸ Models, the Decisions card.",
+
   "Images jointes": "Attached images",
   "Ajouter une image": "Add an image",
   "{n} image(s) lue(s) par le modèle": "{n} image(s) read by the model",

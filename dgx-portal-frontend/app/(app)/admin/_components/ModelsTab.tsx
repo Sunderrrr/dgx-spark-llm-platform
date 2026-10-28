@@ -145,10 +145,13 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
                   )}
                 </HStack>
                 {/* A frozen ComfyUI workflow exposes no model id, but the
-                    pipeline HAS a name: the card used to go green with nothing
-                    under it, and stopped it said nothing at all. */}
+                    pipeline HAS a name. It is shown ONLY while the service is
+                    up: a name under a neutral dot reads as "it works", which
+                    is exactly what the operator does not want. */}
                 <Text type="supporting" color="secondary" wordBreak="break-all">
-                  {data.video_model_name || t("aucun modèle")}
+                  {data.video_status === "running" || data.video_status === "starting"
+                    ? data.video_model_name || t("aucun modèle")
+                    : t("aucun modèle")}
                 </Text>
               </VStack>
             </Card>
@@ -268,7 +271,9 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
                     ? t("Mettre à jour le runner pour l'activer")
                     : data.decisions?.enabled === false
                       ? t("Modèle de décision non installé")
-                      : data.decisions?.model || t("aucun modèle")}
+                      : data.decisions?.status === "running" || data.decisions?.status === "starting"
+                        ? data.decisions?.model || t("aucun modèle")
+                        : t("aucun modèle")}
                 </Text>
               </VStack>
             </Card>

@@ -93,6 +93,19 @@ bare repo id uses `-hf` (which can pick the wrong shard).
   same repo) the server announces a multimodal model and describes a base64 image
   through LiteLLM correctly (measured on this box: it reads a screenshot of the
   decisions page as « une configuration de décision avec trois questions »).
+- **Flash Next IQ3_S oversubscribes memory at 3 × 262 144, and it costs 3.5×.**
+  Measured on 2026-10-28, same prompt, same binary: with
+  `--ctx-size 786432 --parallel 3 --kv-unified --kv-unified-per-slot 262144`
+  the engine allocates 83.6 GiB on the GPU, leaves 21 GiB free and decodes at
+  **5.5 tok/s** (893 tokens in 2 min 41) — the 786 432-token KV pool (~30 GiB at
+  ~39 KiB/token) does not fit next to the 83.86 GiB of weights, so it spills to
+  host memory and every decoded token reads it back. With **2 slots**
+  (`--ctx-size 524288 --parallel 2`, same 262 144 per-slot window) the GPU holds
+  73 GiB, 38 GiB stay free and it decodes at **19.1 tok/s**. The advertised
+  contract is unchanged (196 608 input / 65 536 output per session); the price
+  is one session fewer. Symptom before the fix: the `reasoning`, `web search` and
+  `image tool` journeys all failed the same way — the stream never ended within
+  their timeout.
 - **`-MTP` GGUFs load but their MTP block is ignored by llama.cpp.** The repo
   offers both plain and `-MTP` quants; the MTP file declares
   `qwen35.nextn_predict_layers = 1` and `block_count = 65`, and the engine warns

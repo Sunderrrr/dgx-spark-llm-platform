@@ -40,6 +40,23 @@ fails if `package.json` and the newest version here have drifted apart.
 
 ### Changed
 
+- **Flash Next served with 2 slots, not 3 (measured).** At
+  `--ctx-size 786432 --parallel 3` the KV pool does not fit beside the 83.86 GiB
+  of IQ3_S weights: 21 GiB free, **5.5 tok/s**, and the reasoning/search/image
+  journeys timing out. At `--ctx-size 524288 --parallel 2` (same 262 144
+  per-slot window, same 196 608/65 536 advertisement): 38 GiB free,
+  **19.1 tok/s**, journeys green. One session fewer is the trade.
+- **Two Rust advisories fixed, `dotenv` retired.** `rustls-webpki` 0.103.16 and
+  `webpki-roots` 1.0.11 (both patch-level, `cargo test` green) close
+  RUSTSEC-2026-0382 and RUSTSEC-2026-0381. `dotenv` (unmaintained since 2021)
+  becomes `dotenvy` in the portal, and the **unused** declaration is dropped
+  from `vllm-runner-rs`. Five advisories remain, none fixable here: each is
+  listed with its reason in `scripts/check-deps.py`.
+- **`Dockerfile.portal-rs` pins its two base images by digest**
+  (`rust:1.99`, `debian:bookworm-slim`): they were the only unpinned bases of
+  the repository, and Dependabot does not watch that file. Verified by building
+  the image.
+
 - **Both chat models replaced (2026-10-28, night window).**
   - **`qwen38-flash-next-Abliterated-Uncensored`** replaces
     `qwen38-flash-next-uncensored`: `DavidAU/Qwen3.8-Flash-Next-Abliterated-Uncensored-Turbo-Brilliance-50x-Reasoning-Instruct-GSQ-RCO-GGUF`,

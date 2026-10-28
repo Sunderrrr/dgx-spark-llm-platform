@@ -179,6 +179,10 @@ pub async fn api_admin(State(state): State<AppState>, uri: Uri, headers: HeaderM
         "asr_model_name": if loaded { asr_i.get("type").cloned().unwrap_or(Value::Null) } else { Value::Null },
         "asr_load_error": if loaded { Value::Null } else { asr_i.get("error").filter(|v| keys::truthy(v)).cloned().unwrap_or(Value::Null) },
         "image_status": image_s, "image_model_name": image_m, "v_status": v_status, "init_logs": logs,
+        // The video card used to show a green dot with NO model and, stopped,
+        // nothing at all: the same name the home page uses is sent here, so the
+        // card can always say what runs (or « aucun modèle »).
+        "video_model_name": sidecars::video_model_name(),
         "decisions": decisions,
     });
     if let (Some(o), Some(e)) = (out.as_object_mut(), extra.as_object()) {

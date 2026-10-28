@@ -149,6 +149,13 @@ pub async fn image_model() -> Option<String> {
 }
 
 /// comfyui_client.comfyui_is_up: ComfyUI (video) answers, cached 5 s.
+/// The video pipeline's name: a frozen ComfyUI workflow, so the load exposes
+/// no model id — this is the one place it is written, the admin card and the
+/// home page both read it.
+pub fn video_model_name() -> &'static str {
+    "MiniMax-H3"
+}
+
 pub async fn comfyui_up() -> bool {
     if let Some(v) = cached(&MODELS, "comfyui", Duration::from_secs(5)) {
         return v.as_bool().unwrap_or(false);
@@ -280,8 +287,8 @@ pub async fn metrics(db: &Database, kind: &str) -> Value {
 /// and the sidecars' metrics. The probes run together: the page then costs
 /// the slowest probe, not their sum.
 pub async fn running_and_metrics(db: &Database) -> (Vec<Value>, Value) {
-    let (chat, ocr, comfy, image, voice, image_name, m_ocr, m_video, m_voice, decision) = tokio::join!(
-        models::running_models(),
+    let (chat_status, ocr, comfy, image, voice, image_name, m_ocr, m_video, m_voice, decision) = tokio::join!(
+        crate::system::runner_status(),
         ocr_model(),
         comfyui_up(),
         image_ready(),
@@ -292,14 +299,26 @@ pub async fn running_and_metrics(db: &Database) -> (Vec<Value>, Value) {
         metrics(db, "voice"),
         crate::decisions::running_name(),
     );
-    let mut running: Vec<Value> = chat.into_iter().map(|m| json!({"name": m, "kind": "chat", "exposed": true})).collect();
+    // `runner_status` says whether a model is SERVED; `models::running_models`
+    // only lists what LiteLLM has registered. Using the second one here made
+    // the home page announce « En ligne » over a stopped engine (reported
+    // 2026-10-28) — the runner's status is the only honest source.
+    let mut running: Vec<Value> = if chat_status.get("status").and_then(Value::as_str) == Some("running") {
+        chat_status
+            .get("model")
+            .and_then(Value::as_str)
+            .map(|m| vec![json!({"name": m, "kind": "chat", "exposed": true})])
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let mut out = serde_json::Map::new();
     if let Some(m) = ocr {
         running.push(json!({"name": m, "kind": "ocr", "exposed": false}));
         out.insert("ocr".into(), m_ocr);
     }
     if comfy {
-        running.push(json!({"name": "MiniMax-H3", "kind": "video", "exposed": false}));
+        running.push(json!({"name": video_model_name(), "kind": "video", "exposed": false}));
         out.insert("video".into(), m_video);
     }
     if image {

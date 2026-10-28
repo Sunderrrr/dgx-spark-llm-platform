@@ -37,8 +37,13 @@ pub enum Gate {
 
 /// `asr_stop_allowed`'s decision, pure: in-flight calls and the pin win over
 /// everything, then an absent clock is armed, then the idle threshold decides.
-pub fn gate(calls_in_flight: usize, pinned: bool, idle_s: Option<f64>) -> Gate {
-    if calls_in_flight > 0 || pinned {
+pub fn gate(calls_in_flight: usize, pinned: bool, idle_s: Option<f64>, chat_running: bool) -> Gate {
+    // A served chat model keeps the dictation sidecar alive: the operator
+    // expects to speak as soon as the model is up, and re-starting a 2 GiB
+    // whisper on every 10-minute pause made the button flicker off all day
+    // (reported 2026-10-28). The memory cost is bounded and small next to the
+    // chat model's, and the guard below still applies on the START side.
+    if calls_in_flight > 0 || pinned || chat_running {
         return Gate::Keep;
     }
     match idle_s {
@@ -90,9 +95,9 @@ pub fn idle_s(dir: &Path) -> Option<f64> {
 
 /// The gate read from the shared state directory. An absent clock is armed
 /// here, as Flask does, so the next check has a reference point.
-fn decide() -> Gate {
+fn decide(chat_running: bool) -> Gate {
     let dir = state_dir();
-    let g = gate(calls_in_flight(&dir, Duration::from_secs(CALL_MAX_S)), pinned(&dir, now_epoch()), idle_s(&dir));
+    let g = gate(calls_in_flight(&dir, Duration::from_secs(CALL_MAX_S)), pinned(&dir, now_epoch()), idle_s(&dir), chat_running);
     if g == Gate::Arm {
         note_activity();
     }
@@ -114,7 +119,21 @@ pub fn spawn(db: Arc<Database>) {
 /// ordered. A lock file keeps the workers (the Rust reaper and, until its removal, the Flask one) from stopping
 /// at the same instant; the stop itself is re-checked under the lock.
 pub async fn pass(db: &Database) -> bool {
-    if decide() != Gate::Stop {
+    let chat_running = crate::system::runner_status()
+        .await
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        == Some("running");
+    if chat_running {
+        // Follow the chat model: bring the dictation sidecar up if it is down.
+        // `autostart` keeps the memory guard (8 GiB) and its 60 s throttle, and
+        // a refusal is harmless — the next pass tries again.
+        if sidecars::proc_status("asr").await != "running" {
+            let _ = crate::asr_ondemand::autostart(db, "système").await;
+        }
+        return false;
+    }
+    if decide(chat_running) != Gate::Stop {
         return false;
     }
     let lock = state_dir().join("stop-lock");
@@ -128,7 +147,7 @@ pub async fn pass(db: &Database) -> bool {
         }
         Err(_) => return false,
     }
-    let stopped = if decide() == Gate::Stop { stop_idle_sidecar(db).await } else { false };
+    let stopped = if decide(false) == Gate::Stop { stop_idle_sidecar(db).await } else { false };
     let _ = std::fs::remove_file(&lock);
     stopped
 }
@@ -153,21 +172,24 @@ mod tests {
 
     #[test]
     fn an_inflight_call_or_a_pin_always_keeps_the_sidecar() {
-        assert_eq!(gate(1, false, Some(9_999.0)), Gate::Keep);
-        assert_eq!(gate(0, true, Some(9_999.0)), Gate::Keep);
-        assert_eq!(gate(2, true, None), Gate::Keep);
+        assert_eq!(gate(1, false, Some(9_999.0), false), Gate::Keep);
+        assert_eq!(gate(0, true, Some(9_999.0), false), Gate::Keep);
+        assert_eq!(gate(2, true, None, false), Gate::Keep);
+        // A served chat model keeps it too: the operator's rule of 2026-10-28.
+        assert_eq!(gate(0, false, Some(9_999.0), true), Gate::Keep);
+        assert_eq!(gate(0, false, None, true), Gate::Keep);
     }
 
     #[test]
     fn a_missing_clock_is_armed_not_treated_as_idle() {
-        assert_eq!(gate(0, false, None), Gate::Arm);
+        assert_eq!(gate(0, false, None, false), Gate::Arm);
     }
 
     #[test]
     fn idle_threshold_is_ten_minutes() {
-        assert_eq!(gate(0, false, Some(599.0)), Gate::Keep);
-        assert_eq!(gate(0, false, Some(600.0)), Gate::Stop);
-        assert_eq!(gate(0, false, Some(3_600.0)), Gate::Stop);
+        assert_eq!(gate(0, false, Some(599.0), false), Gate::Keep);
+        assert_eq!(gate(0, false, Some(600.0), false), Gate::Stop);
+        assert_eq!(gate(0, false, Some(3_600.0), false), Gate::Stop);
     }
 
     fn scratch(name: &str) -> std::path::PathBuf {

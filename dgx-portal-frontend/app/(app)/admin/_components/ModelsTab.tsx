@@ -144,8 +144,12 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
                     <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/video/start")} />
                   )}
                 </HStack>
-                {/* The video is a frozen ComfyUI workflow: the load
-                    exposes no model name, we do not invent one. */}
+                {/* A frozen ComfyUI workflow exposes no model id, but the
+                    pipeline HAS a name: the card used to go green with nothing
+                    under it, and stopped it said nothing at all. */}
+                <Text type="supporting" color="secondary" wordBreak="break-all">
+                  {data.video_model_name || t("aucun modèle")}
+                </Text>
               </VStack>
             </Card>
             <Card>
@@ -186,12 +190,12 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
                     <Button label={t("Démarrer")} variant="primary" size="sm" isIconOnly icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/asr/start")} />
                   )}
                 </HStack>
-                {/* The asr model name is only provided if the backend
-                    reports it (asr_model_name, added in parallel): without
-                    it, no row at all — never a hardcoded name. */}
-                {data.asr_model_name && (
-                  <Text type="supporting" color="secondary" wordBreak="break-all">{data.asr_model_name}</Text>
-                )}
+                {/* The name comes from the sidecar when it is loaded; stopped,
+                    the card says so instead of showing a bare green/neutral
+                    dot with no explanation. */}
+                <Text type="supporting" color="secondary" wordBreak="break-all">
+                  {data.asr_model_name || t("aucun modèle")}
+                </Text>
                 {/* The container runs WITHOUT a loaded model: it is not a
                     startup in progress but a failure, and the sidecar
                     publishes its cause (not enough unified memory on
@@ -264,7 +268,7 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
                     ? t("Mettre à jour le runner pour l'activer")
                     : data.decisions?.enabled === false
                       ? t("Modèle de décision non installé")
-                      : data.decisions?.name || t("aucun modèle")}
+                      : data.decisions?.model || t("aucun modèle")}
                 </Text>
               </VStack>
             </Card>

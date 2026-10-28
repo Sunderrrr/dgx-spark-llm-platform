@@ -54,6 +54,7 @@ export type AdminData = {
   asr_load_error?: string | null;
   image_status: string;
   /** The decision model: a second engine on its own port, never the chat one. */
+  video_model_name?: string;
   decisions?: { status: string; name?: string; model?: string; ref?: string; args?: string; enabled?: boolean; port?: number | null; libre_gib?: number | null };
   image_model_name: string | null;
   image_model_ids: string[];

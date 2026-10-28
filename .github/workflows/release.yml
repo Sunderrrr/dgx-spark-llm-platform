@@ -20,10 +20,18 @@ on:
 permissions:
   contents: write
 
+# One release per tag, and a re-pushed tag must not interleave with the first
+# run: `gh release create` on an existing release fails, which is the honest
+# outcome — but only if the two runs cannot race.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Verify and publish
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 

@@ -14,7 +14,11 @@
 # errors, missing files, failing pip resolves and broken entrypoints, not the
 # arm-specific compilation, which only the box can do.
 #
-# Same token discipline as ci.yml: read-only, nothing more.
+# Same token discipline as ci.yml: read-only, nothing more. A pull request from
+# a fork runs these builds — it has no secret to steal, and the build is done
+# inside the runner's Docker daemon, which is the accepted risk of "we compile
+# what the PR proposes" (the same one `ci.yml` takes for the two shipped
+# images).
 name: GPU images
 
 on:
@@ -51,6 +55,9 @@ jobs:
   build:
     name: Build ${{ matrix.dir }}
     runs-on: ubuntu-latest
+    # A CUDA/torch image build is long, but not six hours long: the default
+    # timeout (360 min) only hides a hung `pip resolve` that never finishes.
+    timeout-minutes: 60
     # fail-fast: false — five independent images: one red must not hide the
     # state of the four others (the fix is per-directory anyway).
     strategy:
@@ -59,5 +66,30 @@ jobs:
         dir: [asr, voice, voice-kyutai, voice-qwen, image-gen]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      # BuildKit caches layers BETWEEN runs of the same job (gha cache backend):
+      # without it, every run re-downloads the CUDA base and the pip wheels —
+      # the single most expensive thing this repo does in CI. The cache key is
+      # the directory, so the five images do not evict one another.
+      - name: Set up BuildKit
+        run: |
+          docker buildx create --name gpu-ci --use --driver docker-container >/dev/null
+          docker buildx inspect --bootstrap >/dev/null
       - name: Build the image (no push)
-        run: docker build "${{ matrix.dir }}" -t "gpu-ci:${{ matrix.dir }}"
+        # `--load` keeps the image in the local daemon like a plain `docker
+        # build` would: the recipe is proven, nothing leaves the runner.
+        run: |
+          docker buildx build \
+            --cache-from "type=gha,scope=${{ matrix.dir }}" \
+            --cache-to "type=gha,mode=max,scope=${{ matrix.dir }}" \
+            --load \
+            -t "gpu-ci:${{ matrix.dir }}" \
+            "${{ matrix.dir }}"
+      - name: Report the image size
+        if: always()
+        run: |
+          size=$(docker image inspect "gpu-ci:${{ matrix.dir }}" --format '{{.Size}}' 2>/dev/null || echo 0)
+          {
+            echo "## ${{ matrix.dir }}"
+            echo
+            echo "Image built: $(( size / 1024 / 1024 )) MiB (cache: gha/${{ matrix.dir }})"
+          } >> "$GITHUB_STEP_SUMMARY"

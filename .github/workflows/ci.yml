@@ -5,10 +5,21 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  # A manual run is occasionally the only way to reproduce a red: the same code,
+  # the same ref, one click. It costs nothing when unused.
+  workflow_dispatch:
 
 # The workflow token needs NO write access: we bound it explicitly.
 # Without this block, it inherits the repo's default permissions (read/write
 # depending on settings), so a compromised third-party action could push code.
+#
+# No job below asks for more. Two consequences, both deliberate:
+#   - no job publishes artefacts to the outside world (no packages, no
+#     releases, no security-events upload): everything is reported through the
+#     run itself;
+#   - a pull request from a FORK runs with this same read-only token and
+#     receives NO secret — `secrets.*` is empty there by construction, and no
+#     step reads one.
 permissions:
   contents: read
 
@@ -21,18 +32,25 @@ concurrency:
 #
 # Every SHIPPED artifact is built or tested here: the Rust portal (backend),
 # the Rust vLLM runner (runner-rs), the Next.js UI (frontend, unit tests
-# included), the two Docker images the deploy actually builds (images), and
-# the Python tooling + shell + configs (static). The dependency watch covers
-# what ships at runtime (dependencies).
+# included), the LiteLLM Python callbacks (python), the two Docker images the
+# deploy actually builds (images), and the Python tooling + shell + configs +
+# the workflows themselves (static). The dependency watch covers what ships at
+# runtime (dependencies: npm + both Rust lockfiles).
 #
-# What CI CANNOT see lives in validate.sh groups 2-4 and runs on the box,
-# where the stack exists: smoke.sh against the DEPLOYED service, the Playwright
+# What CI CANNOT see lives in validate.sh groups 2-4 and runs on the box, where
+# the stack exists: smoke.sh against the DEPLOYED service, the Playwright
 # journeys (tests/e2e/ — they log in, chat, search, export…), and the
-# health/resources checks. Those need the live platform; GitHub runners have
-# no GPU, no model, no SSO. They run unattended via systemd/dgx-validation
+# health/resources checks. Those need the live platform; GitHub runners have no
+# GPU, no model, no SSO. They run unattended via systemd/dgx-validation
 # (dgx-validation.path triggers scripts/validate.sh) — see scripts/validate.sh.
-# The boundary is deliberate: CI mirrors group 1 (pure code gates), the box
-# owns groups 2-4 (live gates).
+# The boundary is deliberate: CI mirrors groups 1, the box owns groups 2-4.
+# `hardware.yml` is the on-demand bridge: it runs exactly those box-only gates
+# on a self-hosted runner, and never on a pull request.
+#
+# Every job carries a `timeout-minutes`: the default is 6 HOURS, and a hung
+# Docker build or a cargo build waiting on a lock spends them silently.
+# If a job reddens, the report belongs in the run summary: the log dies with the
+# retention, the summary is what a reader opens first.
 
 jobs:
   # Cheapest first: three files must agree on the version (package.json, its
@@ -43,6 +61,7 @@ jobs:
   version:
     name: Version coherence (package ↔ CHANGELOG)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Check version coherence
@@ -51,6 +70,7 @@ jobs:
   secrets:
     name: Secret scan (commit messages + diff)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -60,24 +80,66 @@ jobs:
         # is pushed, and rewriting history afterwards does not make readers
         # forget (the incident of 2026-10-06). The local hooks stop it at the
         # entrance — this job is the net for a `--no-verify` push.
+        #
+        # The range differs per event, and getting it wrong silently narrows the
+        # scan: on a pull_request there is NO `github.event.before`, so the old
+        # `before..sha` expression became `..sha` (HEAD..sha), which is not the
+        # PR's commits. Both events are now named explicitly, and a range that
+        # cannot be determined falls back to scanning every commit of the ref
+        # rather than nothing.
         run: |
+          set -uo pipefail
           RE='(-----BEGIN [A-Z ]*PRIVATE KEY-----|sk-[A-Za-z0-9]{24,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{50,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,})'
           PH='(changeme|change-me|placeholder|example|sk-test|sk-changeme|your[-_]?key|xxxxx)'
-          RANGE="${{ github.event.before }}..${{ github.sha }}"
-          case "$RANGE" in 000000*) RANGE="${{ github.sha }}" ;; esac
+          EVENT="${{ github.event_name }}"
+          case "$EVENT" in
+            pull_request)
+              BASE="${{ github.event.pull_request.base.sha }}"
+              HEAD="${{ github.event.pull_request.head.sha }}"
+              RANGE="${BASE}..${HEAD}"
+              ;;
+            push)
+              BEFORE="${{ github.event.before }}"
+              case "$BEFORE" in
+                000000*) RANGE="${{ github.sha }}" ;;
+                *)        RANGE="${BEFORE}..${{ github.sha }}" ;;
+              esac
+              ;;
+            *)
+              RANGE="HEAD"
+              ;;
+          esac
+          echo "Scanning $RANGE"
           hit=0
-          git log --format=%B "$RANGE" | grep -E "$RE" | grep -Evq "$PH" \
-            && { echo "::error::Secret-looking value in a COMMIT MESSAGE"; hit=1; } || true
-          git diff "$RANGE" 2>/dev/null | grep -E '^\+[^+]' | grep -E "$RE" | grep -Evq "$PH" \
-            && { echo "::error::Secret-looking value in the diff"; hit=1; } || true
-          git diff --diff-filter=AM --name-only "$RANGE" 2>/dev/null | grep -E '(^|/)(\.env(\..*)?|DEBUG_USERS\.txt|.*\.pem|.*\.key|id_rsa.*)$' \
-            | grep -Evq '(^|/)\.env\.example$' \
-            && { echo "::error::Forbidden file in the push"; hit=1; } || true
+          if git log --format=%B "$RANGE" | grep -E "$RE" | grep -Evq "$PH"; then
+            echo "::error::Secret-looking value in a COMMIT MESSAGE"
+            hit=1
+          fi
+          if git diff "$RANGE" 2>/dev/null | grep -E '^\+[^+]' | grep -E "$RE" | grep -Evq "$PH"; then
+            echo "::error::Secret-looking value in the diff"
+            hit=1
+          fi
+          if git diff --diff-filter=AM --name-only "$RANGE" 2>/dev/null \
+              | grep -E '(^|/)(\.env(\..*)?|DEBUG_USERS\.txt|.*\.pem|.*\.key|id_rsa.*)$' \
+              | grep -Evq '(^|/)\.env\.example$'; then
+            echo "::error::Forbidden file in the push"
+            hit=1
+          fi
+          if [ "$hit" != 0 ]; then
+            {
+              echo '## Secret scan failed'
+              echo
+              echo 'A secret-looking value or a forbidden file is in this range.'
+              echo "Fix: \`git commit --amend\` (or rewrite) **and rotate the value** —"
+              echo 'purging history does not make readers forget.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
           exit $hit
 
   backend:
     name: Backend tests (cargo test + clippy)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       # The Rust portal's suite, native (the runner image ships cargo).
@@ -93,11 +155,24 @@ jobs:
       # lints, which is the net we want.
       - name: Clippy (errors only, warnings accepted)
         working-directory: portal-rs
-        run: cargo clippy --locked --all-targets
+        run: |
+          set -o pipefail
+          cargo clippy --locked --all-targets 2>&1 | tee /tmp/clippy.log
+      - name: Report clippy warnings
+        if: always()
+        run: |
+          count=$(grep -c '^warning' /tmp/clippy.log 2>/dev/null || echo 0)
+          {
+            echo "## Clippy (portal-rs)"
+            echo
+            echo "$count warning line(s) — accepted, see the step log."
+            grep '^warning' /tmp/clippy.log 2>/dev/null | sort | uniq -c | sort -rn | head -20 || true
+          } >> "$GITHUB_STEP_SUMMARY"
 
   runner-rs:
     name: vLLM runner (cargo test + clippy)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       # The second shipped Rust binary: vllm-runner.service runs it on the box
@@ -115,6 +190,7 @@ jobs:
   frontend:
     name: Frontend (types + lint + unit tests)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: dgx-portal-frontend
@@ -161,6 +237,53 @@ jobs:
       - name: Unit tests (node --test)
         run: npm test
 
+  # The LiteLLM callbacks are MOUNTED INTO THE PROXY (litellm/config.yaml →
+  # `dgx_inflight`, `dgx_thinking`) and run on every chat request: they are
+  # shipped code, but they are Python, so neither the Rust suite nor the
+  # frontend one could see them. `scripts/validate.sh` runs these tests (1.13)
+  # on the box; before this job a pull request could merge with them failing.
+  #
+  # The two rules locked here are the ones whose violation is invisible in
+  # production: a write error must never surface as a failed chat request, and
+  # an opened activity row must always be removed.
+  python:
+    name: LiteLLM callbacks (unittest + bandit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Tests (stdlib unittest — no dependency to install)
+        run: |
+          cd litellm
+          python3 -m unittest -v test_inflight_callback test_thinking_effort
+      # Security analysis of the Python that runs inside the proxy and the
+      # sidecars. Blocking threshold is HIGH only: today's code has 0 high and
+      # 2 medium findings (torch.load in image-gen, try/except/pass in the same
+      # server), and a gate that fails on findings nobody will fix is a gate
+      # nobody reads — same rule as the dependency audit.
+      - name: Install the pinned tools
+        run: echo "TOOLS=$(DGX_TOOLS_VENV=$RUNNER_TEMP/tools ./scripts/check-tools.sh)" >> "$GITHUB_ENV"
+      - name: bandit (high severity — blocking)
+        run: |
+          set -o pipefail
+          "$TOOLS/bandit" -q -r litellm monitoring image-gen asr -x '*test_*' -lll 2>&1 | tee /tmp/bandit.log
+      # The blocking step above is the gate (-lll fails on HIGH). This one keeps
+      # the full picture, including what the gate lets through, in the summary —
+      # no `::warning::` here: with 2 medium findings today it would be yellow on
+      # every single run, which is exactly the permanent noise the project
+      # refuses elsewhere.
+      - name: bandit full report (advisory)
+        if: always()
+        run: |
+          "$TOOLS/bandit" -q -r litellm monitoring image-gen asr -x '*test_*' > /tmp/bandit-full.log 2>&1 || true
+          {
+            echo '## bandit — Python shipped code (advisory, HIGH blocks above)'
+            echo
+            echo '```'
+            tail -40 /tmp/bandit-full.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # The two images the deploy builds on the box (compose: portal-rs and
   # dgx-portal-frontend). Until 2026-10-24 CI never ran a `docker build`: a
   # Dockerfile or a `next build` break reached production untested — the
@@ -173,6 +296,7 @@ jobs:
   images:
     name: Ship images build (portal-rs + frontend)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Build the portal-rs image
@@ -189,11 +313,13 @@ jobs:
           docker build -f Dockerfile --build-arg BACKEND_URL="http://portal-rs:${PORT}" -t ci-frontend .
 
   # The repo's own rules, beyond tests: static analysis of Python and shell,
-  # English-only code, no monolith, valid compose file and sudoers rules. Same
-  # scripts and pinned tool versions as scripts/validate.sh (group 1).
+  # English-only code, no monolith, valid compose file, sudoers rules, and the
+  # WORKFLOWS THEMSELVES. Same scripts and pinned tool versions as
+  # scripts/validate.sh (group 1).
   static:
-    name: Static checks (ruff, shellcheck, English, structure, config)
+    name: Static checks (ruff, shellcheck, actionlint, English, structure, config)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Install the pinned tools
@@ -202,12 +328,75 @@ jobs:
         run: '"$TOOLS/ruff" check .'
       - name: Shell scripts (shellcheck)
         run: git ls-files -z '*.sh' | xargs -0 "$TOOLS/shellcheck" -S warning
+      # A workflow is code nobody executes locally: a bad expression, a shell
+      # mismatch or an unknown key only shows up on the run that needs it. Go
+      # is preinstalled on the runner, so the linter is installed at a pinned
+      # version instead of adding a third-party action to the trust surface.
+      - name: Workflows (actionlint, pinned)
+        run: |
+          set -o pipefail
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          "$(go env GOPATH)/bin/actionlint" -color 2>&1 | tee /tmp/actionlint.log
+          if [ -s /tmp/actionlint.log ]; then
+            {
+              echo '## actionlint'
+              echo
+              echo '```'
+              cat /tmp/actionlint.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: YAML syntax (workflows + compose)
+        # PyYAML is not guaranteed on a fresh runner, and PEP 668 refuses a
+        # system-wide `pip install`: it goes into the tools venv the step above
+        # created (a pinned action would be a heavier answer to a one-line
+        # need).
+        run: |
+          "$TOOLS/pip" install --quiet --disable-pip-version-check 'PyYAML==6.0.2'
+          "$TOOLS/python" - <<'PY'
+          import glob, sys
+          import yaml
+          bad = 0
+          for path in sorted(glob.glob('.github/**/*.yml', recursive=True) + glob.glob('*.yml')):
+              try:
+                  with open(path, encoding='utf-8') as f:
+                      list(yaml.safe_load_all(f))
+              except Exception as exc:  # noqa: BLE001 — report, never crash the step
+                  print(f"::error file={path}::{exc}")
+                  bad = 1
+          sys.exit(bad)
+          PY
       - name: Code is English
         run: python3 scripts/check-english.py
       - name: No monolith
         run: python3 scripts/check-structure.py
       - name: Sudoers rules parse
         run: for f in systemd/sudoers.d-*; do sudo visudo -cf "$f" >/dev/null || { echo "::error::invalid sudoers rule $f"; exit 1; }; done
+      # Supply chain: every shipped image pins its base by digest EXCEPT
+      # Dockerfile.portal-rs (rust:1.99, debian:bookworm-slim), which Dependabot
+      # also ignores (it only reads files named `Dockerfile`). Those two lines
+      # can move under us — a re-tag upstream changes the toolchain that
+      # compiles a security-sensitive binary. Reported, not blocked: pinning
+      # them is a decision (and a rebuild) for the platform owner, and a
+      # failing gate would not make the digests appear.
+      - name: Docker base images (advisory — unpinned FROM)
+        run: |
+          unpinned=$(git ls-files '*Dockerfile*' | while read -r f; do
+            grep -Hn '^FROM' "$f" | grep -v '@sha256:' || true
+          done)
+          {
+            echo '## Docker base images (advisory)'
+            echo
+            if [ -z "$unpinned" ]; then
+              echo 'Every base image is pinned by digest.'
+            else
+              echo 'Unpinned base image(s) — a re-tag upstream changes them silently:'
+              echo '```'
+              printf '%s\n' "$unpinned"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' "${unpinned:-✓ every base image is pinned by digest}"
       - name: Compose file parses
         env:
           DGX_WEB: https://dgx.example.org
@@ -237,9 +426,16 @@ jobs:
   # fixable one is a task. The 2026-10-24 run caught exactly that case (next
   # 16.4.0 RCE, fixed by 16.4.3 — bumped in the same commit that wired this
   # step). The Dependabot alerts (Security tab) remain the background watch.
+  #
+  # 2026-10-28: the Rust side joins layer 2. `cargo audit` was never run by
+  # anything, in CI or on the box, while portal-rs ships 7 advisories (zip,
+  # rsa, rustls-webpki…, all WITHOUT a published fix today) — an invisible
+  # blind spot is exactly what this job exists to close. Same rule: a fixable
+  # vulnerability fails, the rest is reported.
   dependencies:
-    name: Dependency audit (advisory + fixable-CVE gate)
+    name: Dependency audit (npm advisory + fixable-CVE gate, npm & Rust)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: npm audit (frontend)
@@ -248,7 +444,7 @@ jobs:
           output=$(npm audit --package-lock-only --audit-level=high 2>&1) && status=0 || status=$?
           printf '%s\n' "$output"
           {
-            echo '## npm audit — `dgx-portal-frontend`'
+            echo "## npm audit — \`dgx-portal-frontend\`"
             echo
             echo '```'
             printf '%s\n' "$output"
@@ -258,5 +454,27 @@ jobs:
             echo "::warning title=npm dependencies::npm audit reports an advisory (non-blocking) — details in this run's summary."
           fi
           exit 0
+      # cargo-audit is installed here (pinned, ~2 min) rather than added as an
+      # action: one less third-party action with the repo token. The tool
+      # queries the RustSec advisory database over the network; a network
+      # failure reddens, which is honest — silence would read as "no advisory".
+      - name: Install cargo-audit (pinned)
+        run: cargo install cargo-audit --locked --version ^0.22
       - name: Fixable high/critical CVEs (check-deps.py — blocking)
+        env:
+          # In CI the absence of cargo-audit must FAIL, not skip: a check that
+          # quietly disappears is how a blind spot survives.
+          CHECK_DEPS_REQUIRE_AUDIT: "1"
         run: python3 scripts/check-deps.py
+      - name: Rust advisories (full report, advisory)
+        if: always()
+        run: |
+          {
+            echo '## Rust advisories (cargo audit)'
+            echo
+            echo '```'
+            (cd portal-rs && cargo audit 2>&1 | tail -60) || true
+            (cd vllm-runner-rs && cargo audit 2>&1 | tail -30) || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0

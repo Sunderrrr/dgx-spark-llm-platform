@@ -1,0 +1,104 @@
+# The gates that need the BOX, on demand.
+#
+# `scripts/validate.sh` has four groups. Group 1 (pure code) runs in ci.yml on
+# GitHub runners. Groups 2-4 are the LIVE platform: smoke.sh against the
+# deployed containers, the Playwright journeys (login, chat, search, image,
+# admin…), health and resources. They need a GPU, the served model, the SSO and
+# the real compose stack — none of which exists on a GitHub-hosted runner.
+#
+# So they run here, on a runner labelled `dgx-spark`, and ONLY when a human
+# asks from the Actions tab. Deliberate choices:
+#
+#   - no `pull_request` trigger: a fork cannot reach this job, and a PR cannot
+#     start a run that consumes the production box;
+#   - no `schedule` either: these journeys restart/stop services, they must not
+#     fire while nobody is looking;
+#   - it is NOT part of the required checks of a PR. Making it required would
+#     mean either a public GPU runner (we have none) or a red pipeline
+#     whenever the box is busy.
+#
+# Requires: a self-hosted runner registered on this repository with the labels
+# `self-hosted` and `dgx-spark`, running as a user allowed to execute
+# `scripts/validate.sh` (docker group, sudo for the sudoers-parsing checks).
+# Without such a runner the job stays QUEUED — it does not fail, and it does
+# not run anywhere else.
+name: Hardware gates (DGX Spark)
+
+on:
+  workflow_dispatch:
+    inputs:
+      groups:
+        description: "validate.sh groups to run (1,2,3,4 or a subset)"
+        required: true
+        default: "2,3,4"
+        type: string
+      reason:
+        description: "Why this run (shown in the summary)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+# Never two of these at once: they stop and restart the served model.
+concurrency:
+  group: hardware-gates
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: validate.sh (groups ${{ inputs.groups }})
+    runs-on: [self-hosted, dgx-spark]
+    # Groups 2-4 take ~7 minutes, group 1 alone ~2, the four together ~12; the
+    # ceiling exists so a wedged model load cannot hold the box for hours.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # Fail fast, and NAME the reason: a mislabelled runner (a plain laptop
+      # picked up by `self-hosted`) would otherwise run the journeys against a
+      # machine with no GPU and redden with a misleading message.
+      - name: Confirm this is the DGX Spark
+        run: |
+          set -eu
+          command -v nvidia-smi >/dev/null || { echo "::error::no nvidia-smi: this runner is not the Spark"; exit 1; }
+          nvidia-smi --query-gpu=name --format=csv,noheader | grep -qi 'GB10\|Spark' \
+            || { echo "::error::GPU is not the GB10"; exit 1; }
+          echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)"
+
+      - name: Report the starting state
+        run: |
+          {
+            echo '## Hardware gates'
+            echo
+            echo "Groups: \`${{ inputs.groups }}\`"
+            if [ -n "${{ inputs.reason }}" ]; then
+              echo "Reason: ${{ inputs.reason }}"
+            fi
+            echo
+            echo '```'
+            free -g | sed -n '2p'
+            df -h / | tail -1
+            systemctl is-active vllm-runner || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: validate.sh
+        env:
+          VALIDATE_GROUPS: ${{ inputs.groups }}
+        run: ./scripts/validate.sh
+
+      - name: Where the logs went
+        if: always()
+        run: |
+          {
+            echo
+            echo '### Logs'
+            echo
+            echo 'The last run directories on the box:'
+            echo '```'
+            find runtime/validation -maxdepth 1 -mindepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
+              | sort -rn | head -5 | cut -d' ' -f2- || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

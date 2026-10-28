@@ -121,6 +121,7 @@ the gate that catches it. Details and the engineering loop:
 | [docs/operations.md](docs/operations.md) | model launch, auto-resume, engines, sidecars, systemd, monitoring |
 | [docs/security.md](docs/security.md) | posture, accepted risks, the pen test — points to `SECURITY.md` |
 | [docs/development.md](docs/development.md) | engineering loop, tests, `validate.sh`, conventions, screenshots, versioning |
+| [docs/ci.md](docs/ci.md) | what CI runs, what only the box can run, and why each job exists |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | the known traps: GB10 memory, docker networking, the runner |
 
 Companion documents: [SECURITY.md](SECURITY.md) · [CHANGELOG.md](CHANGELOG.md) ·

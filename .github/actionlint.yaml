@@ -1,0 +1,6 @@
+# Labels of the self-hosted runners this repository targets. actionlint knows
+# the GitHub-hosted ones; anything else must be declared here or the workflow
+# is reported as using an unknown runner label.
+self-hosted-runner:
+  labels:
+    - dgx-spark

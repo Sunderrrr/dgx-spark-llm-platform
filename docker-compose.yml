@@ -46,15 +46,21 @@ services:
   # ─── LiteLLM — API gateway + key management ────────────────────────────────
   litellm:
     logging: *logging
-    # Pinned by digest (repro + anti supply-chain). Tag: v1.104.3, embedded
-    # version verified: 1.104.3 (image of 2026-10-27).
-    # 1.104.8 was TRIED on 2026-10-28 and REVERTED: same patch line, the decision
-    # routes intact (verified), but the `dgx_inflight` callback stopped removing
-    # its rows — a request ended and billed left its activity row behind (age
-    # 346 s, the run's `--spend` written), so the admin panel would show ghost
-    # sessions until the 2 h sweep. Rolling back restored it (1 row during the
-    # call, 0 after). Do not bump again before adapting the callback: it is the
-    # warning this file already carries, and it fired.
+    # Pinned by digest (repro + anti supply-chain). Tag: v1.106.5, embedded
+    # version verified: 1.106.5 (index of 2026-10-27, the multi-arch one — take
+    # the INDEX digest, not the amd64 manifest, or the ARM host refuses the
+    # image with "exec format error").
+    #
+    # History, because the callback makes this bump non-obvious:
+    # - 1.104.3 → 1.104.8 was tried and REVERTED on 2026-10-28: the decision
+    #   routes survived, but `dgx_inflight` left its activity row behind (a
+    #   request ended and billed, the row stayed 346 s).
+    # - 1.106.5 was then verified on a throwaway container BEFORE the switch,
+    #   with a mocked model: `log_pre_api_call` fires (row written, key
+    #   `<uuid>`), and so does `async_log_success_event` (same key, row removed,
+    #   table back to 0). This version calls the ASYNC success hook ONLY — the
+    #   module implements both, which is why it works.
+    # Re-check after ANY future bump: 1 row during the call, 0 after.
     # History: 1.104.0 → 1.104.3 on 2026-10-27 for the decision routes
     # (`/v1/decisions` and `/v1/systemone` exist from 1.104.2, the self-hosted
     # `hosted_vllm` decisions provider from 1.104.3). Measured on a throwaway
@@ -77,7 +83,7 @@ services:
     # during a chat call, none after. Note: the CHAT hooks only — a
     # `/v1/systemone` call does not go through them (measured), so the admin
     # in-flight panel stays chat-only.
-    image: ghcr.io/berriai/litellm@sha256:c1909418aea76c798222f701ccd27a1b963d8cf713f797fa072fd222a6a774a4
+    image: ghcr.io/berriai/litellm@sha256:7d6ae6c8d73d1b6aea4cb75d07c4a8a953f0809b0764522b8eab693734c5e905
     container_name: litellm
     restart: unless-stopped
     # Run tini as PID 1: the Prisma bootstrap spawns node helpers, and without

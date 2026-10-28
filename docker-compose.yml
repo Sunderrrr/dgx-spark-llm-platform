@@ -112,6 +112,10 @@ services:
       DGX_INFLIGHT_DB: /run/dgx/inflight.db
       DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env (run setup.sh)}@postgres/litellm
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY must be set in .env (run setup.sh)}
+      # The media proxy's internal guard (docs/api.md): the caller's KEY check
+      # and the billing are LiteLLM's own job, this token only proves the call
+      # comes from this gateway. It never leaves the docker network.
+      RUNNER_TOKEN: ${RUNNER_TOKEN:?RUNNER_TOKEN must be set in .env (run setup.sh)}
       # Turns off the admin UI (/ui, /sso): it was publicly reachable via
       # the public API domain and concentrated the whole master key on an exposed
       # login form. Admin goes through the portal (portal-rs), not this UI.

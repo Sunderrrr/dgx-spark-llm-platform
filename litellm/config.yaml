@@ -1,4 +1,8 @@
 model_list:
+  # The media models (image / dictation / voice) are registered in the LiteLLM
+  # DATABASE, like the chat models added from the portal — `store_model_in_db`
+  # makes this file's `model_list` advisory only, so listing them here changed
+  # nothing. `scripts/register-media-models.sh` registers them, idempotently.
   # Static models ornith-35b-fp8 and kat-coder-v2.5 removed on 2026-08-15
   # (dropped from the catalog + weights erased from disk, at the operator's
   # request). Models added from the portal (request approval or manual add)
@@ -9,6 +13,10 @@ general_settings:
   database_url: os.environ/DATABASE_URL
   store_model_in_db: true
 
+  # No `pass_through_endpoints`: LiteLLM 1.104.3 gates them behind
+  # `allowed_passthrough_routes`, an ENTERPRISE feature (403, measured). The
+  # media services are exposed as registered MODELS instead — see
+  # scripts/register-media-models.sh and docs/api.md.
 # The proxy routes via the LiteLLM Router: it is HERE (not in litellm_settings)
 # that the router's retries and timeout are set. num_retries: 0 avoids a
 # slow/stuck request being replayed and grabbing additional slots on the

@@ -124,7 +124,11 @@ def model_info() -> JSONResponse:
 
 @app.post("/transcribe")
 async def transcribe(
-    audio: UploadFile = File(...),
+    # OpenAI's transcription API names the part `file`; the portal's dictation
+    # sends `audio`. Both are accepted here so an OpenAI-shaped client (and
+    # LiteLLM, which relays the caller's part as-is) works without a shim.
+    audio: UploadFile | None = File(None),
+    file: UploadFile | None = File(None),
     # Forcing the language stops Whisper from "detecting" English on a short
     # French sentence, its classic mistake.
     language: str = Form(""),
@@ -132,6 +136,9 @@ async def transcribe(
     # run_in_threadpool: the load holds its lock ~15 s and would otherwise
     # freeze the WHOLE sidecar event loop, /api/model-info included (the
     # portal's probes then time out during a perfectly healthy load).
+    audio = audio or file
+    if audio is None:
+        raise HTTPException(status_code=400, detail="Field 'file' (or 'audio') is required.")
     if not await run_in_threadpool(_load_if_needed):
         raise HTTPException(status_code=503,
                             detail=_load_error or "Modèle non chargé.")

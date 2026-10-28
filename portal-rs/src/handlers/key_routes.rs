@@ -36,6 +36,11 @@ pub(crate) async fn ensure_user(username: &str, max_budget: f64, duration: &str)
 
 /// `create_litellm_key`: the new key, or None when LiteLLM did not answer.
 pub(crate) async fn create_key(state: &AppState, alias: &str, username: &str, is_admin: bool) -> Option<String> {
+    // NO `allowed_passthrough_routes` here: that field is an ENTERPRISE feature,
+    // and sending it makes `/key/generate` answer 403 — every key creation
+    // failed the moment it was added (caught by the API-keys journey). The
+    // media models are registered as MODELS, which need no such grant: they go
+    // through the normal key RBAC.
     let mut payload = json!({"key_alias": alias, "metadata": {"user": username, "created_by": "dgx-portal"}});
     if !is_admin {
         // The budget is the ACCOUNT's, shared by all its keys through user_id.

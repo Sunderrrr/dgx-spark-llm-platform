@@ -43,6 +43,70 @@ the Python SDK, cURL and env vars — key and endpoint pre-filled, with
 > For **OpenCode**, the config uses a dedicated `dgx` provider (not `openai`)
 > so it won't clash with an official OpenAI account.
 
+## Media — image, dictation, voice
+
+Three of the platform's media services are exposed **through LiteLLM**, on its
+own OpenAI-shaped routes, with the caller's **API key** — the same key, the same
+budget, the same logs as chat. Nothing is public.
+
+| model | route | service |
+|---|---|---|
+| `image` | `POST /v1/images/generations` | FLUX.2 Klein 4B (`image-gen`) |
+| `dictation` | `POST /v1/audio/transcriptions` | Whisper turbo (`asr`) |
+| `voice` | `POST /v1/audio/speech` | Chatterbox / Kyutai (`voice`) |
+
+```bash
+# image → base64 PNG
+curl -s http://127.0.0.1:4001/v1/images/generations \
+  -H "Authorization: Bearer $DGX_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"model":"image","prompt":"a red fox in the snow","size":"768x768"}'
+
+# dictation → {"text": "..."}
+curl -s http://127.0.0.1:4001/v1/audio/transcriptions \
+  -H "Authorization: Bearer $DGX_API_KEY" \
+  -F "file=@memo.wav" -F "model=dictation" -F "language=fr"
+
+# voice → mp3 bytes
+curl -s http://127.0.0.1:4001/v1/audio/speech \
+  -H "Authorization: Bearer $DGX_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"model":"voice","input":"Bonjour, ceci est un test."}' -o out.mp3
+```
+
+**Why it goes through the portal.** The four media services live on their own
+docker networks (`image_net`, `asr_net`, `voice_net`) and behind the loopback
+relay for ComfyUI; `litellm` is alone on the default network and can reach none
+of them. `portal-rs` is the only process on all of them, so it carries the
+OpenAI-shaped routes (`/v1/images/generations`, `/v1/audio/transcriptions`,
+`/v1/audio/speech`) and LiteLLM calls it as an `openai/...` model with
+`api_base: http://portal-rs:<PORTAL_RUST_PORT>/v1` (`5100` unless `.env` overrides it; the value is never written literally in a tracked file — the secret hooks compare against `.env`).
+
+**Why not pass-through endpoints.** LiteLLM 1.104.3 has them, and they
+authenticate the caller's key — but they also require
+`allowed_passthrough_routes` on the key, which answers *« This feature is only
+available for LiteLLM Enterprise users »* (measured). Registered models use the
+normal key RBAC instead, so no enterprise feature is needed.
+
+**OpenAI names, not the sidecars'.** Clients send `file`; the ASR service wants
+`audio`. The portal rewrites the multipart **field name** in place (the boundary
+and the filename are untouched, `tests` covers it) rather than forcing every
+client to know our shape.
+
+**Billing, honestly.** `dictation` is priced per audio second
+(`input_cost_per_second`) and its calls appear in `LiteLLM_SpendLogs` with a
+non-zero cost. `image` and `voice` are **authenticated and logged but currently
+recorded at cost 0**: this LiteLLM build drops `input_cost_per_image` /
+`output_cost_per_second` from `model_info` on `/model/new` (verified in
+`/model/info`). They still consume the key's *rate* limits and are visible in the
+logs; pricing them needs either a LiteLLM version that keeps those fields, or a
+custom cost map. Do not read « spend 0 » as « free access »: the key is
+required, and a revoked key stops the service as it stops chat.
+
+**Video is not exposed yet.** LiteLLM has `mode: video_generation` and
+`/v1/videos`, but the flow is asynchronous (`POST` → id → `GET /v1/videos/{id}`)
+and ComfyUI answers with its own job/history shape; the portal's proxy under
+`/api/v1/media/video/*` is the groundwork, the OpenAI shape on top is the
+missing piece.
+
 ## Decisions
 
 A **decision model** answers typed questions about an input instead of writing

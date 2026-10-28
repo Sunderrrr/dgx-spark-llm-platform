@@ -239,6 +239,17 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/video/cancel/:prompt_id", post(handlers::api_video_cancel))
         .route("/video/file/:prompt_id", get(handlers::video_file))
         .route("/api/transcribe", post(handlers::api_transcribe))
+        // The media API, reached ONLY through LiteLLM's authenticated
+        // pass-through endpoints (docs/api.md). Not a session route: the guard
+        // is the internal token, and the caller's key was already checked and
+        // billed by the gateway.
+        .route("/api/v1/media/:kind/*rest", axum::routing::any(handlers::api_media))
+        // The OpenAI-shaped faces of the same services, registered in LiteLLM
+        // as MODELS (mode: image_generation / audio_transcription /
+        // audio_speech) so they inherit the normal key RBAC and billing.
+        .route("/v1/images/generations", post(handlers::v1_images))
+        .route("/v1/audio/transcriptions", post(handlers::v1_transcriptions))
+        .route("/v1/audio/speech", post(handlers::v1_speech))
         .route("/api/voice/chat/start", post(handlers::api_voice_chat_start))
         .route("/api/voice/speak", post(handlers::api_voice_speak))
         .route("/api/ocr/extract", post(handlers::api_ocr_extract))

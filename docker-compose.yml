@@ -47,12 +47,22 @@ services:
   litellm:
     logging: *logging
     # Pinned by digest (repro + anti supply-chain). Tag: v1.104.3, embedded
-    # version verified: 1.104.3 (image of 2026-10-27). Bumped from 1.104.0 on
-    # that day for the decision routes: `/v1/decisions` and `/v1/systemone`
-    # exist from 1.104.2, and the self-hosted `hosted_vllm` decisions provider
-    # from 1.104.3 (LiteLLM docs, decisions page). Measured on a throwaway
+    # version verified: 1.104.3 (image of 2026-10-27).
+    # 1.104.8 was TRIED on 2026-10-28 and REVERTED: same patch line, the decision
+    # routes intact (verified), but the `dgx_inflight` callback stopped removing
+    # its rows — a request ended and billed left its activity row behind (age
+    # 346 s, the run's `--spend` written), so the admin panel would show ghost
+    # sessions until the 2 h sweep. Rolling back restored it (1 row during the
+    # call, 0 after). Do not bump again before adapting the callback: it is the
+    # warning this file already carries, and it fired.
+    # History: 1.104.0 → 1.104.3 on 2026-10-27 for the decision routes
+    # (`/v1/decisions` and `/v1/systemone` exist from 1.104.2, the self-hosted
+    # `hosted_vllm` decisions provider from 1.104.3). Measured on a throwaway
     # container: a `mode: decisions` model on `hosted_vllm` answers both routes
     # and parses llama.cpp's System One response shape.
+    # NOT fixed by this bump, checked in the 1.104.8 image: the pass-through
+    # endpoints still require `allowed_passthrough_routes` (an ENTERPRISE field),
+    # which is why the media API uses registered models instead (docs/api.md).
     # To update: docker pull ghcr.io/berriai/litellm:main-stable then replace
     # the sha below with the new digest (and check the version with: docker run
     # --rm --entrypoint python <image> -c "from importlib.metadata import

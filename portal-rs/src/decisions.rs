@@ -273,10 +273,32 @@ pub async fn run(pool: &sqlx::SqlitePool, username: &str, body: &Value) -> Resul
     let Some(key) = user_key(pool, username).await else {
         return Err((400, "Aucune clé API — crée une clé dans Réglages ▸ Clés API.".into()));
     };
-    let mut request = payload.as_object().cloned().unwrap_or_default();
-    request.insert("model".into(), json!(model_name()));
-    let url = format!("{}/v1/systemone", crate::probes::litellm_url().trim_end_matches('/'));
-    let sent = crate::sidecars::http().post(url).bearer_auth(&key).json(&Value::Object(request)).timeout(Duration::from_secs(120)).send().await;
+    // Images do NOT go through the gateway: LiteLLM 1.104.3 refuses an
+    // `input_image` for every System One provider (« System One providers accept
+    // text input only », measured), while llama.cpp's /v1/systemone takes `files`
+    // — the model itself is multimodal, verified on this box. So an image request
+    // goes to the engine directly. The cost is the billing: these calls are not
+    // in LiteLLM's spend logs, they stay bounded by the page's rate limit.
+    let has_files = payload
+        .get("files")
+        .or_else(|| payload.get("images"))
+        .and_then(Value::as_array)
+        .is_some_and(|f| !f.is_empty());
+    let (url, request) = if has_files {
+        let base = env("DECISIONS_API_BASE", "http://172.19.0.1:8002/v1");
+        let mut body = payload.as_object().cloned().unwrap_or_default();
+        body.insert("model".into(), json!(model_name()));
+        (format!("{}/systemone", base.trim_end_matches('/')), body)
+    } else {
+        let mut body = payload.as_object().cloned().unwrap_or_default();
+        body.insert("model".into(), json!(model_name()));
+        (format!("{}/v1/systemone", crate::probes::litellm_url().trim_end_matches('/')), body)
+    };
+    let sent = if has_files {
+        crate::sidecars::http().post(url).json(&Value::Object(request)).timeout(Duration::from_secs(120)).send().await
+    } else {
+        crate::sidecars::http().post(url).bearer_auth(&key).json(&Value::Object(request)).timeout(Duration::from_secs(120)).send().await
+    };
     let r = match sent {
         Ok(r) => r,
         Err(e) => {

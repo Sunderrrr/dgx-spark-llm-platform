@@ -51,6 +51,22 @@ scale. The platform serves one — Cloudflare **Clef**, `Q4_K_M` — under the n
 **`clef-q4km`**, on the same gateway and with the same keys and budgets as chat.
 It is **not** a chat model: `/v1/chat/completions` does not exist for it.
 
+### Images
+
+The model is **multimodal**: the repo ships the projector
+(`mmproj-Cloudflare_clef-f16.gguf`, 885 MB) and llama.cpp's `/v1/systemone` takes
+`files` — a list of `data:image/...;base64,...` URLs, up to 4 here, 4 MB each.
+Measured on this box: an image adds ~1 150 input tokens and changes the answer
+(a screenshot of the portal is read as « interface » at 0.96).
+
+> The page's requests with images do **not** go through LiteLLM: 1.104.3 refuses
+> an image input for every System One provider (« System One providers accept
+> text input only », verified on the pinned image), so the portal calls the
+> engine directly — `DECISIONS_API_BASE` — for those. Consequence to know: an
+> image request is not in LiteLLM's spend logs, so it does not consume the key's
+> budget; it stays bounded by the page's own rate limit. Text-only requests keep
+> going through the gateway, billed and budgeted as usual.
+
 Two routes, one model (LiteLLM serves both from the same deployment; the model
 is registered with `mode: decisions`):
 

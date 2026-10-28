@@ -58,6 +58,15 @@ test("les trois types passent, dans la forme System One", () => {
   assert.equal(built.body.state, "Client facturé deux fois.");
 });
 
+test("les images jointes partent en data URLs, à côté de l'état", () => {
+  const built = validatePayload("s", QUESTIONS, ["data:image/png;base64,AAA"]);
+  assert.equal(built.ok, true);
+  if (built.ok) assert.deepEqual(built.body.files, ["data:image/png;base64,AAA"]);
+  const textOnly = validatePayload("s", QUESTIONS);
+  assert.equal(textOnly.ok, true);
+  if (textOnly.ok) assert.equal(textOnly.body.files, undefined);
+});
+
 test("un state JSON imbriqué est accepté", () => {
   assert.equal(validatePayload('{"commande": {"id": 4411, "double": true}}', QUESTIONS).ok, true);
 });

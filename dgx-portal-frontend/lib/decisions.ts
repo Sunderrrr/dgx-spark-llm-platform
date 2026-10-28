@@ -14,7 +14,9 @@ export const MAX_STATE_BYTES = 64 * 1024;
 export const MAX_CHOICES = 255;
 export const MAX_LEVELS = 10;
 
-export type Validated = { ok: true; body: { state: unknown; questions: Record<string, unknown> } } | { ok: false; error: string };
+export type Validated =
+  | { ok: true; body: { state: unknown; questions: Record<string, unknown>; files?: string[] } }
+  | { ok: false; error: string };
 
 /** The state as the API wants it: a JSON value, or the text as it was typed. */
 export function parseState(text: string): { ok: true; value: unknown } | { ok: false; error: string } {
@@ -77,7 +79,7 @@ function oneQuestion(id: string, raw: unknown): { ok: true; question: Record<str
  * The body `POST /api/decisions/run` takes, from the two editors' values.
  * Every refusal names the question concerned.
  */
-export function validatePayload(stateText: string, questionsText: string): Validated {
+export function validatePayload(stateText: string, questionsText: string, files: string[] = []): Validated {
   const state = parseState(stateText);
   if (!state.ok) return state;
   const size = new TextEncoder().encode(JSON.stringify(state.value)).length;
@@ -101,7 +103,11 @@ export function validatePayload(stateText: string, questionsText: string): Valid
     if (!built.ok) return built;
     questions[id] = built.question;
   }
-  return { ok: true, body: { state: state.value, questions } };
+  const body: { state: unknown; questions: Record<string, unknown>; files?: string[] } = { state: state.value, questions };
+  // Images ride alongside the state, as data URLs: llama.cpp reads them, the
+  // portal relays them to the engine (LiteLLM refuses image parts on System One).
+  if (files.length > 0) body.files = files;
+  return { ok: true, body };
 }
 
 /** 0.7342 → « 73 % ». The API's probabilities are 0..1. */

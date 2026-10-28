@@ -27,6 +27,12 @@ const EN: Record<string, string> = {
   "Les décisions, leurs probabilités et leur confiance s'afficheront ici, une ligne par question.":
     "The decisions, their probabilities and their confidence appear here, one line per question.",
   "Réponses": "Responses",
+  "Images jointes": "Attached images",
+  "Ajouter une image": "Add an image",
+  "{n} image(s) lue(s) par le modèle": "{n} image(s) read by the model",
+  "Ces images sont lues : nomme-les dans les questions (« image 1 », « image 2 »…).":
+    "These images are read: name them in the questions (« image 1 », « image 2 »…).",
+
   "Une réponse oui / non, avec sa probabilité.": "A yes / no answer, with its probability.",
   "Une option parmi une liste fermée.": "One option out of a closed list.",
   "Une position sur une échelle ordonnée.": "A position on an ordered scale.",

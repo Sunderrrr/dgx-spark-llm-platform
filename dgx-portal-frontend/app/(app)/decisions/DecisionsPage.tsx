@@ -7,6 +7,8 @@ import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
+import { FileInput } from "@astryxdesign/core/FileInput";
+import { Thumbnail } from "@astryxdesign/core/Thumbnail";
 import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
@@ -107,6 +109,11 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
   // The right column shows one thing at a time: the examples browser, the
   // result, or what to do first. Running a request closes the browser.
   const [examplesOpen, setExamplesOpen] = useState(false);
+  // Images attached to the request. The model reads them (llama.cpp `files`),
+  // and they show as thumbnails under the state and beside the questions — the
+  // place where their references are written.
+  const [assets, setAssets] = useState<{ name: string; dataUrl: string }[]>([]);
+  const [inputFiles, setInputFiles] = useState<File | File[] | null>(null);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -118,7 +125,7 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
 
   const run = useCallback(async () => {
     setError(null);
-    const built = validatePayload(stateText, questionsText);
+    const built = validatePayload(stateText, questionsText, assets.map((a) => a.dataUrl));
     if (!built.ok) {
       setError(tServer(built.error, t));
       setExamplesOpen(false);
@@ -139,7 +146,7 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
     } finally {
       setBusy(false);
     }
-  }, [csrf, questionsText, stateText, t]);
+  }, [assets, csrf, questionsText, stateText, t]);
 
   // Ctrl/⌘ + ↵ launches the request, like the System One playground. The ref
   // holds the current `run` so the listener is installed once.
@@ -185,6 +192,27 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
     }
     if (which === "state") setStateText(pretty);
     else setQuestionsText(pretty);
+  };
+
+  /** Read the picked files into data URLs: that is what the engine takes, and
+   *  what a thumbnail can display. */
+  const onPickFiles = async (picked: File | File[] | null) => {
+    // The control keeps no value: the thumbnails below ARE the selection, and
+    // its own chip repeated the file name a second time.
+    setInputFiles(null);
+    const list = picked === null ? [] : Array.isArray(picked) ? picked : [picked];
+    const read = await Promise.all(
+      list.map(
+        (file) =>
+          new Promise<{ name: string; dataUrl: string } | null>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve({ name: file.name, dataUrl: String(reader.result) });
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(file);
+          }),
+      ),
+    );
+    setAssets(read.filter((a): a is { name: string; dataUrl: string } => a !== null));
   };
 
   /** Load an example into the editors and get out of the way. */
@@ -286,6 +314,38 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
                   placeholder={STATE_PLACEHOLDER}
                   style={CODE}
                 />
+                {/* Images travel WITH the state: the engine reads them, so the
+                    picker lives here and the previews show what it will see. */}
+                <HStack gap={2} vAlign="center" wrap="wrap">
+                  <FileInput
+                    label={t("Images jointes")}
+                    isLabelHidden
+                    value={inputFiles}
+                    onChange={(files) => void onPickFiles(files)}
+                    accept="image/*"
+                    isMultiple
+                    maxFiles={4}
+                    maxSize={4 * 1024 * 1024}
+                    placeholder={t("Ajouter une image")}
+                  />
+                  {assets.map((asset) => (
+                    <Thumbnail
+                      key={asset.name}
+                      src={asset.dataUrl}
+                      alt={asset.name}
+                      label={asset.name}
+                      onRemove={() => {
+                        setAssets((current) => current.filter((a) => a.name !== asset.name));
+                        setInputFiles(null);
+                      }}
+                    />
+                  ))}
+                  {assets.length > 0 && (
+                    <Text type="supporting" color="secondary">
+                      {t("{n} image(s) lue(s) par le modèle").replace("{n}", String(assets.length))}
+                    </Text>
+                  )}
+                </HStack>
               </VStack>
 
               <VStack gap={1}>
@@ -307,6 +367,16 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
                   placeholder={QUESTIONS_PLACEHOLDER}
                   style={CODE}
                 />
+                {assets.length > 0 && (
+                  <HStack gap={2} vAlign="center" wrap="wrap">
+                    {assets.map((asset) => (
+                      <Thumbnail key={asset.name} src={asset.dataUrl} alt={asset.name} label={asset.name} />
+                    ))}
+                    <Text type="supporting" color="secondary">
+                      {t("Ces images sont lues : nomme-les dans les questions (« image 1 », « image 2 »…).")}
+                    </Text>
+                  </HStack>
+                )}
                 {/* The three types, explained where they are needed: an empty
                     editor says nothing about what can go in it. */}
                 {questionsEmpty && (

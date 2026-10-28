@@ -86,11 +86,27 @@ bare repo id uses `-hf` (which can pick the wrong shard).
   rule as `--chat-template-file`: FILE NAME ONLY, resolved next to the weights —
   no absolute path, no `..`, no sub-folder.
 - **Qwen3.8-27B-Uncensored: GGUF + vision.** Arch `qwen35` (known to the three
-  llama.cpp builds), `Q8_0` (27.1 GiB) from `local:qwen38-27b-gguf`, native
-  context 262 144 over 4 slots, **52 GB resident out of 121** (hybrid attention
-  keeps a small KV cache). With `--mmproj` (`mmproj-Qwen3.8-27B-Uncensored-f16.gguf`,
-  931 MB) the server announces `{"vision": true, "video": true}` and correctly
-  describes a base64 image through LiteLLM (measured: "It's a red circle" in 2.2 s).
+  llama.cpp builds), `Q8_0` from `local:qwen38-27b-turbo-fable-cold-fusion-q8`
+  (DavidAU *TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NEO-CODER-MAX*),
+  native context 262 144 over 4 slots, **52 GB resident out of 121** (hybrid
+  attention keeps a small KV cache). With `--mmproj` (`mmproj-F16.gguf`, 931 MB,
+  same repo) the server announces a multimodal model and describes a base64 image
+  through LiteLLM correctly (measured on this box: it reads a screenshot of the
+  decisions page as « une configuration de décision avec trois questions »).
+- **`-MTP` GGUFs load but their MTP block is ignored by llama.cpp.** The repo
+  offers both plain and `-MTP` quants; the MTP file declares
+  `qwen35.nextn_predict_layers = 1` and `block_count = 65`, and the engine warns
+  `unused tensor blk.64.nextn.* -- ignoring` — no speculative decoding, no
+  speedup, 15 dead tensors. The measured facts, not a guess: the file loads and
+  answers, but the 65th block is unused. `nextn` exists in the binary only for
+  `bailingmoe3`.
+- **DFlash is a vLLM feature and does not follow a GGUF move.** `z-lab/Qwen3.8-27B-DFlash2`
+  is safetensors only (3.8 GB, no GGUF) and was driven by
+  `--speculative-config {"method":"dflash"}` on the vLLM engine; llama.cpp's
+  speculative path wants a GGUF draft (`--spec-draft-*`). The 27B's DFlash is
+  therefore **not** re-wired when the weights become a GGUF — the alias keeps its
+  name, the draft is lost, and MTP was the only native replacement (ignored, see
+  above).
 - **Ternary-Bonsai-2-27B (Q2 + vision)** is the first model that requires a
   third-party binary: **402 of its 851 tensors carry a ggml type our builds do
   not know** (id 142), so loading it fails and a "just to see" attempt costs the

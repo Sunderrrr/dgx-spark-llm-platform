@@ -17,8 +17,6 @@ publishes the GitHub Release from the section of this file — so the release bo
 and this file can never disagree. `scripts/release.sh --check` (also run by CI)
 fails if `package.json` and the newest version here have drifted apart.
 
-## [Unreleased]
-
 ### Added
 
 - **Decisions — a decision model, its page and its API**: Cloudflare **Clef**
@@ -41,6 +39,27 @@ fails if `package.json` and the newest version here have drifted apart.
   `enable_thinking: true`; an explicit `enable_thinking` always wins.
 
 ### Changed
+
+- **Both chat models replaced (2026-10-28, night window).**
+  - **`qwen38-flash-next-Abliterated-Uncensored`** replaces
+    `qwen38-flash-next-uncensored`: `DavidAU/Qwen3.8-Flash-Next-Abliterated-Uncensored-Turbo-Brilliance-50x-Reasoning-Instruct-GSQ-RCO-GGUF`,
+    **IQ3_S** — the only quant published in that repo, in two shards
+    (55.06 + 28.80 GB). Arch `qwen4exp`, native 262 144, served with 3 slots of
+    262 144 (`n_slots = 3, kv_unified = true`, measured). The old folder
+    (89.5 GB) is deleted.
+  - **`qwen38-27b`** keeps its alias but changes weights, engine and arguments:
+    `DavidAU/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NEO-CODER-MAX-MTP-GGUF`,
+    **Q8_0** (30.24 GB) + `mmproj-F16.gguf`, **llama.cpp instead of vLLM**. The
+    vLLM flags are translated to their llama.cpp equivalents
+    (`--max-model-len` → `--ctx-size 1048576 --parallel 4`, tool calls via
+    `--jinja`, vision via `--mmproj`). **DFlash is dropped**, and that is not a
+    choice: the draft is safetensors-only and vLLM-specific. The `-MTP` variant
+    was measured — llama.cpp ignores its MTP block. The old NVFP4 weights
+    (24 GB) are deleted.
+  - LiteLLM keeps both aliases; the stale `qwen38-flash-next-uncensored` route is
+    removed.
+
+## [Unreleased]
 
 - **LiteLLM pinned to `v1.104.3`** (was `1.104.0`): the decision routes exist
   from `1.104.2` and the self-hosted `hosted_vllm` decision provider from

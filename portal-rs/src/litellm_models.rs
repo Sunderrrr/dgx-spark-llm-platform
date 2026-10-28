@@ -159,8 +159,38 @@ pub async fn unregister(name: &str) -> bool {
 
 /// `_point_auto_model(name, vllm_args, engine)`: the virtual `auto-model`
 /// follows the chat model just launched.
+/// Whether `name` is the decision model's public name.
+///
+/// One place for the rule: the alias points at a chat engine, the decision model
+/// answers on its own route, and the two must not be confused by a launch.
+pub fn is_decision_model(name: &str) -> bool {
+    name == crate::decisions::model_name()
+}
+
 pub async fn point_auto_model(name: &str, args: &str, engine: &str) -> bool {
+    // `auto-model` is the CHAT alias: it must never designate the decision
+    // model. A decision engine has no chat endpoint (measured: the gateway
+    // answers 501 and points at /v1/systemone), so pointing the alias at it
+    // would break every client that wired `auto-model` once. The decision model
+    // has its own name, registered on its own route.
+    if crate::litellm_models::is_decision_model(name) {
+        return false;
+    }
     let (max_input, max_output) = crate::health::ctx_split(args, engine);
     let auto = std::env::var("AUTO_MODEL_NAME").unwrap_or_else(|_| "auto-model".into());
     upsert(&auto, &upstream(name, engine), max_input, max_output).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_auto_model_alias_never_designates_the_decision_model() {
+        // Both directions matter: the decision model is refused, and an ordinary
+        // chat model is not (a guard that refused everything would look green).
+        assert!(is_decision_model(&crate::decisions::model_name()));
+        assert!(!is_decision_model("qwen38-27b"));
+        assert!(!is_decision_model(""));
+    }
 }

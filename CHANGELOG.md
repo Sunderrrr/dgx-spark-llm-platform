@@ -1,6 +1,31 @@
 # Changelog
 
 
+## 2026-10-29 (suite 2) — les 27 Go de v0.8.0 supprimés : `--lazy-mode on`
+
+`qwen4exp` pinne le tenseur `per_layer_token_embd.weight` (iq4_nl, 27 Go) hors du
+GPU : son noyau `get_rows` exige `ne[0] % QK_K == 0`, ce tenseur ne l'est pas, et
+le chargeur le pose alors en mémoire **anonyme** (RSS 28 Go). Le forcer sur CUDA0
+fait tomber la box sous earlyoom (mesuré deux fois, SIGTERM sur `llama-server`).
+
+La réponse est dans le dépôt amont (issue **ggml-org/llama.cpp#29932**, ouverte,
+`qwen4exp: per_layer_token_embd is CPU-pinned`) : `-lzm on` /
+`--lazy-mode on` lit les lignes de ce tenseur **à la demande depuis le fichier**
+au lieu de le garder résident.
+
+Mesuré sur la box, v0.8.0, mêmes args par ailleurs :
+
+| | v0.8.0 | v0.8.0 + `--lazy-mode on` |
+|---|---|---|
+| RSS anonyme | 27,2 Go | **0,4 Go** |
+| mémoire libre | 18 Go | **42 Go** |
+| chargement | 72 s | **16 s** |
+| débit | 18,3 tok/s | 17,2 tok/s |
+
+Le prix est d'environ 10 % de débit ; le gain est de 26 Go. C'est la configuration
+retenue par défaut (écrite dans `model_configs.vllm_args`), et `--lazy-mode` /
+`--load-mode` sont dans l'allowlist du runner pour rester utilisables.
+
 ## 2026-10-29 (suite) — llama.cpp v0.8.0 devient le défaut, sans le forçage GPU
 
 - **v0.8.0 par défaut.** Le nom du modèle servi est désormais l'identifiant du

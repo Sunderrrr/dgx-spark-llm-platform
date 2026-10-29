@@ -103,6 +103,8 @@ pub static LLAMA_VALUE_FLAGS: &[&str] = &[
     "--defrag-thold",
     "--flash-attn",
     "--kv-unified-per-slot",
+    "--lazy-mode",
+    "--load-mode",
     "--log-verbosity",
     "--main-gpu",
     "--mmproj",

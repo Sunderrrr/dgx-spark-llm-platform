@@ -24,11 +24,11 @@ WORKDIR /app
 RUN python3 -m pip install --no-cache-dir --upgrade pip && \
     python3 -m pip install --no-cache-dir \
       --extra-index-url https://download.pytorch.org/whl/cu130 \
-      torch==2.10.0 torchaudio==2.10.0
+      torch==2.14.1 torchaudio==2.11.0
 
 RUN python3 -m pip install --no-cache-dir \
-      "transformers>=4.46" "accelerate==1.14.0" \
-      "fastapi==0.141.1" "uvicorn[standard]==0.52.1" python-multipart \
+      "transformers>=4.46" "accelerate==1.15.0" \
+      "fastapi==0.162.0" "uvicorn[standard]==0.54.0" python-multipart \
       "soundfile==0.14.0" "numpy==2.2.6"
 
 COPY server.py /app/server.py

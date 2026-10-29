@@ -374,11 +374,18 @@ pub fn skills_from_zip(data: &[u8], subpath: &str) -> Result<(Vec<Skill>, Vec<(S
     // first position and its last entry, as a Python dict does.
     let mut members: Vec<(String, usize, u64)> = Vec::new();
     let mut total_declared = 0u64;
-    let mut entries = Vec::new();
+    // zip 9 returns the entry name as a fallible `Cow<str>` (the name may be
+    // invalid UTF-8): refuse such an archive rather than guess a path, which is
+    // also why the tuple is annotated — the compiler needs a concrete type.
+    let mut entries: Vec<(String, u64, Option<u32>)> = Vec::new();
     for i in 0..zf.len() {
         let f = zf.by_index_raw(i).map_err(|_| ImportError("Ce fichier n'est pas une archive .zip valide.".into()))?;
         total_declared += f.size();
-        entries.push((f.name().to_string(), f.size(), f.unix_mode()));
+        let name = f
+            .name()
+            .map_err(|_| ImportError("Ce fichier n'est pas une archive .zip valide.".into()))?
+            .to_string();
+        entries.push((name, f.size(), f.unix_mode()));
     }
     if total_declared > MAX_UNCOMPRESSED {
         return Err(ImportError("Archive trop volumineuse une fois décompressée.".into()));
@@ -850,7 +857,9 @@ mod tests {
                     let mut f = z.by_index(i).unwrap();
                     let mut s = String::new();
                     f.read_to_string(&mut s).unwrap();
-                    entries.push(json!([f.name(), s]));
+                    // zip 9: the name is fallible (invalid UTF-8), and a test
+                    // must not silently accept a name it could not read.
+                    entries.push(json!([f.name().expect("entry name").to_string(), s]));
                 }
                 assert_eq!(json!(entries), c["entries"], "build_zip");
                 continue;

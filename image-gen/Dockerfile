@@ -21,7 +21,7 @@ WORKDIR /app
 RUN python3 -m pip install --no-cache-dir --upgrade pip && \
     python3 -m pip install --no-cache-dir \
       --extra-index-url https://download.pytorch.org/whl/cu130 \
-      torch==2.10.0
+      torch==2.14.1
 
 # diffusers from git: the pipeline classes used here (Cosmos3Omni among
 # others) do not exist yet in a published release. Pinned commit (the one
@@ -32,10 +32,10 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip && \
 #   aarch64 wheel available from 0.50 (manylinux_2_24_aarch64).
 RUN python3 -m pip install --no-cache-dir \
       "git+https://github.com/huggingface/diffusers.git@efabd60d61c2b7aabf9f182bee6b5b6058980304" \
-      "transformers>=4.46" "accelerate==1.14.0" safetensors sentencepiece protobuf Pillow \
+      "transformers>=4.46" "accelerate==1.15.0" safetensors sentencepiece protobuf Pillow \
       "numpy==2.2.6" \
       "bitsandbytes>=0.50" \
-      "fastapi==0.141.1" "uvicorn[standard]==0.52.1" python-multipart
+      "fastapi==0.162.0" "uvicorn[standard]==0.54.0" python-multipart
 
 COPY server.py /app/server.py
 COPY esrgan.py /app/esrgan.py

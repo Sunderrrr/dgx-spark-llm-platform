@@ -1,6 +1,37 @@
 # Changelog
 
 
+## 2026-10-29 (suite 8) — le gros chantier : tout mis à jour
+
+| composant | avant | après | preuve |
+|---|---|---|---|
+| **LiteLLM** | 1.106.5 | **1.106.6** | chat + callback d'activité (1 ligne pendant, 0 après) |
+| **SearXNG** | 2026.10.7 | **2026.10.29** | conteneur recréé, recherche via le portail |
+| **`zip` (Rust)** | 2.x | **9.x** | 3 avis RUSTSEC fermés, 175 tests verts |
+| **ASR (image)** | torch 2.10.0 | **torch 2.14.1**, fastapi 0.162, uvicorn 0.54 | transcription réelle |
+| **image-gen (image)** | torch 2.10.0 | **torch 2.14.1**, fastapi 0.162, uvicorn 0.54 | image générée (chat roux) |
+| **eslint** | 9.39.5 | **10** | `eslint . --max-warnings 0` : 0 |
+| **@types/node** | 20.x | **26.x** | `tsc --noEmit` : 0 erreur |
+
+Détails qui ont coûté du temps et valent d'être écrits :
+
+- **numpy est bloqué par le socle de l'image.** L'ASR part de
+  `nvidia/cuda:13.0.3-runtime-ubuntu22.04`, donc **Python 3.10** : numpy 2.5 exige
+  3.11+. La version la plus haute possible reste **2.2.6**. Le bump a échoué en
+  construction, pas en production.
+- **torch 2.14.1 est le plafond de l'index cu130** (2.15 n'existe qu'en cu132 sur
+  PyPI). Les images gardent donc cu130, cohérentes avec leur base CUDA 13.0.
+- **`zip` 9 change deux signatures** : `entry.name()` renvoie désormais un
+  `Result<Cow<str>>` (UTF-8 invalide possible), ce qui a aussi fait tomber
+  l'inférence de type du tuple et cassé le test du magasin de compétences.
+  Adapté aux trois endroits, et les trois entrées d'exception de
+  `check-deps.py` ont été retirées — le garde-fou refuse une exception devenue
+  inutile, c'est exactement ce qu'on lui demande.
+- **Restent volontairement en attente** : `@astryxdesign/*` 0.1.9 → **0.7.4**
+  (majeur du système de design utilisé partout : c'est une refonte à tester
+  écran par écran, pas un `npm install`), et les images Docker postgres/crawl4ai
+  (même version upstream, aucun gain).
+
 ## 2026-10-29 (suite 7) — 3 sessions assumées, et ce qu'elles coûtent
 
 `--ctx-size 786432 --parallel 3 --kv-unified --kv-unified-per-slot 262144` :

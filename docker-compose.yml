@@ -83,7 +83,7 @@ services:
     # during a chat call, none after. Note: the CHAT hooks only — a
     # `/v1/systemone` call does not go through them (measured), so the admin
     # in-flight panel stays chat-only.
-    image: ghcr.io/berriai/litellm@sha256:7d6ae6c8d73d1b6aea4cb75d07c4a8a953f0809b0764522b8eab693734c5e905
+    image: ghcr.io/berriai/litellm@sha256:37e2dafb088a7723beb998590682957386dfc83ffea1848486f8e0e5cfac0b06
     container_name: litellm
     restart: unless-stopped
     # Run tini as PID 1: the Prisma bootstrap spawns node helpers, and without
@@ -218,7 +218,7 @@ services:
     logging: *logging
     # Digest-pinned (repro + anti supply-chain). To update:
     # docker pull searxng/searxng:latest then replace the sha above.
-    image: searxng/searxng@sha256:d3e684e0d23e584740494029b67d75889934ca2812106f877bb81588fd2cbc0b
+    image: searxng/searxng@sha256:c4e8448495ef3b0175eb6c97a19c1ac7cc0a5c907d581ab3877f3cb430e81b86
     container_name: searxng
     restart: unless-stopped
     environment:

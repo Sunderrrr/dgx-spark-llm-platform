@@ -55,9 +55,6 @@ IGNORES = {
     'RUSTSEC-2026-0387': "crypto-bigint >=0.7.6 needs p256 >=0.14 / elliptic-curve >=0.14 "
                         "(jsonwebtoken stack); re-check when those bump",
     'RUSTSEC-2023-0071': "rsa: no fixed release published upstream (Marvin attack, needs decryption)",
-    'RUSTSEC-2026-0367': "zip >=9.0.0 only (major API); portal uses 2.x — and never calls extract()",
-    'RUSTSEC-2026-0369': "zip >=9.0.0 only (major API); portal extracts in memory via by_index_raw",
-    'RUSTSEC-2026-0368': "zip >=9.0.0 only (major API); no ZipArchive::extract() call in the tree",
 }
 seen_ignores = set()
 

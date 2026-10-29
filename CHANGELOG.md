@@ -27,6 +27,15 @@ Détails qui ont coûté du temps et valent d'être écrits :
   Adapté aux trois endroits, et les trois entrées d'exception de
   `check-deps.py` ont été retirées — le garde-fou refuse une exception devenue
   inutile, c'est exactement ce qu'on lui demande.
+
+**Correction vérifiée** : le premier test des sidecars a tourné sur les
+**anciens conteneurs** (torch 2.10, fastapi 0.141) — l'image reconstruite sous un
+autre tag n'était pas celle que les scripts de recréation lancent
+(`whisper-asr:turbo-cu130`, `ai-platform-image-gen`). Après recréation, les
+conteneurs portent bien torch **2.14.1+cu130** / fastapi **0.162.0**, et les deux
+fonctionnent (transcription réelle, image du phare). Le piège est écrit dans
+`docs/operations.md`.
+
 - **Restent volontairement en attente** : `@astryxdesign/*` 0.1.9 → **0.7.4**
   (majeur du système de design utilisé partout : c'est une refonte à tester
   écran par écran, pas un `npm install`), et les images Docker postgres/crawl4ai

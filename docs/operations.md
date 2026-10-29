@@ -471,3 +471,22 @@ Health endpoints (portal side): `GET /healthz` gives minimal **public** liveness
 See [troubleshooting → reboot recovery](troubleshooting.md#after-an-unexpected-reboot):
 auto-resume restores the model, `dgx-traefik-boot.service` handles the
 Traefik/DNS race, and a short checklist covers the rest.
+
+## Updating a sidecar image (the tag is not obvious)
+
+The recreate scripts are what the runner calls, and they name the image the
+container will run — not the tag you may have built by hand:
+
+- `asr-recreate.sh` → **`whisper-asr:turbo-cu130`** (build with
+  `docker build -f asr/Dockerfile -t whisper-asr:turbo-cu130 asr/`)
+- `image-recreate.sh` → **`ai-platform-image-gen`** (build with
+  `docker build -f image-gen/Dockerfile -t ai-platform-image-gen image-gen/`)
+
+A rebuild under another tag changes nothing: the running container keeps the old
+image, and the version check (`docker exec asr python3 -c
+'import torch; print(torch.__version__)'`) is the only way to know. Measured on
+2026-10-29: the ASR test passed on a container still running torch 2.10 while the
+new image (2.14.1) sat unused, because the container had not been recreated.
+After building, recreate with the script (`HOME=/root bash
+asr/asr-recreate.sh openai/whisper-large-v3-turbo`,
+`sudo /usr/local/sbin/image-recreate.sh black-forest-labs/FLUX.2-klein-4B`).

@@ -237,10 +237,20 @@ async fn send_q(cfg: &Config, method: reqwest::Method, key: &str, query: &[(&str
     );
     // A User-Agent is required: the proxy in front of the bucket may refuse
     // anonymous clients (Cloudflare's browser-integrity check, error 1010).
+    // A single timeout for every operation was too short for the one that
+    // moves bytes: the 2026-10-29 backup failed with « error sending request »
+    // after exactly 60 s while uploading a 65 MB archive (38 MB the day before,
+    // when it still fit). Uploads and downloads get a byte-rate budget; the
+    // metadata calls keep the short one so a hung LIST cannot block a backup.
+    let budget = if body.is_some() || range.is_some() {
+        std::time::Duration::from_secs(900)
+    } else {
+        std::time::Duration::from_secs(60)
+    };
     let client = reqwest::Client::builder()
         .user_agent(concat!("portal-rs/", env!("CARGO_PKG_VERSION")))
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .timeout(std::time::Duration::from_secs(60))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(budget)
         .build()
         .map_err(|e| e.to_string())?;
     let mut region = learned_region(&cfg.endpoint)
@@ -291,7 +301,19 @@ async fn send_q(cfg: &Config, method: reqwest::Method, key: &str, query: &[(&str
             }
             Err(e) => match wait {
                 Some(ms) => tokio::time::sleep(std::time::Duration::from_millis(ms)).await,
-                None => return Err(e.to_string()),
+                // Say WHAT failed: « error sending request » alone sent the
+                // 2026-10-29 backup investigation through the network for a
+                // 60 s client timeout on a 65 MB upload.
+                None => {
+                    let why = if e.is_timeout() {
+                        format!("S3 upload/download timed out after {budget:?} (endpoint {}, key {key})", cfg.endpoint)
+                    } else if e.is_connect() {
+                        format!("S3 endpoint unreachable ({}): {e}", cfg.endpoint)
+                    } else {
+                        format!("S3 request failed ({} , key {key}): {e}", cfg.endpoint)
+                    };
+                    return Err(why);
+                }
             },
         }
         attempt += 1;

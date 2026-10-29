@@ -1,6 +1,25 @@
 # Changelog
 
 
+## 2026-10-29 (suite 4) — la vidéo exposée via LiteLLM
+
+`POST /v1/videos`, `GET /v1/videos/{id}`, `GET /v1/videos/{id}/content` —
+modèle `video` (`mode: video_generation`), derrière la clé utilisateur, traduits
+par le portail sur le workflow ComfyUI existant. Vérifié de bout en bout : id
+rendu, `queued → in_progress → completed`, MP4 de 376 Ko téléchargé à travers
+LiteLLM.
+
+**Deux surprises, mesurées :**
+- LiteLLM envoie un **formulaire** (pas du JSON) sur `/v1/videos`
+  (« Expected request with `Content-Type: application/json` » → 415) ;
+- son `VideoObject` type `seconds` en **chaîne** (« Input should be a valid
+  string » avec un flottant).
+
+**Et le vrai coupable de la vidéo cassée depuis deux semaines** :
+`comfyui-relay.service` — le socat 172.19.0.1:8188 → 127.0.0.1:8188, seul chemin
+du portail vers ComfyUI — était **arrêté et désactivé depuis le 15/10 13:41**.
+Réactivé et `enable` : la vidéo refonctionne aussi pour la page existante.
+
 ## 2026-10-29 (suite 3) — anciennes versions supprimées
 
 Supprimés (37 Go récupérés) : `atomic-llama`, `llama-cpp-upstream`,

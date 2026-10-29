@@ -324,6 +324,171 @@ fn rename_multipart_field(body: Bytes, from: &[u8], to: &[u8]) -> Bytes {
     Bytes::from(out)
 }
 
+
+// ── Video, OpenAI's shape over the ComfyUI workflow ──────────────────────────
+//
+// LiteLLM's `video_generation` mode speaks to an `openai/...` model through
+// `/videos`, `/videos/{id}` and `/videos/{id}/content` (see its
+// `llms/openai/videos/transformation.py`, api_base honoured). The portal already
+// owns the ComfyUI workflow, so these three routes are a translation, not a new
+// pipeline: `comfyui_generate` submits, `comfyui_status` polls, `/view` streams.
+
+fn video_status_word(raw: &str) -> &'static str {
+    match raw {
+        "done" => "completed",
+        "running" => "in_progress",
+        "error" => "failed",
+        _ => "queued",
+    }
+}
+
+/// `POST /v1/videos` — submit a text-to-video job, return the OpenAI object.
+pub async fn v1_videos(State(_state): State<AppState>, headers: HeaderMap, request: axum::extract::Request) -> Response {
+    if !bearer_ok(&headers) {
+        return (StatusCode::UNAUTHORIZED, Json(json!({"error": {"message": "unauthorized", "type": "auth_error"}}))).into_response();
+    }
+    // LiteLLM's `/v1/videos` POSTs a FORM (it can also upload a reference file),
+    // while an OpenAI SDK posts JSON. Accept both rather than answer 415 to the
+    // gateway that is supposed to be the only caller.
+    let is_form = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("multipart/form-data") || v.starts_with("application/x-www-form-urlencoded"));
+    let raw = match axum::body::to_bytes(request.into_body(), 16 * 1024 * 1024).await {
+        Ok(b) => b,
+        Err(_) => return (StatusCode::PAYLOAD_TOO_LARGE, Json(json!({"error": {"message": "body too large", "type": "invalid_request_error"}}))).into_response(),
+    };
+    let body: serde_json::Value = if is_form {
+        let text = String::from_utf8_lossy(&raw).to_string();
+        json!({
+            "prompt": form_value(&text, "prompt").unwrap_or_default(),
+            "seconds": form_value(&text, "seconds").and_then(|v| v.parse::<f64>().ok()),
+            "model": form_value(&text, "model").unwrap_or_default(),
+        })
+    } else {
+        serde_json::from_slice(&raw).unwrap_or_else(|_| json!({}))
+    };
+    let prompt = body.get("prompt").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    if prompt.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(json!({"error": {"message": "prompt is required", "type": "invalid_request_error"}}))).into_response();
+    }
+    // `seconds` is OpenAI's field; the workflow clamps it to 2..15 anyway.
+    let seconds = body.get("seconds").and_then(|v| v.as_f64()).unwrap_or(5.0);
+    let Some(id) = crate::handlers::video_routes::comfyui_generate(None, &prompt, seconds).await else {
+        return (StatusCode::BAD_GATEWAY, Json(json!({"error": {
+            "message": "video service unreachable or refusing the workflow (ComfyUI stopped?)",
+            "type": "upstream_error"
+        }}))).into_response();
+    };
+    let model = body.get("model").and_then(|v| v.as_str()).unwrap_or("video").to_string();
+    Json(json!({
+        "id": id,
+        "object": "video",
+        "status": "queued",
+        "created_at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
+        "model": model,
+        // LiteLLM's VideoObject types `seconds` as a STRING ("3"), not a number:
+        // a float here fails its validation with « Input should be a valid string ».
+        "seconds": seconds.to_string(),
+    }))
+    .into_response()
+}
+
+/// `GET /v1/videos/{id}` — poll one job.
+pub async fn v1_video_status(headers: HeaderMap, Path(id): Path<String>) -> Response {
+    if !bearer_ok(&headers) {
+        return (StatusCode::UNAUTHORIZED, Json(json!({"error": {"message": "unauthorized", "type": "auth_error"}}))).into_response();
+    }
+    if id.contains('/') || id.contains("..") {
+        return (StatusCode::BAD_REQUEST, Json(json!({"error": {"message": "invalid id", "type": "invalid_request_error"}}))).into_response();
+    }
+    let state = crate::handlers::video_routes::comfyui_status(&id).await;
+    let word = state.get("status").and_then(|v| v.as_str()).unwrap_or("");
+    let mut out = json!({
+        "id": id,
+        "object": "video",
+        "model": "video",
+        "status": video_status_word(word),
+    });
+    if let Some(p) = state.get("video_path").filter(|v| !v.is_null()) {
+        out["video_path"] = p.clone();
+    }
+    Json(out).into_response()
+}
+
+/// `GET /v1/videos/{id}/content` — the bytes, once the job is done.
+pub async fn v1_video_content(headers: HeaderMap, Path(id): Path<String>) -> Response {
+    if !bearer_ok(&headers) {
+        return (StatusCode::UNAUTHORIZED, Json(json!({"error": {"message": "unauthorized", "type": "auth_error"}}))).into_response();
+    }
+    if id.contains('/') || id.contains("..") {
+        return (StatusCode::BAD_REQUEST, Json(json!({"error": {"message": "invalid id", "type": "invalid_request_error"}}))).into_response();
+    }
+    let state = crate::handlers::video_routes::comfyui_status(&id).await;
+    if video_status_word(state.get("status").and_then(|v| v.as_str()).unwrap_or("")) != "completed" {
+        return (StatusCode::CONFLICT, Json(json!({"error": {"message": "the video is not ready", "type": "invalid_request_error"}}))).into_response();
+    }
+    let name = state.get("video_path").and_then(|v| v.as_str()).unwrap_or("");
+    let sub = state.get("video_subfolder").and_then(|v| v.as_str()).unwrap_or("");
+    let kind = state.get("video_type").and_then(|v| v.as_str()).unwrap_or("output");
+    if name.is_empty() {
+        return (StatusCode::BAD_GATEWAY, Json(json!({"error": {"message": "no file for this job", "type": "upstream_error"}}))).into_response();
+    }
+    // ComfyUI serves its own outputs: stream them rather than reading a mount
+    // the API must not assume (`/comfyui-output` is the portal's business).
+    let url = format!(
+        "{}/view?filename={}&subfolder={}&type={}",
+        crate::media::sidecar_url("COMFYUI_URL", "http://host.docker.internal:8188").trim_end_matches('/'),
+        urlencode(name),
+        urlencode(sub),
+        urlencode(kind)
+    );
+    let sent = sidecars::http().get(&url).timeout(std::time::Duration::from_secs(120)).send().await;
+    match sent {
+        Ok(r) if r.status().is_success() => {
+            let bytes = r.bytes().await.unwrap_or_default();
+            (StatusCode::OK, [(header::CONTENT_TYPE, "video/mp4")], bytes).into_response()
+        }
+        _ => (StatusCode::BAD_GATEWAY, Json(json!({"error": {"message": "cannot read the video from ComfyUI", "type": "upstream_error"}}))).into_response(),
+    }
+}
+
+/// A `name="…"` field of a form body (multipart or urlencoded), if present.
+///
+/// Deliberately small: the only caller is LiteLLM's video form, and the field
+/// names are fixed. A full multipart parser would be more code than the two
+/// fields it has to read.
+fn form_value(body: &str, name: &str) -> Option<String> {
+    let marker = format!("name=\"{name}\"");
+    if let Some(at) = body.find(&marker) {
+        // multipart: two CRLF after the part headers, then the value
+        let rest = &body[at + marker.len()..];
+        let start = rest.find("\r\n\r\n").map(|i| i + 4)?;
+        let value = &rest[start..];
+        let end = value.find("\r\n--").unwrap_or(value.len());
+        return Some(value[..end].trim().to_string());
+    }
+    // urlencoded: name=value&…
+    let key = format!("{name}=");
+    let at = body.find(&key)?;
+    let rest = &body[at + key.len()..];
+    let end = rest.find('&').unwrap_or(rest.len());
+    Some(rest[..end].replace('+', " ").trim().to_string())
+}
+
+/// Percent-encoding for a query value: the file names ComfyUI returns contain
+/// `/` and spaces, and an unencoded one would break the URL.
+fn urlencode(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for b in raw.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,6 +502,33 @@ mod tests {
         // An unset token refuses everything: fail-closed, not fail-open.
         assert!(!token_ok("", ""));
         assert!(!token_ok("anything", ""));
+    }
+
+    #[test]
+    fn comfyui_states_map_to_openai_words() {
+        assert_eq!(video_status_word("done"), "completed");
+        assert_eq!(video_status_word("running"), "in_progress");
+        assert_eq!(video_status_word("error"), "failed");
+        // Anything unknown is still pending: never say "completed" on a guess.
+        assert_eq!(video_status_word(""), "queued");
+        assert_eq!(video_status_word("whatever"), "queued");
+    }
+
+    #[test]
+    fn the_form_reader_finds_the_two_fields_that_matter() {
+        let mp = "--b\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\nun chat\r\n--b--\r\n";
+        assert_eq!(form_value(mp, "prompt").as_deref(), Some("un chat"));
+        assert_eq!(form_value(mp, "seconds"), None);
+        let urlenc = "prompt=une+plage&seconds=3&model=video";
+        assert_eq!(form_value(urlenc, "prompt").as_deref(), Some("une plage"));
+        assert_eq!(form_value(urlenc, "seconds").as_deref(), Some("3"));
+    }
+
+    #[test]
+    fn a_video_file_name_survives_the_query_string() {
+        assert_eq!(urlencode("a b.mp4"), "a%20b.mp4");
+        assert_eq!(urlencode("sub/dir/x.mp4"), "sub%2Fdir%2Fx.mp4");
+        assert_eq!(urlencode("ok-_.~"), "ok-_.~");
     }
 
     #[test]

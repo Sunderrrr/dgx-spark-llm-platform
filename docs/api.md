@@ -101,11 +101,36 @@ logs; pricing them needs either a LiteLLM version that keeps those fields, or a
 custom cost map. Do not read « spend 0 » as « free access »: the key is
 required, and a revoked key stops the service as it stops chat.
 
-**Video is not exposed yet.** LiteLLM has `mode: video_generation` and
-`/v1/videos`, but the flow is asynchronous (`POST` → id → `GET /v1/videos/{id}`)
-and ComfyUI answers with its own job/history shape; the portal's proxy under
-`/api/v1/media/video/*` is the groundwork, the OpenAI shape on top is the
-missing piece.
+### Video — asynchronous, like OpenAI's
+
+The `video` model speaks LiteLLM's `video_generation` mode: `POST /v1/videos`
+returns an id, `GET /v1/videos/{id}` reports `queued` / `in_progress` /
+`completed`, and `GET /v1/videos/{id}/content` streams the MP4. The portal
+translates those three calls onto the ComfyUI workflow it already owns
+(`comfyui_generate` / `comfyui_status` / `/view`).
+
+```bash
+curl -s http://127.0.0.1:4001/v1/videos \
+  -H "Authorization: Bearer $DGX_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"model":"video","prompt":"a wave in slow motion at sunset","seconds":3}'
+# → {"id":"video_…","status":"queued", …}
+
+curl -s "http://127.0.0.1:4001/v1/videos/<id>" -H "Authorization: Bearer $DGX_API_KEY"
+curl -s "http://127.0.0.1:4001/v1/videos/<id>/content" -H "Authorization: Bearer $DGX_API_KEY" -o out.mp4
+```
+
+Three details worth knowing, all found by testing:
+
+- **LiteLLM posts a FORM**, not JSON (`/v1/videos` accepts a reference file), so
+  the portal parses both. Answering 415 to the gateway would have been a
+  self-inflicted outage.
+- **`seconds` is a string** in LiteLLM's `VideoObject`: a float fails its
+  validation with « Input should be a valid string ».
+- **ComfyUI is only reachable through `comfyui-relay.service`** (socat
+  172.19.0.1:8188 → 127.0.0.1:8188). That relay was stopped and DISABLED on
+  2026-10-15, which silently broke video for everyone until 2026-10-29; it is
+  enabled again. If video answers « service média injoignable », check
+  `systemctl status comfyui-relay` first.
 
 ## Decisions
 

@@ -71,5 +71,9 @@ echo "Registering the media models on $LITELLM"
 # docs/api.md, « Billing, honestly ».
 register image     openai/image      image_generation   '"input_cost_per_image": 0.002'
 register dictation openai/whisper-1  audio_transcription '"input_cost_per_second": 0.0001'
+# Video: LiteLLM's `video_generation` mode speaks `/videos`, `/videos/{id}` and
+# `/videos/{id}/content` to an `openai/...` model; the portal translates those to
+# the ComfyUI workflow (docs/api.md).
+register video     openai/video      video_generation   '"input_cost_per_second": 0.002'
 register voice     openai/tts-1      audio_speech       '"input_cost_per_second": 0.0001'
 echo "Done. Verify with: ./scripts/register-media-models.sh --check"

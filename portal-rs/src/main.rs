@@ -254,6 +254,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/v1/images/generations", post(handlers::v1_images))
         .route("/v1/audio/transcriptions", post(handlers::v1_transcriptions))
         .route("/v1/audio/speech", post(handlers::v1_speech))
+        // Video: LiteLLM's `video_generation` mode talks to an `openai/...` model
+        // through these three paths, so the ComfyUI workflow becomes an API
+        // capability like the others (docs/api.md).
+        .route("/v1/videos", post(handlers::v1_videos))
+        .route("/v1/videos/:id", get(handlers::v1_video_status))
+        .route("/v1/videos/:id/content", get(handlers::v1_video_content))
         .route("/api/voice/chat/start", post(handlers::api_voice_chat_start))
         .route("/api/voice/speak", post(handlers::api_voice_speak))
         .route("/api/ocr/extract", post(handlers::api_ocr_extract))

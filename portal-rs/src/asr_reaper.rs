@@ -8,8 +8,8 @@
 //! backend (`asr_ondemand::state_dir`), so both portals agreed on the idle clock and on
 //! the stop lock while the Flask copy was still running.
 use std::path::Path;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::asr_ondemand::{note_activity, sidecar_action, state_dir};
 use crate::db::Database;
@@ -52,6 +52,18 @@ pub fn gate(calls_in_flight: usize, pinned: bool, idle_s: Option<f64>, chat_runn
         Some(_) => Gate::Keep,
     }
 }
+
+/// A dictation sidecar whose model FAILED to load (CUDA OOM on 2026-10-29) is a
+/// container that runs but serves nothing: the reaper must repair it, not leave
+/// the operator with a red card until they click. Only when memory allows it —
+/// a load that failed for want of memory fails again until the pressure is gone.
+pub fn needs_repair(chat_running: bool, container_running: bool, model_loaded: bool, free_gib: f64, min_gib: f64) -> bool {
+    chat_running && container_running && !model_loaded && free_gib >= min_gib
+}
+
+/// `_ASR_REPAIR_S`: no repair attempt more often than this.
+const REPAIR_S: u64 = 180;
+static LAST_REPAIR: Mutex<Option<Instant>> = Mutex::new(None);
 
 fn now_epoch() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
@@ -128,8 +140,32 @@ pub async fn pass(db: &Database) -> bool {
         // Follow the chat model: bring the dictation sidecar up if it is down.
         // `autostart` keeps the memory guard (8 GiB) and its 60 s throttle, and
         // a refusal is harmless — the next pass tries again.
-        if sidecars::proc_status("asr").await != "running" {
+        let container = sidecars::proc_status("asr").await;
+        if container != "running" {
             let _ = crate::asr_ondemand::autostart(db, "système").await;
+            return false;
+        }
+        // …and REPAIR it when it runs but its model failed to load. Measured on
+        // 2026-10-29: the auto-start fired while the freshly launched chat model
+        // was still claiming memory, whisper answered « CUDA error: out of
+        // memory », and nothing ever retried — the card stayed red although
+        // 40 GiB were free minutes later.
+        let info = crate::media::asr_info().await;
+        let loaded = info.get("loaded").is_some_and(crate::keys::truthy);
+        let free = crate::asr_ondemand::mem_available_gb().unwrap_or(0.0);
+        if needs_repair(chat_running, true, loaded, free, crate::asr_ondemand::AUTO_MIN_GIB) {
+            let allowed = {
+                let mut last = LAST_REPAIR.lock().unwrap_or_else(|e| e.into_inner());
+                match *last {
+                    Some(t) if t.elapsed() < Duration::from_secs(REPAIR_S) => false,
+                    _ => { *last = Some(Instant::now()); true }
+                }
+            };
+            if allowed {
+                let _ = sidecar_action(db, "asr", "stop", "système", "reprise après échec de chargement").await;
+                let _ = sidecar_action(db, "asr", "start", "système", "").await;
+                note_activity();
+            }
         }
         return false;
     }
@@ -178,6 +214,19 @@ mod tests {
         // A served chat model keeps it too: the operator's rule of 2026-10-28.
         assert_eq!(gate(0, false, Some(9_999.0), true), Gate::Keep);
         assert_eq!(gate(0, false, None, true), Gate::Keep);
+    }
+
+    #[test]
+    fn a_failed_load_is_repaired_only_when_the_memory_allows_it() {
+        // The 2026-10-29 case: container up, model not loaded, memory back.
+        assert!(needs_repair(true, true, false, 40.0, 8.0));
+        // Still under pressure: a retry would fail again.
+        assert!(!needs_repair(true, true, false, 3.0, 8.0));
+        // Nothing to repair.
+        assert!(!needs_repair(true, true, true, 40.0, 8.0));
+        assert!(!needs_repair(true, false, false, 40.0, 8.0));
+        // No chat model: the idle reaper owns the sidecar, not this path.
+        assert!(!needs_repair(false, true, false, 40.0, 8.0));
     }
 
     #[test]

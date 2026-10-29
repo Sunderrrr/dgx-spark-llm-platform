@@ -86,9 +86,16 @@ def main() -> int:
             if "tab=models" not in page.url:
                 p.fail("?tab=models deep link", "the URL keeps tab=models", f"URL {page.url}")
             active = page.locator('button[data-tab-value="models"]').first
-            if not active.count() or active.get_attribute("aria-current") != "page":
+            # Astryx 0.7 marks the selected tab with aria-selected AND
+            # aria-current="true"; 0.1 used aria-current="page". Accept both:
+            # the point is that the tab is the SELECTED one, not the spelling.
+            marked = active.count() and (
+                active.get_attribute("aria-selected") == "true"
+                or active.get_attribute("aria-current") in ("page", "true")
+            )
+            if not marked:
                 p.fail("?tab=models deep link",
-                       "the Models tab marked active (aria-current=page)",
+                       "the Models tab marked active (aria-selected/aria-current)",
                        "the Models tab is not the active tab")
             if c.visible_text(page, "Filtrer le catalogue", "Filter the catalog") is None:
                 p.fail("?tab=models deep link",

@@ -246,7 +246,7 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
                   rows={8}
                   hasSpellCheck={false}
                   placeholder={STATE_PLACEHOLDER}
-                  style={CODE}
+                  controlStyle={CODE}
                 />
                 {/* Images travel WITH the state: the engine reads them, so the
                     picker lives here and the previews show what it will see. */}
@@ -299,7 +299,7 @@ export default function DecisionsPage({ seed }: { seed?: Seed<DecisionsSeed> | n
                   rows={questionsEmpty ? 4 : 12}
                   hasSpellCheck={false}
                   placeholder={QUESTIONS_PLACEHOLDER}
-                  style={CODE}
+                  controlStyle={CODE}
                 />
                 {assets.length > 0 && (
                   <HStack gap={2} vAlign="center" wrap="wrap">

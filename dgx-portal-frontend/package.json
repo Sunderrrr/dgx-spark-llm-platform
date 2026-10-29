@@ -11,9 +11,9 @@
     "test": "node --test tests/*.test.ts"
   },
   "dependencies": {
-    "@astryxdesign/cli": "^0.1.8",
-    "@astryxdesign/core": "^0.1.8",
-    "@astryxdesign/theme-neutral": "^0.1.8",
+    "@astryxdesign/cli": "^0.7.4",
+    "@astryxdesign/core": "^0.7.4",
+    "@astryxdesign/theme-neutral": "^0.7.4",
     "@blobatar/react": "^2.7.0",
     "@heroicons/react": "^2.2.0",
     "@stylexjs/stylex": "^0.19.0",

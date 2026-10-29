@@ -661,7 +661,7 @@ export default function PlaygroundPage({
   // code block), it opens on the side automatically instead of being dumped
   // inline — inspired by the Astryx ai-chat template.
   const [artifact, setArtifact] = useState<Artifact | null>(null);
-  const artifactResize = useResizable({ defaultSize: 560, minSizePx: 420, maxSizePx: 900, autoSaveId: "playground-artifact" });
+  const artifactResize = useResizable({ defaultSize: 560, minSize: 420, maxSize: 900, autoSaveId: "playground-artifact" });
   // On phones the resizable side panel would crush the chat, so the artifact
   // opens as a fullscreen dialog instead.
   const isNarrow = useIsNarrow();

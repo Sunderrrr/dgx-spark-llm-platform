@@ -1,6 +1,24 @@
 # Changelog
 
 
+## 2026-10-29 (suite 9) — crawl4ai 0.9.5 et @astryxdesign 0.7.4
+
+- **crawl4ai 0.9.4 → 0.9.5** (digest réépinglé). Vérifié par le parcours
+  « web search » : recherche, progression SSE, réponse et sources citées.
+- **@astryxdesign 0.1.9 → 0.7.4** (core, theme-neutral, cli). Six versions
+  majeures de retard sur le système de design : la casse s'est limitée à
+  **3 erreurs de type**, corrigées en trois lignes —
+  `TextArea` n'accepte plus `style` mais **`controlStyle`** (2 sites), et
+  `useResizable` renomme `minSizePx`/`maxSizePx` en **`minSize`/`maxSize`**.
+  `tsc` 0, `eslint` 0, 78/78 tests, build OK, et les écrans vérifiés à l'image
+  (accueil, playground, admin).
+
+**Un test à ajuster, pas un bug** : astryx 0.7 marque l'onglet actif avec
+`aria-selected="true"` + `aria-current="true"`, là où 0.1 mettait
+`aria-current="page"`. Le parcours admin vérifiait la chaîne exacte. Il accepte
+désormais les deux — le point à tester est que l'onglet soit SÉLECTIONNÉ, pas
+l'orthographe de l'attribut.
+
 ## 2026-10-29 (suite 8) — le gros chantier : tout mis à jour
 
 | composant | avant | après | preuve |

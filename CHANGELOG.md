@@ -1,6 +1,23 @@
 # Changelog
 
 
+## 2026-10-29 (suite 5) — 3 sessions de 262 144 au lieu de 2
+
+`--ctx-size 786432 --parallel 3 --kv-unified --kv-unified-per-slot 262144` :
+trois sessions de 256k au lieu de deux, contrat par session inchangé
+(196 608 entrée / 65 536 sortie).
+
+| | 2 sessions | **3 sessions** |
+|---|---|---|
+| session | 262 144 | 262 144 |
+| RSS anonyme | 0,4 Go | **0,4 Go** |
+| mémoire libre | 39 Go | **35 Go** |
+| débit | 17,2 tok/s | **16,2 tok/s** |
+
+Le passage à 3 sessions coûtait 5,5 tok/s en septembre, quand le cache KV
+débordait en mémoire hôte avec l'ancien binaire. Avec v0.8.0 + `--lazy-mode on`,
+le coût est de ~6 % : 4 Go de mémoire et 1 tok/s, sans falaise.
+
 ## 2026-10-29 (suite 4) — la vidéo exposée via LiteLLM
 
 `POST /v1/videos`, `GET /v1/videos/{id}`, `GET /v1/videos/{id}/content` —

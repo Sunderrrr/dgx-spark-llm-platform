@@ -108,6 +108,7 @@ pub static LLAMA_VALUE_FLAGS: &[&str] = &[
     "--mmproj",
     "--n-gpu-layers",
     "--n-predict",
+    "--override-tensor",
     "--parallel",
     "--reasoning-format",
     "--rope-freq-base",

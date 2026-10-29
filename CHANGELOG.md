@@ -1,6 +1,22 @@
 # Changelog
 
 
+## 2026-10-29 (suite) — llama.cpp v0.8.0 devient le défaut, sans le forçage GPU
+
+- **v0.8.0 par défaut.** Le nom du modèle servi est désormais l'identifiant du
+  catalogue (`--alias`), pas `local:…` : c'est ce qui faisait répondre LiteLLM
+  « Invalid model name » (400) et affichait `local:qwen38-…` dans l'interface.
+  Mes relances manuelles envoyaient `model` au lieu de `model_name` — la console,
+  elle, envoie le bon champ ; le lancement passe donc par elle.
+- **Le forçage `--override-tensor per_layer_token_embd\.weight=CUDA0` a été
+  essayé et retiré** : il met bien les 79 646 Mio du modèle sur le GPU (au lieu
+  de 52 180 + 27 466 en mémoire hôte), mais avec le cache KV 2×262144 la box
+  passe sous le seuil d'earlyoom, qui **tue llama-server** (mesuré : 04:01:54,
+  SIGTERM, VmRSS 13 Go). La configuration qui survit est celle par défaut :
+  le tenseur iq4_nl reste en mémoire hôte, RSS 27 Go, 18 Go libres.
+- `--override-tensor` reste autorisé dans l'allowlist du runner : c'est un outil
+  de diagnostic mesuré, pas une option de production sur cette machine.
+
 ## 2026-10-29 — engines updated, previous builds kept
 
 - **llama.cpp v0.8.0 built** (`/root/llama-cpp-v080`, tag v0.8.0, CUDA sm_121) and

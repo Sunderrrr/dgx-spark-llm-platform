@@ -1,6 +1,26 @@
 # Changelog
 
 
+## 2026-10-29 (suite 7) — 3 sessions assumées, et ce qu'elles coûtent
+
+`--ctx-size 786432 --parallel 3 --kv-unified --kv-unified-per-slot 262144` :
+**3 sessions de 262 144**, contrat par session inchangé (196 608 / 65 536),
+binaire v0.8.0 + `--lazy-mode on`, 28-32 Go libres.
+
+Ce que la mesure impose de savoir :
+
+- **Les sidecars image et vidéo ne peuvent plus démarrer.** À 28-32 Go libres,
+  la garde mémoire refuse le sidecar FLUX (~15 Go) : le portail répond avec son
+  avis honnête `image_service_off` (« service arrêté, mémoire insuffisante ») au
+  lieu de lancer le chargement qui avait provoqué `NV_ERR_NO_MEMORY` le
+  2026-10-29 à 18:34 (modèle tué, driver en échec).
+- **Le parcours de validation « image » passe donc avec cet avis** : le chemin
+  est marqué « not validated » tant que le sidecar ne peut pas démarrer. Ce n'est
+  pas un test contourné, c'est le comportement voulu quand la mémoire manque.
+- **3 sessions et les sidecars image/vidéo s'excluent** sur 121 Go : le pool KV
+  de 786 432 jetons prend ~20 Go de plus que celui de 2 sessions. Pour récupérer
+  l'image, il faut repasser à `--parallel 2 --ctx-size 524288`.
+
 ## 2026-10-29 (suite 6) — paquets des services mis à jour
 
 - **ComfyUI** : `c44dea1` (2026-08-04) → **`fd7639f` (2026-10-29)**, dépendances

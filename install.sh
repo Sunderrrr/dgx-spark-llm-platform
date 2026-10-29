@@ -193,13 +193,6 @@ EXL3_PY=${HOME}/venvs/exl3/bin/python
 # Host address the vllm-docker engine publishes on: the portal's bridge gateway
 # (docker-compose.yml, VLLM_API_URL). Loopback would hide the engine from the portal.
 VLLM_DOCKER_PUBLISH=172.19.0.1
-LLAMA_BIN_K2=${HOME}/llama-cpp-k2horizon/build/bin/llama-server
-LLAMA_BIN_NEXT=${HOME}/llama-cpp-upstream/build/bin/llama-server
-LLAMA_BIN_PRISM=${HOME}/llama-prism-cuda/build/bin/llama-server
-VLLM_BIN_025=${HOME}/venvs/vllm025/bin/vllm
-VLLM_BIN_027=${HOME}/venvs/vllm-next/bin/vllm
-VLLM_BIN_028=${HOME}/venvs/vllm-028/bin/vllm
-VLLM_BIN_NIGHTLY=${HOME}/venvs/vllm-nightly/bin/vllm
 EOF
   chmod 0644 /etc/vllm-runner/paths.env
 fi

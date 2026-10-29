@@ -1,6 +1,23 @@
 # Changelog
 
 
+## 2026-10-29 (suite 3) — anciennes versions supprimées
+
+Supprimés (37 Go récupérés) : `atomic-llama`, `llama-cpp-upstream`,
+`llama-cpp-k2horizon`, `llama-prism`, `venvs/vllm025`, `venvs/vllm-028`,
+`venvs/vllm-next`, `venvs/vllm-nightly`.
+
+**Conservés** : `llama-cpp-v080` (le binaire servi), `venvs/vllm-032`, et
+`llama-cpp-clef/llama-b11936` — le moteur des décisions tourne dessus, ce n'est
+pas une « ancienne version » mais un binaire dédié.
+
+Les pseudo-flags qui pointaient sur les binaires supprimés (`--llama-k2`,
+`--llama-next`, `--llama-prism`, `--llama-atomic`, `--vllm-025/027/028/nightly`)
+ont été retirés de l'allowlist du runner **et** du bloc `paths.env` d'`install.sh` :
+un flag qui pointe sur un fichier absent échoue au lancement avec un message
+trompeur, mieux vaut qu'il n'existe plus. Restent `--llama-v080` et `--vllm-032`,
+qui pointent sur ce qui est installé.
+
 ## 2026-10-29 (suite 2) — les 27 Go de v0.8.0 supprimés : `--lazy-mode on`
 
 `qwen4exp` pinne le tenseur `per_layer_token_embd.weight` (iq4_nl, 27 Go) hors du

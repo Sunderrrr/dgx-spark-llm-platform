@@ -1,5 +1,19 @@
 # Changelog
 
+
+## 2026-10-29 — engines updated, previous builds kept
+
+- **llama.cpp v0.8.0 built** (`/root/llama-cpp-v080`, tag v0.8.0, CUDA sm_121) and
+  reachable as `--llama-v080`. Measured against the served build before any
+  switch: **18.3 tok/s** (vs 19.1) but **28 GiB of pageable host RSS** (vs 1.65)
+  and **17 GiB free instead of 38** — the exact pattern that got 0.5.0 rolled back
+  on 2026-09-25. The default stays on `atomic-llama`; the new build is one flag
+  away and the old one is `--llama-atomic`.
+- **vLLM 0.32.0 installed** (`/root/venvs/vllm-032`, torch 2.14.1+cu130) and
+  verified by serving a real model (Qwen2.5-0.5B-Instruct answered). It is now the
+  default `VLLM_BIN`; `--vllm-028` rolls back to the previous one.
+- Neither upgrade touches `.env`: the defaults moved in
+  `/etc/vllm-runner/paths.env`, which the unit loads after it.
 All notable changes to this project are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and

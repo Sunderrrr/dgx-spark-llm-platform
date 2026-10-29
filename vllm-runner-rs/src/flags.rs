@@ -15,6 +15,7 @@ pub static BOOL_FLAGS: &[&str] = &[
     "--vllm-025",
     "--vllm-027",
     "--vllm-028",
+    "--vllm-032",
     "--vllm-nightly",
 ];
 
@@ -57,6 +58,7 @@ pub static VLLM_BIN_FLAGS: &[&str] = &[
     "--vllm-025",
     "--vllm-027",
     "--vllm-028",
+    "--vllm-032",
     "--vllm-nightly",
 ];
 
@@ -64,9 +66,12 @@ pub static BIN_FLAGS: &[&str] = &[
     "--llama-k2",
     "--llama-next",
     "--llama-prism",
+    "--llama-v080",
+    "--llama-atomic",
     "--vllm-025",
     "--vllm-027",
     "--vllm-028",
+    "--vllm-032",
     "--vllm-nightly",
 ];
 
@@ -78,6 +83,7 @@ pub static LLAMA_BOOL_FLAGS: &[&str] = &[
     "--llama-k2",
     "--llama-next",
     "--llama-prism",
+    "--llama-v080",
     "--metrics",
     "--mlock",
     "--no-context-shift",
@@ -146,6 +152,7 @@ pub static OCR_BOOL_FLAGS: &[&str] = &[
     "--vllm-025",
     "--vllm-027",
     "--vllm-028",
+    "--vllm-032",
     "--vllm-nightly",
 ];
 
@@ -207,9 +214,14 @@ pub static BIN_FLAG_PATHS: &[(&str, &str, &str)] = &[
     ("--llama-k2", "LLAMA_BIN_K2", "llama-cpp-k2horizon/build/bin/llama-server"),
     ("--llama-next", "LLAMA_BIN_NEXT", "llama-cpp-upstream/build/bin/llama-server"),
     ("--llama-prism", "LLAMA_BIN_PRISM", "llama-prism-cuda/build/bin/llama-server"),
+    // Upgrades of 2026-10-29, kept ALONGSIDE the old builds: opting in is a
+    // per-launch flag, so a regression costs one relaunch, not a rebuild.
+    ("--llama-v080", "LLAMA_BIN_V080", "llama-cpp-v080/build/bin/llama-server"),
+    ("--llama-atomic", "LLAMA_BIN_ATOMIC", "atomic-llama/build/bin/llama-server"),
     ("--vllm-025", "VLLM_BIN_025", "venvs/vllm025/bin/vllm"),
     ("--vllm-027", "VLLM_BIN_027", "venvs/vllm-next/bin/vllm"),
     ("--vllm-028", "VLLM_BIN_028", "venvs/vllm-028/bin/vllm"),
     ("--vllm-nightly", "VLLM_BIN_NIGHTLY", "venvs/vllm-nightly/bin/vllm"),
+    ("--vllm-032", "VLLM_BIN_032", "venvs/vllm-032/bin/vllm"),
 ];
 

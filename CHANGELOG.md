@@ -1,6 +1,34 @@
 # Changelog
 
 
+## 2026-10-29 (suite 6) — paquets des services mis à jour
+
+- **ComfyUI** : `c44dea1` (2026-08-04) → **`fd7639f` (2026-10-29)**, dépendances
+  Python réinstallées dans son venv (`pip` y était absent : `ensurepip` d'abord).
+  Conséquence non prévue : **torch est passé de 2.13.0+cu130 à 2.15.0+cu132**.
+  Vérifié par une génération réelle après la mise à jour : soumission acceptée
+  (`node_errors` vide), prompt exécuté, MP4 de 1,9 Mo récupéré par l'API.
+- **Rust** (`portal-rs`, `vllm-runner-rs`) : `cargo update` en version patch
+  (zip 2.4.2 → 2.6.1, tokio 1.53.3 → 1.54.1, zerovec-derive…). Tests verts
+  (175 + 15), clippy sans avertissement, `check-deps.py` toujours vert (les avis
+  `zip` restent non corrigeables sans la 9.x, consignés avec leur raison).
+- **Frontend** : `npm update` dans les bornes semver (astryx 0.1.8 → 0.1.9,
+  stylex 0.19.0 → 0.19.1, katex 0.18.7 → 0.18.10, thinking-orbs 0.3.1 → 0.3.2).
+  `tsc` 0 erreur, `eslint` 0 avertissement, **78/78 tests**.
+
+**Restent volontairement en attente** (chacun demande sa propre reconstruction et
+son test fonctionnel, pas un `update`) : les images des sidecars épinglent
+`torch==2.10.0`, `fastapi==0.141.1`, un commit git de diffusers — les bouger est
+une migration, pas une mise à jour ; les images Docker (LiteLLM, SearXNG,
+crawl4ai) sont épinglées par digest ; et les montées majeures npm (eslint 10,
+@types/node 26, @astryxdesign 0.7) ou Rust (zip 9) sont des migrations à part.
+
+**Et une mesure qui contredit la demande de 3 sessions** : avec
+`--parallel 3 --ctx-size 786432`, il ne reste que 35 Go libres, et le parcours
+« image » (sidecar FLUX, ~15 Go) a fait tomber la box en `NV_ERR_NO_MEMORY` —
+le modèle servi a été tué. Retour à 2 sessions (43 Go libres) : parcours verts.
+Trois sessions et les sidecars image/vidéo ne tiennent pas ensemble sur 121 Go.
+
 ## 2026-10-29 (suite 5) — 3 sessions de 262 144 au lieu de 2
 
 `--ctx-size 786432 --parallel 3 --kv-unified --kv-unified-per-slot 262144` :

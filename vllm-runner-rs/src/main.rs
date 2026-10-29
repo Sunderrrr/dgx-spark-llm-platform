@@ -431,7 +431,12 @@ fn gpu() -> Value {
     json!({"util": num(0), "power": num(1), "temp": num(2)})
 }
 
-async fn metrics(State(app): State<Arc<App>>, axum::extract::Extension(prev): axum::extract::Extension<Arc<Mutex<Option<(u64, u64)>>>>) -> Json<Value> {
+/// The previous `/metrics` probe's counters, shared with the handler as an
+/// axum extension. An alias because clippy (rightly) refuses the inline type
+/// twice: it is read in one place and written in another.
+type MetricsProbe = Arc<Mutex<Option<(u64, u64)>>>;
+
+async fn metrics(State(app): State<Arc<App>>, axum::extract::Extension(prev): axum::extract::Extension<MetricsProbe>) -> Json<Value> {
     let (model, status_now) = {
         let s = app.sup.lock();
         (s.model.clone(), s.status.clone())
@@ -506,7 +511,7 @@ async fn main() {
         let w = app.clone();
         thread::spawn(move || service::watchdog(w));
     }
-    let prev: Arc<Mutex<Option<(u64, u64)>>> = Arc::new(Mutex::new(None));
+    let prev: MetricsProbe = Arc::new(Mutex::new(None));
     let mut router = Router::new()
         .route("/status", get(status))
         .route("/logs", get(logs))

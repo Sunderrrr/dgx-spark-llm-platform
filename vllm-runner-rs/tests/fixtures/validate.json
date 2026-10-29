@@ -187,37 +187,29 @@
   "engine": "vllm",
   "hf_id": "org/plain",
   "args": "--vllm-025",
-  "ok": true,
-  "result": [
-   "--vllm-025"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-025"
  },
  {
   "engine": "vllm",
   "hf_id": "org/plain",
   "args": "--vllm-027",
-  "ok": true,
-  "result": [
-   "--vllm-027"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-027"
  },
  {
   "engine": "vllm",
   "hf_id": "org/plain",
   "args": "--vllm-028",
-  "ok": true,
-  "result": [
-   "--vllm-028"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-028"
  },
  {
   "engine": "vllm",
   "hf_id": "org/plain",
   "args": "--vllm-nightly",
-  "ok": true,
-  "result": [
-   "--vllm-nightly"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-nightly"
  },
  {
   "engine": "vllm",
@@ -730,37 +722,29 @@
   "engine": "vllm",
   "hf_id": "org/Qwen3-8B",
   "args": "--vllm-025",
-  "ok": true,
-  "result": [
-   "--vllm-025"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-025"
  },
  {
   "engine": "vllm",
   "hf_id": "org/Qwen3-8B",
   "args": "--vllm-027",
-  "ok": true,
-  "result": [
-   "--vllm-027"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-027"
  },
  {
   "engine": "vllm",
   "hf_id": "org/Qwen3-8B",
   "args": "--vllm-028",
-  "ok": true,
-  "result": [
-   "--vllm-028"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-028"
  },
  {
   "engine": "vllm",
   "hf_id": "org/Qwen3-8B",
   "args": "--vllm-nightly",
-  "ok": true,
-  "result": [
-   "--vllm-nightly"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-nightly"
  },
  {
   "engine": "vllm",
@@ -1273,37 +1257,29 @@
   "engine": "vllm",
   "hf_id": "models--a--b/snapshots/deadbeef",
   "args": "--vllm-025",
-  "ok": true,
-  "result": [
-   "--vllm-025"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-025"
  },
  {
   "engine": "vllm",
   "hf_id": "models--a--b/snapshots/deadbeef",
   "args": "--vllm-027",
-  "ok": true,
-  "result": [
-   "--vllm-027"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-027"
  },
  {
   "engine": "vllm",
   "hf_id": "models--a--b/snapshots/deadbeef",
   "args": "--vllm-028",
-  "ok": true,
-  "result": [
-   "--vllm-028"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-028"
  },
  {
   "engine": "vllm",
   "hf_id": "models--a--b/snapshots/deadbeef",
   "args": "--vllm-nightly",
-  "ok": true,
-  "result": [
-   "--vllm-nightly"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-nightly"
  },
  {
   "engine": "vllm",
@@ -1816,37 +1792,29 @@
   "engine": "vllm",
   "hf_id": "unknown/model",
   "args": "--vllm-025",
-  "ok": true,
-  "result": [
-   "--vllm-025"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-025"
  },
  {
   "engine": "vllm",
   "hf_id": "unknown/model",
   "args": "--vllm-027",
-  "ok": true,
-  "result": [
-   "--vllm-027"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-027"
  },
  {
   "engine": "vllm",
   "hf_id": "unknown/model",
   "args": "--vllm-028",
-  "ok": true,
-  "result": [
-   "--vllm-028"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-028"
  },
  {
   "engine": "vllm",
   "hf_id": "unknown/model",
   "args": "--vllm-nightly",
-  "ok": true,
-  "result": [
-   "--vllm-nightly"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-nightly"
  },
  {
   "engine": "vllm",
@@ -2329,28 +2297,22 @@
   "engine": "llamacpp",
   "hf_id": "org/plain",
   "args": "--llama-k2",
-  "ok": true,
-  "result": [
-   "--llama-k2"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --llama-k2"
  },
  {
   "engine": "llamacpp",
   "hf_id": "org/plain",
   "args": "--llama-next",
-  "ok": true,
-  "result": [
-   "--llama-next"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --llama-next"
  },
  {
   "engine": "llamacpp",
   "hf_id": "org/plain",
   "args": "--llama-prism",
-  "ok": true,
-  "result": [
-   "--llama-prism"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --llama-prism"
  },
  {
   "engine": "llamacpp",
@@ -2981,28 +2943,22 @@
   "engine": "llamacpp",
   "hf_id": "org/Qwen3-8B",
   "args": "--llama-k2",
-  "ok": true,
-  "result": [
-   "--llama-k2"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --llama-k2"
  },
  {
   "engine": "llamacpp",
   "hf_id": "org/Qwen3-8B",
   "args": "--llama-next",
-  "ok": true,
-  "result": [
-   "--llama-next"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --llama-next"
  },
  {
   "engine": "llamacpp",
   "hf_id": "org/Qwen3-8B",
   "args": "--llama-prism",
-  "ok": true,
-  "result": [
-   "--llama-prism"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --llama-prism"
  },
  {
   "engine": "llamacpp",
@@ -3633,28 +3589,22 @@
   "engine": "llamacpp",
   "hf_id": "models--a--b/snapshots/deadbeef",
   "args": "--llama-k2",
-  "ok": true,
-  "result": [
-   "--llama-k2"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --llama-k2"
  },
  {
   "engine": "llamacpp",
   "hf_id": "models--a--b/snapshots/deadbeef",
   "args": "--llama-next",
-  "ok": true,
-  "result": [
-   "--llama-next"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --llama-next"
  },
  {
   "engine": "llamacpp",
   "hf_id": "models--a--b/snapshots/deadbeef",
   "args": "--llama-prism",
-  "ok": true,
-  "result": [
-   "--llama-prism"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --llama-prism"
  },
  {
   "engine": "llamacpp",
@@ -4285,28 +4235,22 @@
   "engine": "llamacpp",
   "hf_id": "unknown/model",
   "args": "--llama-k2",
-  "ok": true,
-  "result": [
-   "--llama-k2"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --llama-k2"
  },
  {
   "engine": "llamacpp",
   "hf_id": "unknown/model",
   "args": "--llama-next",
-  "ok": true,
-  "result": [
-   "--llama-next"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --llama-next"
  },
  {
   "engine": "llamacpp",
   "hf_id": "unknown/model",
   "args": "--llama-prism",
-  "ok": true,
-  "result": [
-   "--llama-prism"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --llama-prism"
  },
  {
   "engine": "llamacpp",
@@ -7419,37 +7363,29 @@
   "engine": "ocr",
   "hf_id": "org/plain",
   "args": "--vllm-025",
-  "ok": true,
-  "result": [
-   "--vllm-025"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-025"
  },
  {
   "engine": "ocr",
   "hf_id": "org/plain",
   "args": "--vllm-027",
-  "ok": true,
-  "result": [
-   "--vllm-027"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-027"
  },
  {
   "engine": "ocr",
   "hf_id": "org/plain",
   "args": "--vllm-028",
-  "ok": true,
-  "result": [
-   "--vllm-028"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-028"
  },
  {
   "engine": "ocr",
   "hf_id": "org/plain",
   "args": "--vllm-nightly",
-  "ok": true,
-  "result": [
-   "--vllm-nightly"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-nightly"
  },
  {
   "engine": "ocr",
@@ -8016,37 +7952,29 @@
   "engine": "ocr",
   "hf_id": "org/Qwen3-8B",
   "args": "--vllm-025",
-  "ok": true,
-  "result": [
-   "--vllm-025"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-025"
  },
  {
   "engine": "ocr",
   "hf_id": "org/Qwen3-8B",
   "args": "--vllm-027",
-  "ok": true,
-  "result": [
-   "--vllm-027"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-027"
  },
  {
   "engine": "ocr",
   "hf_id": "org/Qwen3-8B",
   "args": "--vllm-028",
-  "ok": true,
-  "result": [
-   "--vllm-028"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-028"
  },
  {
   "engine": "ocr",
   "hf_id": "org/Qwen3-8B",
   "args": "--vllm-nightly",
-  "ok": true,
-  "result": [
-   "--vllm-nightly"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-nightly"
  },
  {
   "engine": "ocr",
@@ -8613,37 +8541,29 @@
   "engine": "ocr",
   "hf_id": "models--a--b/snapshots/deadbeef",
   "args": "--vllm-025",
-  "ok": true,
-  "result": [
-   "--vllm-025"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-025"
  },
  {
   "engine": "ocr",
   "hf_id": "models--a--b/snapshots/deadbeef",
   "args": "--vllm-027",
-  "ok": true,
-  "result": [
-   "--vllm-027"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-027"
  },
  {
   "engine": "ocr",
   "hf_id": "models--a--b/snapshots/deadbeef",
   "args": "--vllm-028",
-  "ok": true,
-  "result": [
-   "--vllm-028"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-028"
  },
  {
   "engine": "ocr",
   "hf_id": "models--a--b/snapshots/deadbeef",
   "args": "--vllm-nightly",
-  "ok": true,
-  "result": [
-   "--vllm-nightly"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-nightly"
  },
  {
   "engine": "ocr",
@@ -9210,37 +9130,29 @@
   "engine": "ocr",
   "hf_id": "unknown/model",
   "args": "--vllm-025",
-  "ok": true,
-  "result": [
-   "--vllm-025"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-025"
  },
  {
   "engine": "ocr",
   "hf_id": "unknown/model",
   "args": "--vllm-027",
-  "ok": true,
-  "result": [
-   "--vllm-027"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-027"
  },
  {
   "engine": "ocr",
   "hf_id": "unknown/model",
   "args": "--vllm-028",
-  "ok": true,
-  "result": [
-   "--vllm-028"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-028"
  },
  {
   "engine": "ocr",
   "hf_id": "unknown/model",
   "args": "--vllm-nightly",
-  "ok": true,
-  "result": [
-   "--vllm-nightly"
-  ]
+  "ok": false,
+  "result": "flag not allowed: --vllm-nightly"
  },
  {
   "engine": "ocr",

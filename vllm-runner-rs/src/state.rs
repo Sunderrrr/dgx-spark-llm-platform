@@ -85,7 +85,8 @@ pub fn prune_logs(dir: &Path) {
         .filter(|e| e.file_name().to_string_lossy().ends_with(".log"))
         .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
         .collect();
-    files.sort_by(|a, b| b.0.cmp(&a.0));
+    // Newest first: Reverse keeps the intent visible (clippy: sort_by_key).
+    files.sort_by_key(|f| std::cmp::Reverse(f.0));
     for (_, old) in files.into_iter().skip(LOG_KEEP) {
         let _ = fs::remove_file(old);
     }

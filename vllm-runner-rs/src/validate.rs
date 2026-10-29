@@ -31,9 +31,11 @@ pub fn validate_args(extra: &str, engine: &str, hf_id: &str) -> Result<Vec<Strin
     let mut i = 0;
     while i < tokens.len() {
         let tok = tokens[i];
-        if bools.contains(&tok) {
-            i += 1;
-        } else if tok == "--trust-remote-code" && flags::TRUST_RC_MODELS.contains(&repo_id_of(hf_id).as_str()) {
+        // One branch for every flag that consumes nothing: clippy flags two
+        // identical blocks, and they were identical by construction.
+        if bools.contains(&tok)
+            || (tok == "--trust-remote-code" && flags::TRUST_RC_MODELS.contains(&repo_id_of(hf_id).as_str()))
+        {
             i += 1;
         } else if values.contains(&tok) {
             if i + 1 >= tokens.len() || tokens[i + 1].starts_with("--") {

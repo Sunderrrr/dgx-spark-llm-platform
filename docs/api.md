@@ -11,7 +11,7 @@ curl https://api.example.org/v1/chat/completions \
 ```
 
 Claude-native clients can use the Anthropic-compatible
-**`POST https://api.example.org/v1/messages`** instead — same keys, same
+**`POST https://api.example.org/v1/messages`** instead, with the same keys and
 budgets.
 
 > **API clients: send a real `User-Agent`.** Cloudflare's browser-integrity
@@ -136,7 +136,7 @@ Three details worth knowing, all found by testing:
 
 A **decision model** answers typed questions about an input instead of writing
 text: a yes/no probability, a pick from a fixed list, a score on an ordered
-scale. The platform serves one — Cloudflare **Clef**, `Q4_K_M` — under the name
+scale. The platform serves one, Cloudflare **Clef** `Q4_K_M`, under the name
 **`clef-q4km`**, on the same gateway and with the same keys and budgets as chat.
 It is **not** a chat model: `/v1/chat/completions` does not exist for it.
 
@@ -151,7 +151,7 @@ Measured on this box: an image adds ~1 150 input tokens and changes the answer
 > The page's requests with images do **not** go through LiteLLM: 1.104.3 refuses
 > an image input for every System One provider (« System One providers accept
 > text input only », verified on the pinned image), so the portal calls the
-> engine directly — `DECISIONS_API_BASE` — for those. Consequence to know: an
+> engine directly via `DECISIONS_API_BASE` for those. Consequence to know: an
 > image request is not in LiteLLM's spend logs, so it does not consume the key's
 > budget; it stays bounded by the page's own rate limit. Text-only requests keep
 > going through the gateway, billed and budgeted as usual.

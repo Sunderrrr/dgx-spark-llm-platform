@@ -65,7 +65,7 @@ Four groups, each with its own verdict:
    - **no monolith** (`scripts/check-structure.py`): a source file stays under
      1200 lines; the few above are frozen at their size and may only shrink.
 2. **Service in operation** — `scripts/smoke.sh` against the DEPLOYED service.
-3. **User journeys** — `tests/e2e/`: Playwright journeys that do what a user
+3. **User journeys** in `tests/e2e/`: Playwright journeys that do what a user
    does (chat, reasoning, image, web search, skills, conversations, export,
    admin, API keys + API domain, pages, actions, security — every protected
    route refuses an anonymous visitor, session cookies are Secure/HttpOnly/

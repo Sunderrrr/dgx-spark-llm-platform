@@ -131,8 +131,8 @@ LiteLLM model level; an explicit request always wins.
 
 ### Decisions
 
-A decision model answers **closed questions** about a text or a JSON document —
-yes/no, one option out of a list, a score on an ordered scale — and returns
+A decision model answers **closed questions** about a text or a JSON document
+(yes/no, one option out of a list, a score on an ordered scale) and returns
 probabilities, not prose. The page is not the playground: it has a state field
 (text or JSON), a list of typed questions and a result panel.
 
@@ -185,7 +185,7 @@ start the FLUX sidecar and the page says so, with the free memory, rather than
 launching a load that would take the box down.
 
 **Every media capability is also an API model**, behind the user's own key (see
-[api.md](api.md)): `image`, `dictation`, `voice`, and — since 2026-10-29 —
+[api.md](api.md)): `image`, `dictation`, `voice`, and since 2026-10-29
 `video`, which speaks LiteLLM's `video_generation` mode (`POST /v1/videos`,
 `GET /v1/videos/{id}`, `GET /v1/videos/{id}/content`). The portal translates
 those three calls onto the same ComfyUI workflow the page uses.

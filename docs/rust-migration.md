@@ -437,7 +437,7 @@ Routed after the bench found them identical:
 
 - the SSO sign-in, `/login/sso` and `/api/oauth2-redirect`
   (`portal-rs/src/sso.rs`: the authorization-code flow, the id_token checked
-  against the provider's JWKS — signature, issuer, audience, expiry, nonce —
+  against the provider's JWKS (signature, issuer, audience, expiry, nonce)
   then the identity resolved by the directory); `/api/setup` (the owner of a
   fresh instance); `/admin/storage/migrate` (its lock is the same flock as
   Flask's, on the data volume). The bench's fake plays an OIDC provider

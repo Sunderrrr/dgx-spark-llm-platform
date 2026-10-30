@@ -492,8 +492,8 @@ root** on the host (access to the docker socket + the 600 `.env`).
 - **`dgx-backup.timer`/`.service`** (daily 03:00) → `scripts/backup.sh`:
   consistent SQLite copy of the portal database, `pg_dump` of the LiteLLM
   database, `docker-compose.yml`, `.env` and `secrets/`, archived. **Admin →
-  Stockage** chooses where it goes — local (`/var/backups/dgx/archives`, 0700),
-  the S3 bucket of Admin → Config, or both — and how many archives each keeps
+  Stockage** chooses where it goes (local `/var/backups/dgx/archives`, 0700,
+  the S3 bucket of Admin → Config, or both) and how many archives each keeps
   (default 7). The upload runs inside the portal (`portal-rs/src/backups.rs`: the
   bucket keys never leave it) and the archive is **read back from the bucket**
   before the run counts as a success; a failed upload keeps the archive locally

@@ -54,7 +54,7 @@ checked; what ships as *behaviour* is checked where it runs.
   Go and Cargo instead.
 - **`cargo fmt --check` is NOT a gate.** Measured on 2026-10-28: 1722 hunks in
   `portal-rs`, 130 in `vllm-runner-rs`. Enforcing it means a reformat of every
-  file — a rewrite of the diff history, not a quality gate — and the project
+  file, which would rewrite the diff history rather than gate quality, and the project
   keeps a deliberately compact Rust style. clippy covers the lint part; the
   choice is recorded here so nobody re-discovers it as an oversight.
 - **bandit blocks on HIGH only.** Today: 0 high, 2 medium (a `torch.load` in

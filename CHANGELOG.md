@@ -1,6 +1,36 @@
 # Changelog
 
 
+## 2026-10-30 — documentation et captures à jour
+
+Le jeu de captures publié est **refait de zéro** avec l'interface actuelle
+(Astryx 0.7.4), en **anglais** et en **thème sombre** : 13 pages, 3200×2000,
+compte de démonstration, aucune donnée personnelle (le contrôle OCR de
+`scripts/screenshots.py --verify` le prouve image par image).
+
+Trois défauts trouvés en les refaisant, tous corrigés :
+
+- **la page Voix ne pouvait pas se capturer**, et pour une vraie raison : le
+  sidecar échouait au chargement du modèle
+  (`PermissionError: /app/hf_cache/token`). Les sidecars tournent en root avec
+  `--cap-drop ALL`, donc root **perd `CAP_DAC_OVERRIDE`** et ne peut plus lire un
+  fichier `0600` appartenant à `vllmrunner` avec un masque ACL à `---`. Le token
+  passe à `root:root 0600`, l'ACL est retirée, le modèle charge sur CUDA ;
+- **le relais ComfyUI mourait à chaque démarrage** : `BindsTo`/`PartOf`
+  propagent STOP et RESTART, jamais START. `comfyui.service` porte désormais
+  `Wants=comfyui-relay.service` — c'est ce qui a rendu la vidéo morte pendant
+  deux semaines sans que ComfyUI soit en cause ;
+- **le script capturait des réponses à moitié écrites** : il s'arrêtait sur un
+  écran stable, or rien ne bouge pendant le prefill. Il attend maintenant la
+  disparition des verbes du indicateur de réflexion (« Simmering », « Waffling »…,
+  la liste de `lib/i18n.tsx`).
+
+Docs mises à jour : moteurs (pseudo-flags restants, builds supprimés),
+`--lazy-mode on` et son tableau de mesures, sessions simultanées et la limite
+3 sessions + sidecars, timeout et message d'erreur de la sauvegarde S3, deux
+nouveaux pièges dans `troubleshooting.md` (relais ComfyUI, token HF de la voix),
+la vidéo comme modèle d'API dans `features.md` et le README.
+
 ## 2026-10-29 (suite 9) — crawl4ai 0.9.5 et @astryxdesign 0.7.4
 
 - **crawl4ai 0.9.4 → 0.9.5** (digest réépinglé). Vérifié par le parcours

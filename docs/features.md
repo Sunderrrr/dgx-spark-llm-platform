@@ -179,7 +179,16 @@ graph, admins included.
   engine accepts.
 
 All media pages show a clear empty state when their backend is not running,
-instead of letting you submit into a dead end.
+instead of letting you submit into a dead end — including the reason when it is
+memory: with three chat sessions resident (~28-32 GiB free) the guard refuses to
+start the FLUX sidecar and the page says so, with the free memory, rather than
+launching a load that would take the box down.
+
+**Every media capability is also an API model**, behind the user's own key (see
+[api.md](api.md)): `image`, `dictation`, `voice`, and — since 2026-10-29 —
+`video`, which speaks LiteLLM's `video_generation` mode (`POST /v1/videos`,
+`GET /v1/videos/{id}`, `GET /v1/videos/{id}/content`). The portal translates
+those three calls onto the same ComfyUI workflow the page uses.
 
 ### Support assistant
 

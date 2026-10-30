@@ -264,3 +264,38 @@ docker restart traefik                    # if the site 404s
   `message.reasoning`, after LiteLLM it is `reasoning_content` (and the original
   remains in `provider_specific_fields.reasoning`). Searching for `reasoning` on
   the LiteLLM output gives a false negative.
+
+## « Service média injoignable » on the Video page
+
+ComfyUI listens on **loopback only** (`comfyui.service`,
+`--listen 127.0.0.1`), so the portal (a container) reaches it through
+`comfyui-relay.service` — a socat on `172.19.0.1:8188`. When the page says the
+service is unreachable, check the relay first:
+
+```bash
+systemctl status comfyui-relay      # active?
+curl -s -o /dev/null -w '%{http_code}\n' http://172.19.0.1:8188/system_stats  # 200
+```
+
+The relay has `BindsTo=`/`PartOf=comfyui.service`, which propagate STOP and
+RESTART — **never START**. `comfyui.service` therefore carries
+`Wants=comfyui-relay.service`: starting ComfyUI starts its relay. Before that
+line, every `systemctl start comfyui` left the video page dead while ComfyUI was
+running fine, which is what hid the fault for two weeks (the relay had been
+stopped and disabled on 2026-10-15).
+
+## Voice sidecar: « TTS Model failed to load », Permission denied on the HF token
+
+```
+PermissionError: [Errno 13] Permission denied: '/app/hf_cache/token'
+CRITICAL: TTS Model failed to load on startup.
+```
+
+The sidecars run as **root with `--cap-drop ALL`**: root loses `CAP_DAC_OVERRIDE`
+and can no longer read a file owned by another user, even in `0600`. The HF token
+of the host cache (`/root/.cache/huggingface/token`) was owned by `vllmrunner`
+with an ACL whose mask was `---`, so the container could not read it.
+
+Fix (measured 2026-10-29): `chown root:root` the token, drop the ACL
+(`setfacl -b`) and keep `0600`. The host runs everything as root, so nothing loses
+access, and the container reads it through the owner bits.

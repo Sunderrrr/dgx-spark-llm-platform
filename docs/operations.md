@@ -56,14 +56,19 @@ The runner serves one chat model at a time on one of the engines `vllm`,
 bare repo id uses `-hf` (which can pick the wrong shard).
 
 - **Engine versions are opt-in pseudo-flags**, never a default swap:
-  `--vllm-025`, `--vllm-027`, `--vllm-028`, `--vllm-nightly`, `--llama-next`,
-  `--llama-k2`, `--llama-prism` pick a specific binary for THAT launch
-  (`_BIN_FLAGS` in [`vllm-runner-rs/src/flags.rs`](../vllm-runner-rs/src/flags.rs), split per engine into
-  `_LLAMA_BIN_FLAGS` / `_VLLM_BIN_FLAGS`, so a llama.cpp launch cannot be pointed
-  at a vLLM binary). vLLM **0.28.0** (`/root/venvs/vllm-028`, torch 2.13 cu130,
-  sm_121 verified, adds BailingMoeV3) and llama.cpp **0.3.0-dev upstream**
-  (`/root/llama-cpp-upstream`, built for GB10, adds `qwen4exp`) are available
-  this way. Neither is the default.
+  `--llama-v080` and `--vllm-032` pick a specific binary for THAT launch
+  (flag table in [`vllm-runner-rs/src/flags.rs`](../vllm-runner-rs/src/flags.rs),
+  split per engine into `LLAMA_BIN_FLAGS` / `VLLM_BIN_FLAGS`, so a llama.cpp
+  launch cannot be pointed at a vLLM binary).
+  The **superseded builds were deleted on 2026-10-29** (37 GB back):
+  `atomic-llama`, `llama-cpp-upstream`, `llama-cpp-k2horizon`, `llama-prism`,
+  `venvs/vllm025`, `venvs/vllm-028`, `venvs/vllm-next`, `venvs/vllm-nightly`.
+  Their pseudo-flags (`--llama-k2`, `--llama-next`, `--llama-prism`,
+  `--llama-atomic`, `--vllm-025/027/028/nightly`) were removed **from the runner
+  and from the parity fixture**: a flag whose binary is gone fails a launch with
+  a misleading message, so it must not exist. `--llama-clef` is NOT one of them
+  — the decisions engine has its own binary (`llama-b11936`) and needs
+  `--mmproj`, a newer llama.cpp than the chat one.
 - **`llamacpp`** uses `LLAMA_BIN` (env), which comes from `.env` and not from the
   code default. It points at your llama-server build (the
   TurboQuant fork, `bailingmoe3` + `deepseek4`). Both builds are dynamic
@@ -186,6 +191,31 @@ pitfalls behind these numbers (`--kv-unified`, YaRN, KV-cache quantization, the
 v0.5.0 binary A/B) are in
 [troubleshooting → the runner](troubleshooting.md#the-runner).
 
+
+### `--lazy-mode on`: what it fixes, and why it is not optional here
+
+`qwen4exp` pins `per_layer_token_embd.weight` (iq4_nl, ~27 GiB) OUTSIDE the GPU:
+its CUDA `get_rows` kernel requires `ne[0] % QK_K == 0`, and that tensor does not
+match — so the loader puts it in **anonymous host memory** (RSS 28 GiB, 18 GiB
+free). Forcing it onto CUDA0 with `--override-tensor` was measured twice: 74 GiB
+of weights + a 20 GiB KV pool do not fit, and earlyoom kills `llama-server`.
+
+The upstream answer (issue **ggml-org/llama.cpp#29932**, still open) is
+`-lzm on` / **`--lazy-mode on`**: the tensor's rows are read **on demand from the
+mapped file** instead of being kept resident. Measured on this box, same
+arguments otherwise:
+
+| | v0.8.0 | + `--lazy-mode on` |
+|---|---|---|
+| anonymous RSS | 27.2 GiB | **0.4 GiB** |
+| free memory | 18 GiB | **42 GiB** |
+| load time | 72 s | 16 s |
+| decode | 18.3 tok/s | 17.2 tok/s |
+
+~10 % of throughput for 26 GiB back. It is part of the served model's arguments
+(`model_configs.vllm_args`); without it the box runs with 27 GiB of pageable
+memory that the kernel OOM killer CAN see (unlike GPU allocations).
+
 ## The decision model
 
 A decision model is not a chat model: Cloudflare **Clef** reads a state and a
@@ -272,6 +302,24 @@ Optional: the repository also ships a multimodal projector
 version: adding it means passing `--mmproj` in `DECISIONS_ARGS` and teaching the
 page to send `files`. Until the whole path is validated, treat the served model
 as **text-only**.
+
+## Concurrent sessions (the served chat model)
+
+The advertised contract is **per session**: `input = --ctx-size − --n-predict`,
+`output = --n-predict`. How many sessions coexist is `--parallel`, and the KV
+pool is `--kv-unified` + `--kv-unified-per-slot N`.
+
+Current configuration: `--ctx-size 786432 --parallel 3 --kv-unified
+--kv-unified-per-slot 262144` → **3 sessions of 262 144**, 196 608 in / 65 536
+out each, ~28-32 GiB free, 16.2 tok/s solo (17.2 with two sessions: the third
+costs ~6 %).
+
+**Measured limit**: three sessions and the image/video sidecars do not fit
+together on 121.6 GiB. With `--parallel 3` the FLUX sidecar (~15 GB) drove the
+driver into `NV_ERR_NO_MEMORY` and the served model was killed (2026-10-29,
+18:34). The memory guard now refuses to start a sidecar rather than let that
+happen, and the portal answers `image_service_off` with the free memory. To have
+images AND video alongside chat, go back to `--parallel 2 --ctx-size 524288`.
 
 ## Media sidecars
 
@@ -456,6 +504,13 @@ root** on the host (access to the docker socket + the 600 `.env`).
   The portal also writes a `.db_initialized` marker: marker present + empty
   database at startup → infra alert. Restoration: download the archive, then
   `docker cp` of the `.db`/SQL dump and `pg_restore`/`psql`.
+  **Timeout trap, measured 2026-10-29**: the S3 client used ONE 60 s timeout for
+  every operation, uploads included. The archive grew from 38 to 65 MB, the
+  upload took longer than a minute, and the backup failed with the useless
+  message « error sending request ». Transfers now get **900 s**, metadata calls
+  keep 60 s, and the error names the cause (timeout with its budget, unreachable
+  endpoint, or a plain failure). If a backup fails again, read the message before
+  suspecting the network.
 - **`dgx-logs.timer`/`.service`** (daily 03:30) → `scripts/logs-to-s3.sh`:
   ships the platform logs to `DGX_S3_LOGS`.
 - **`dgx-validation.path`/`.service`** → `scripts/validate.sh`, started when the

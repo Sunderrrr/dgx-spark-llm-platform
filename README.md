@@ -20,7 +20,10 @@ account). A Support assistant can act on your behalf.
   collapsible reasoning), attachments, a live document panel, dictation.
 - **Image, video, OCR, voice** — generated from dedicated pages *and*
   callable by the model as tools; each service is an on-demand sidecar that says
-  so when it isn't loaded instead of failing.
+  so when it isn't loaded instead of failing. All four are also **API models**
+  behind the user's own key — `image`, `video`, `dictation`, `voice` — so an
+  OpenAI-compatible client generates pictures, speech and video through the same
+  gateway as the chat (see [api.md](docs/api.md)).
 - **Web search** — on explicit request: SearXNG finds the links, crawl4ai reads
   the pages, every step shown live.
 - **Decisions** — a decision model (Cloudflare **Clef**) answers closed questions

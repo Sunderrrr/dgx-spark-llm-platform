@@ -225,10 +225,21 @@ def ask(page, prompt, wait_ms=120000):
     page.wait_for_timeout(300)
     box.press("Enter")
     deadline, stable, previous = time.time() + wait_ms / 1000, 0, ""
+    # A stable screen is NOT proof the answer ended: while the model is in
+    # PREFILL nothing changes on screen, so the loop used to stop on the
+    # « Simmering » spinner and publish a screenshot of a half-started answer
+    # (measured on /support, 2026-10-30). The in-progress markers must be gone.
+    # The thinking indicator rotates through a fixed list of whimsical verbs
+    # (lib/i18n.tsx, « Thinking indicator »): all of them mean « not finished ».
+    BUSY = re.compile(
+        r"Cogitat|Ruminat|Ponder|Simmer|Mus(?:ing|e)|Percolat|Meditat|Waffl|Concoct"
+        r"|Generating|Thinking|Réflexion|En cours|Mijotage",
+        re.I,
+    )
     while time.time() < deadline:
         page.wait_for_timeout(1500)
         txt = page.locator("body").inner_text()
-        if txt == previous:
+        if txt == previous and not BUSY.search(txt):
             stable += 1
             if stable >= 3 and len(txt) > 400:
                 break
@@ -361,7 +372,11 @@ def verify(folder="assets"):
         "ocr": [r"OCR"], "voice": [r"Voice"], "video": [r"Video"],
         "image": [r"Image"],
         "memory": [r"Memor"], "search": [r"model"], "request": [r"Request"],
-        "admin": [r"Logs", r"Add a model"],
+        # The console is tabbed since 2026-10-29 (astryx 0.7 renders only the
+        # active tab): the Overview no longer carries the catalog or the logs,
+        # so the check looks for what the capture actually has to prove — the
+        # platform status card and its rows.
+        "admin": [r"Platform status", r"Backup"],
         "users": [r"User"],
         "ranking": [r"Leaderboard|Rank"],
     }

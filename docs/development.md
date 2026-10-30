@@ -207,6 +207,10 @@ Shell traps that cost real time:
 |---|---|
 | ![OCR](../assets/ocr.png) | ![Video](../assets/video.png) |
 
+| Voice — zero-shot cloning from a recorded sample | Admin — the console (tabbed since 2026-10-29) and its platform status |
+|---|---|
+| ![Voice](../assets/voice.png) | ![Admin](../assets/admin.png) |
+
 | Image generation — FLUX.2 Klein | Memory — the knowledge graph the assistant keeps about you |
 |---|---|
 | ![Image](../assets/image.png) | ![Memory](../assets/memory.png) |
@@ -214,8 +218,6 @@ Shell traps that cost real time:
 | Find a model — Hugging Face catalog search | Request a model |
 |---|---|
 | ![Find a model](../assets/search.png) | ![Request a model](../assets/request.png) |
-
-![Admin — the platform status card, the unified backend row, and live model logs](../assets/admin.png)
 
 > **Refreshing these screenshots** — nothing here is hand-made: the whole set is
 > captured by `scripts/screenshots.py`, in **English** and in the **dark theme**,
@@ -250,15 +252,14 @@ Shell traps that cost real time:
 > first, so it can never capture an idle page. Start a sidecar from Admin, run
 > `--media`, then `--verify --install`.
 >
-> **One page is absent from the gallery above: Voice cloning.** Its
-> published image showed nothing but the empty state
-> ("Ask an admin to start a voice model to use this page"), which 2026-08-29
-> shipped and a caption quietly promised otherwise. An image of an error screen
-> is worse than no image, so the file is withdrawn until a capture can be
-> taken with their backend actually loaded — the refresh pass above reinstates
-> it in one command. `--verify` now refuses that empty state by name, which is
-> how it was found; it also keeps the three media pages that *do* show real
-> content (OCR, video, image) honest.
+> **Voice cloning used to be absent from this gallery.** Its published image
+> showed nothing but the empty state (« Ask an admin to start a voice model »),
+> which 2026-08-29 shipped while a caption promised otherwise; the file was
+> withdrawn. It is back **with a real model loaded** (2026-10-30): the capture
+> needed the chatterbox image built *and* a permission fix on the HF token
+> (`docs/troubleshooting.md`), so the empty state could never be mistaken for the
+> feature again. `--verify` refuses that state by name — it is what found the
+> problem, and it is what keeps OCR, video, image and voice honest.
 >
 > | Page | Route | File |
 > |---|---|---|
@@ -266,7 +267,7 @@ Shell traps that cost real time:
 > | Playground | `/playground` | `assets/playground.png` |
 > | Support assistant | `/support` | `assets/support.png` |
 > | OCR | `/ocr` | `assets/ocr.png` |
-> | Voice cloning | `/voice` | `assets/voice.png` — *withdrawn, see above* |
+> | Voice cloning | `/voice` | `assets/voice.png` |
 > | Video generation | `/video` | `assets/video.png` |
 > | Image generation | `/image` | `assets/image.png` |
 > | Memory | Settings ▸ Memory (or `/memory`) | `assets/memory.png` |

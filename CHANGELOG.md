@@ -1,6 +1,27 @@
 # Changelog
 
 
+## 2026-11-14 (suite) — retour au 3.8-Flash-Next, et le 27B s'en va
+
+Erreur de ma part, corrigée : la consigne était de **garder Flash-Next** et de
+supprimer le **qwen38-27b**, pas de remplacer Flash-Next. État final :
+
+| | |
+|---|---|
+| servi | `qwen38-flash-next-Abliterated-Uncensored` (IQ3_S, 79 Go) |
+| sessions | 3 × 262 144 (196 608 in / 65 536 out) |
+| **vision** | ✅ `--mmproj mmproj-Qwen3.8-Flash-Next-BF16.gguf` — le projecteur était **gated** jusqu'ici, il est maintenant accessible et vérifié (« Je vois un cercle rouge sur fond blanc ») |
+| supprimé | `qwen38-27b-turbo-fable-cold-fusion-q8` (30 Go) et ses entrées catalogue/LiteLLM |
+| conservé | le 40B Q4 (24 Go), en catalogue mais non servi — dis-moi s'il doit partir |
+
+Le modèle reste servi avec `--chat-template-kwargs {"enable_thinking":false}` :
+sans ça, « say ok » avec 16 jetons renvoyait un **contenu vide** (la réflexion
+mangeait le budget), ce qui cassait le parcours « API keys » — une clé passe par
+LiteLLM, donc pas par le portail qui désactive la réflexion lui-même.
+
+Le téléchargement a coûté 84 Go et la place est rendue par la suppression du 27B :
+286 Go libres.
+
 ## 2026-11-14 — modèle servi : Qwen3.8-40B Turbo-Brilliance
 
 `DavidAU/Qwen3.8-40B-Ultimate-Heretic-Uncensored-Turbo-Brilliance-50x-AGI-NEO-GGUF`

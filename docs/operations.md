@@ -309,10 +309,18 @@ The advertised contract is **per session**: `input = --ctx-size − --n-predict`
 `output = --n-predict`. How many sessions coexist is `--parallel`, and the KV
 pool is `--kv-unified` + `--kv-unified-per-slot N`.
 
-Current configuration: `--ctx-size 786432 --parallel 3 --kv-unified
---kv-unified-per-slot 262144` → **3 sessions of 262 144**, 196 608 in / 65 536
-out each, ~28-32 GiB free, 16.2 tok/s solo (17.2 with two sessions: the third
-costs ~6 %).
+Current configuration (model `qwen38-40b-turbo-brilliance-q4`, 2026-11-14):
+`--ctx-size 1572864 --parallel 6 --kv-unified --kv-unified-per-slot 262144
+--cache-type-k q4_0 --cache-type-v q4_0` → **6 sessions of 262 144**, 196 608 in
+/ 65 536 out each, ~35 GiB free, 7.0 tok/s, vision enabled (`--mmproj`).
+
+Two measurements shape this. The replacement is a **dense 40B**: its KV cache
+costs ~125 KiB/token, so six 256k sessions would need 192 GiB of f16 cache and
+cannot exist on 121.6 GiB. Quantizing the cache (`q4_0` both sides) divides it by
+four, to ~48 GiB. On the previous model that would have been suicidal — the 2026-09
+measurement showed 0.2 tok/s with a quantized cache — but here decode stays at
+7.0 tok/s, so the trade is memory for nothing. Re-measure before copying this to
+another model.
 
 **Measured limit**: three sessions and the image/video sidecars do not fit
 together on 121.6 GiB. With `--parallel 3` the FLUX sidecar (~15 GB) drove the

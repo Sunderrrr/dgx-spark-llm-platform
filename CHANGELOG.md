@@ -1,6 +1,46 @@
 # Changelog
 
 
+## 2026-11-14 — modèle servi : Qwen3.8-40B Turbo-Brilliance
+
+`DavidAU/Qwen3.8-40B-Ultimate-Heretic-Uncensored-Turbo-Brilliance-50x-AGI-NEO-GGUF`
+en **Q4_K_M** (24 Go), avec son projecteur vision `mmproj-F16` : **l'image
+fonctionne**, vérifiée de bout en bout par l'API (« Je vois un cercle rouge sur
+un fond blanc »). Catalogue, LiteLLM et `auto-model` sont alignés sur
+`qwen38-40b-turbo-brilliance-q4` ; l'ancien `qwen38-flash-next-Abliterated-Uncensored`
+(IQ3_S, 79 Go) et ses entrées sont supprimés — **79 Go rendus**, 337 Go libres.
+
+**6 sessions de 256k, comme demandé.** Le cache KV de ce modèle coûte
+~125 Kio/jeton (mesuré), donc 6 × 262 144 jetons demanderaient 192 Go en f16 :
+impossible sur 121 Go. La seule voie était de **quantifier le cache KV**
+(`--cache-type-k q4_0 --cache-type-v q4_0`), ce qui le divise par 4 :
+
+| | f16 | **q4_0** |
+|---|---|---|
+| cache pour 6 × 256k | ~192 Go | **~48 Go** |
+| mémoire libre | — | **35 Go** |
+| débit | 7,0 tok/s | **7,0 tok/s** |
+
+La crainte documentée (KV quantifié = effondrement du débit, mesuré sur
+Flash-Next en 2026-09 : 0,2 tok/s) **ne se reproduit pas ici** : le décodeur de ce
+modèle lit le cache quantifié au même rythme. Configuration retenue :
+`--ctx-size 1572864 --parallel 6 --kv-unified --kv-unified-per-slot 262144
+--cache-type-k q4_0 --cache-type-v q4_0 --n-predict 65536`.
+
+Débit : 7,0 tok/s contre 16,2 pour l'ancien MoE — c'est le prix d'un modèle
+**dense** de 40B (24 Go lus par jeton), pas un réglage.
+
+C'est un modèle de **raisonnement**, et ça casse les clients naïfs : avec un
+`max_tokens` court (`"say ok"` + 16 jetons), la réflexion mange le budget et
+`content` revient **vide**. Le parcours « API keys » l'a attrapé (la clé passe
+par LiteLLM, donc pas par le portail qui, lui, désactive la réflexion). Corrigé au
+niveau du serveur, pas du client :
+`--chat-template-kwargs {"enable_thinking":false}` — JSON compact, sinon
+l'analyseur d'arguments du runner le couperait en deux. « say ok » rend « ok » en
+2 jetons, et la vision continue de répondre (« Un cercle rouge. »). Un client qui
+veut la réflexion la redemande par requête.
+
+
 ## 2026-10-30 — documentation et captures à jour
 
 Le jeu de captures publié est **refait de zéro** avec l'interface actuelle

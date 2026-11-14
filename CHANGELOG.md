@@ -1,6 +1,30 @@
 # Changelog
 
 
+## 2026-11-14 (suite 2) — l'avis SQLite ne se corrige pas par sqlx
+
+Le garde-fou de dépendances signalait `libsqlite3-sys 0.30.1`
+(CVE-2026-119375, « patched in >=0.39.0 »). J'avais annoncé que `sqlx 0.9`
+réglerait ça : **c'était faux, et vérifié comme tel.**
+
+`sqlx-sqlite 0.9.0`, la dernière version publiée, déclare
+`libsqlite3-sys = ">=0.30.1, <0.38.0"` — sa borne **supérieure** est en dessous
+de la version corrigée. Monter sqlx (essayé : 0.9 ramène 0.30.1), ajouter une
+dépendance directe 0.40, ou patcher ne changerait rien au crate effectivement
+lié. Aucune version publiée de sqlx ne permet d'atteindre 0.39+.
+
+C'est donc un cas « pas de correctif disponible », comme `rsa` : consigné dans
+`check-deps.py` **avec la mesure** (la contrainte exacte de sqlx-sqlite), pas
+avec une promesse. Le jour où sqlx relève sa borne, l'exception devient
+inutile et le garde-fou échoue exprès — c'est ce qu'il fait pour toute excuse
+périmée.
+
+Au passage, la migration `sqlx 0.9` a été menée jusqu'à la compilation pour
+mesurer : 26 sites refusés par son nouveau garde-fou anti-injection, tous des
+**identifiants internes** (noms de tables/colonnes constants) avec des valeurs
+liées. La migration aurait été saine, mais elle ne servait à rien ici : annulée,
+`portal-rs` reste en sqlx 0.8.6.
+
 ## 2026-11-14 (suite) — retour au 3.8-Flash-Next, et le 27B s'en va
 
 Erreur de ma part, corrigée : la consigne était de **garder Flash-Next** et de

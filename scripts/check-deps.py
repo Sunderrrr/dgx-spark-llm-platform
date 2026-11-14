@@ -55,6 +55,13 @@ IGNORES = {
     'RUSTSEC-2026-0387': "crypto-bigint >=0.7.6 needs p256 >=0.14 / elliptic-curve >=0.14 "
                         "(jsonwebtoken stack); re-check when those bump",
     'RUSTSEC-2023-0071': "rsa: no fixed release published upstream (Marvin attack, needs decryption)",
+    # Checked 2026-11-14 against the registry, not assumed: the advisory wants
+    # libsqlite3-sys >= 0.39, and sqlx-sqlite 0.9.0 (the latest release) declares
+    # `libsqlite3-sys = ">=0.30.1, <0.38.0"`. No released sqlx can reach the
+    # patched version, so upgrading sqlx does NOT fix this — measured by trying
+    # 0.9, which pulled 0.30.1 again. Lifts when sqlx raises that bound.
+    'RUSTSEC-2026-0459': "libsqlite3-sys: sqlx-sqlite caps it at <0.38 (advisory wants >=0.39); "
+                        "no released sqlx allows it",
 }
 seen_ignores = set()
 

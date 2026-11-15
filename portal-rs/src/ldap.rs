@@ -171,7 +171,90 @@ pub async fn lookup_email(pool: &SqlitePool, username: &str) -> Option<String> {
 /// sign-in, from the directory — by the immutable `sub` (Authentik's `uid`),
 /// else by the e-mail — never from the token's own, user-editable username.
 /// (username, admin, display name, memberOf DNs).
+/// How long a resolved SSO identity is trusted without asking the directory.
+///
+/// The lookup below is a service bind (network), up to two searches and an
+/// unbind: on this box the bind alone measures ~3 s, which is the whole reason
+/// an SSO sign-in felt like ten seconds (measured: 1.9 s for a binding bind,
+/// 0.6 s for a refused one — the directory hashes on every attempt, so the cost
+/// is its password check, not the network). One hour bounds how long a demoted
+/// admin keeps their rights, and a stale entry is refreshed in the BACKGROUND
+/// instead of making the user wait, so the window costs no login time.
+const SSO_IDENTITY_TTL_S: i64 = 3600;
+
+async fn sso_cache_init(pool: &SqlitePool) {
+    let _ = sqlx::query(
+        "CREATE TABLE IF NOT EXISTS sso_identities (\
+         sub TEXT PRIMARY KEY, username TEXT NOT NULL, is_admin INTEGER NOT NULL, \
+         fullname TEXT NOT NULL DEFAULT '', groups TEXT NOT NULL DEFAULT '[]', \
+         checked_at INTEGER NOT NULL)",
+    )
+    .execute(pool)
+    .await;
+}
+
+/// The cached identity, and whether it is still fresh.
+async fn sso_cache_get(pool: &SqlitePool, sub: &str) -> Option<((String, bool, String, Vec<String>), bool)> {
+    let row: Option<(String, i64, String, String, i64)> =
+        sqlx::query_as("SELECT username, is_admin, fullname, groups, checked_at FROM sso_identities WHERE sub=?")
+            .bind(sub)
+            .fetch_optional(pool)
+            .await
+            .ok()?;
+    let (username, is_admin, fullname, groups, checked_at) = row?;
+    let groups: Vec<String> = serde_json::from_str(&groups).unwrap_or_default();
+    let fresh = chrono::Utc::now().timestamp() - checked_at < SSO_IDENTITY_TTL_S;
+    Some(((username, is_admin != 0, fullname, groups), fresh))
+}
+
+async fn sso_cache_put(pool: &SqlitePool, sub: &str, v: &(String, bool, String, Vec<String>)) {
+    let groups = serde_json::to_string(&v.3).unwrap_or_else(|_| "[]".into());
+    let _ = sqlx::query(
+        "INSERT INTO sso_identities (sub, username, is_admin, fullname, groups, checked_at) \
+         VALUES (?, ?, ?, ?, ?, ?) \
+         ON CONFLICT(sub) DO UPDATE SET username=excluded.username, is_admin=excluded.is_admin, \
+         fullname=excluded.fullname, groups=excluded.groups, checked_at=excluded.checked_at",
+    )
+    .bind(sub)
+    .bind(&v.0)
+    .bind(i64::from(v.1))
+    .bind(&v.2)
+    .bind(&groups)
+    .bind(chrono::Utc::now().timestamp())
+    .execute(pool)
+    .await;
+}
+
+/// `ldap_resolve_sso_identity`, cached.
+///
+/// A fresh cache entry answers without touching the network. A stale one is
+/// returned immediately and refreshed in a background task; only a sub never
+/// seen before pays the directory round-trip. That keeps a dead or slow
+/// directory from turning every sign-in into a wait.
 pub async fn resolve_sso_identity(pool: &SqlitePool, sub: &str, email: &str) -> Option<(String, bool, String, Vec<String>)> {
+    sso_cache_init(pool).await;
+    let cached = sso_cache_get(pool, sub).await;
+    if let Some((value, fresh)) = cached.clone() {
+        if !fresh {
+            let pool = pool.clone();
+            let sub = sub.to_string();
+            let email = email.to_string();
+            tokio::spawn(async move {
+                if let Some(v) = lookup_sso_identity(&pool, &sub, &email).await {
+                    sso_cache_put(&pool, &sub, &v).await;
+                }
+            });
+        }
+        return Some(value);
+    }
+    let fresh = lookup_sso_identity(pool, sub, email).await;
+    if let Some(v) = &fresh {
+        sso_cache_put(pool, sub, v).await;
+    }
+    fresh
+}
+
+async fn lookup_sso_identity(pool: &SqlitePool, sub: &str, email: &str) -> Option<(String, bool, String, Vec<String>)> {
     let c = config(pool).await;
     if !c.service_account() {
         return None;
@@ -350,6 +433,33 @@ mod tests {
         assert_eq!(group_names(&v), vec!["platform-admins".to_string(), "Famille".into()]);
         assert!(is_admin_group("cn=Admins,ou=groups,dc=x", "admins"));
         assert!(!is_admin_group("cn=admins_readonly,ou=groups", "admins"));
+    }
+
+    /// The cache is what keeps a 3-second directory bind out of every sign-in:
+    /// a fresh row must answer WITHOUT touching LDAP. The URI below is
+    /// unroutable on purpose — if the function tried the directory, the test
+    /// would hang or fail instead of returning the cached identity.
+    #[tokio::test]
+    async fn a_fresh_cached_identity_answers_without_the_directory() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sso_cache_init(&pool).await;
+        let value = ("cestienne".to_string(), true, "C. Estienne".to_string(), vec!["cn=admins,dc=example,dc=org".to_string()]);
+        sso_cache_put(&pool, "sub-123", &value).await;
+        sqlx::query("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").execute(&pool).await.unwrap();
+        // configuration pointing at a black hole
+        for (k, v) in [
+            ("cfg_ldap_uri", "ldap://192.0.2.1:389"),
+            ("cfg_ldap_bind_dn", "cn=svc,ou=people,dc=example,dc=org"),
+            ("cfg_ldap_bind_pw", "x"),
+            ("cfg_ldap_base", "dc=example,dc=org"),
+        ] {
+            sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?)").bind(k).bind(v).execute(&pool).await.unwrap();
+        }
+        let got = resolve_sso_identity(&pool, "sub-123", "c@example.org").await.expect("cached identity");
+        assert_eq!(got.0, "cestienne");
+        assert!(got.1);
+        assert_eq!(got.2, "C. Estienne");
+        assert_eq!(got.3.len(), 1);
     }
 
     #[test]

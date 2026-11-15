@@ -1,6 +1,29 @@
 # Changelog
 
 
+## 2026-11-15 — le SSO ne repaie plus l'annuaire à chaque connexion
+
+Symptôme rapporté : ~10 s pour se connecter en SSO. Mesuré dans les journaux
+d'accès de Traefik : **5,03 s pour le seul callback** `/api/oauth2-redirect`
+(les appels OIDC — découverte, token, JWKS, userinfo — ne pèsent que ~0,2 s
+chacun, soit 0,8 s au total).
+
+Le coût était **l'annuaire LDAP**, interrogé à chaque connexion pour résoudre
+l'identité SSO : un bind de service coûte **1,9 s** (0,6 s quand le mot de passe
+est refusé, 48 ms pour une recherche anonyme) — c'est la vérification du mot de
+passe côté annuaire, pas le réseau. `resolve_sso_identity` faisait ce bind, deux
+recherches et un unbind, à chaque login.
+
+**Correctif** : l'identité résolue est mise en cache (table `sso_identities`,
+`sub` comme clé) pour **une heure**. Une entrée fraîche répond sans réseau ; une
+entrée périmée est servie immédiatement et **rafraîchie en tâche de fond**. Seul
+un `sub` jamais vu paie les 1,9 s. La fenêtre d'une heure borne aussi le délai
+pendant lequel un administrateur rétrogradé dans l'annuaire garde ses droits.
+
+Vérifié : 176 tests verts (dont un nouveau qui prouve qu'une entrée en cache
+répond sans toucher l'annuaire, avec une URI LDAP injoignable), clippy sans
+nouvel avertissement, déploiement en place.
+
 ## 2026-11-14 (suite 2) — l'avis SQLite ne se corrige pas par sqlx
 
 Le garde-fou de dépendances signalait `libsqlite3-sys 0.30.1`

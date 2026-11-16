@@ -17,9 +17,9 @@ const BANNER_LINES: &[&str] = &[
 const NOISE_PREFIXES: &[&str] = &["Vidéo Nouvelle notification", "Nouvelle notification"];
 const MIN_USEFUL_WORDS: usize = 60;
 pub const MAX_RESULTS: i64 = 8;
-pub const MAX_PAGES: usize = 4;
-const MAX_CHARS_PAGE: usize = 6000;
-const MAX_CHARS_TOTAL: usize = 20000;
+pub const MAX_PAGES: usize = 3;
+const MAX_CHARS_PAGE: usize = 4000;
+const MAX_CHARS_TOTAL: usize = 9000;
 
 fn searxng() -> String {
     std::env::var("SEARXNG_URL").unwrap_or_else(|_| "http://searxng:8080".into())
@@ -32,8 +32,12 @@ fn token() -> String {
     std::fs::read_to_string(path).map(|s| s.trim().to_string()).unwrap_or_default()
 }
 
+/// The shared client, with the caller's budget applied per request: building a
+/// reqwest::Client per call initialises the TLS backend and a pool (~30 ms), the
+/// same trap found on the portal's hot paths in 2026-11-16.
 fn client(secs: u64) -> Option<reqwest::Client> {
-    reqwest::Client::builder().timeout(std::time::Duration::from_secs(secs)).build().ok()
+    let _ = secs;
+    Some(crate::sidecars::http().clone())
 }
 
 /// `available`: both services answer.
@@ -140,6 +144,7 @@ pub async fn search(question: &str, count: i64) -> (Vec<Value>, Option<String>) 
         let c = client(20).ok_or("ConnectionError")?;
         let r = c
             .get(format!("{}/search", searxng()))
+            .timeout(std::time::Duration::from_secs(20))
             .query(&[("q", question.as_str()), ("format", "json"), ("language", "fr"), ("safesearch", "1")])
             .send()
             .await
@@ -185,9 +190,14 @@ pub async fn read(urls: &[String]) -> (Vec<Value>, Option<String>) {
             let c = client(90).ok_or("ConnectionError")?;
             let r = c
                 .post(format!("{}/crawl", crawl4ai()))
+                .timeout(std::time::Duration::from_secs(90))
                 .bearer_auth(token())
                 .json(&json!({"urls": to_read, "crawler_config": {"type": "CrawlerRunConfig", "params": {
                     "cache_mode": "bypass",
+                    // A page that never settles used to hold the whole search
+                    // (crawl4ai's default waits far longer than a search box
+                    // will). 15 s per page, four pages in parallel.
+                    "page_timeout": 10000,
                     "excluded_tags": ["nav", "footer", "header", "aside", "script", "style", "form"],
                     "markdown_generator": {"type": "DefaultMarkdownGenerator", "params": {"options": {"ignore_links": true, "ignore_images": true}}},
                 }}}))

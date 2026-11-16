@@ -191,6 +191,31 @@ pub fn refers_to_past(history: &[Msg]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// The operator's own sentence, verbatim (mis-spelled and all): it must
+    /// trigger the search. Reported as "the model says it has no internet",
+    /// which is what a silent non-trigger looks like from the user's side.
+    #[test]
+    fn the_reported_sentence_triggers_a_search() {
+        let m = |t: &str| vec![crate::chat::history::Msg {
+            role: "user".into(), content: t.into(), images: Vec::new() }];
+        for s in [
+            "vas rechercher sur internet la date de a la quelle les election présidentiel de 2027 on lieu en france",
+            "cherche sur internet la date des présidentielles 2027",
+            "recherche web : élections 2027 France",
+        ] {
+            assert!(search_relevant(&m(s)), "devrait déclencher la recherche : {s}");
+        }
+    }
+
+    #[test]
+    fn a_plain_question_does_not_trigger_a_search() {
+        let m = |t: &str| vec![crate::chat::history::Msg {
+            role: "user".into(), content: t.into(), images: Vec::new() }];
+        for s in ["bonjour, comment vas-tu ?", "explique-moi les élections", "rerédige ce texte"] {
+            assert!(!search_relevant(&m(s)), "ne devrait pas déclencher : {s}");
+        }
+    }
+
     use super::*;
     use serde_json::Value;
 

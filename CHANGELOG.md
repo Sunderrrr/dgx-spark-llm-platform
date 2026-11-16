@@ -1,6 +1,34 @@
 # Changelog
 
 
+## 2026-11-16 (suite 2) — voix réparée, recherche web vérifiée et accélérée
+
+**Le mode vocal ne parlait plus** : après trois phrases échouées, l'interface
+affichait « La voix ne répond pas : la suite s'affiche en texte. » La cause
+n'était ni le micro ni la lecture audio : le conteneur `voice` tournait avec
+**chatterbox**, alors que la conversation vocale exige **Kyutai** (513 « Le
+moteur vocal chargé n'est pas Kyutai TTS » sur chaque phrase — chatterbox répond
+404 sur `/api/speak`, qui est un flux PCM brut chez Kyutai et un fichier WAV chez
+lui). L'image Kyutai a été construite, le moteur redémarré dessus : `/api/speak`
+répond 200 en `application/octet-stream`.
+
+**La recherche web fonctionnait** — vérifié avec la phrase exacte de l'opérateur
+(« vas rechercher sur internet la date de a la quelle les election présidentiel
+de 2027 on lieu en france »), elle déclenche bien l'outil et rend les bonnes
+dates, sources officielles à l'appui. Deux tests unitaires le verrouillent
+désormais (la phrase déclenche ; une question ordinaire ne déclenche pas).
+
+Ce qui la faisait *paraître* cassée : **le délai**. SearXNG répondait en 1,65 s,
+le crawl de 4 pages coûtait 6,4 s, et 20 000 caractères de pages étaient injectés
+dans le modèle au tour suivant — TTFT mesuré **16,7 s**. Réglages : SearXNG mis à
+jour (2026.11.15, **0,52 s**), budget resserré à **3 pages / 4 000 car/page /
+9 000 au total**, `page_timeout` 10 s (une page qui ne se stabilise jamais ne
+bloque plus la recherche), client HTTP partagé. TTFT ramené à **11,7 s**.
+
+Reste 11,7 s : la lecture des pages domine, et c'est le prefill des pages
+trouvées qui coûte le plus. Descendre plus bas veut dire injecter moins de
+texte — un arbitrage à faire à l'usage, pas en aveugle.
+
 ## 2026-11-16 — latences : de ~100 ms à quelques ms, et un vrai bug au passage
 
 Objectif demandé : 20 ms maximum partout. Mesure avant (médiane, 5-7 tirs par

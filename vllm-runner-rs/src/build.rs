@@ -18,6 +18,12 @@ pub struct Paths {
     pub exl3_py: String,
     /// `$HOME/exl3`: the symlink directories republished at every launch.
     pub exl3_run_dir: String,
+    /// Edge0: the front end binary, the engine checkout, its Python and the token
+    /// the server requires whenever it listens beyond loopback.
+    pub edge0_bin: String,
+    pub edge0_dir: String,
+    pub edge0_py: String,
+    pub edge0_key: String,
 }
 
 impl Paths {
@@ -36,6 +42,10 @@ impl Paths {
             templates_dir: env("TEMPLATES_DIR", &format!("{home}/models/templates")),
             exl3_py: env("EXL3_PY", &format!("{home}/venvs/exl3/bin/python")),
             exl3_run_dir: format!("{home}/exl3"),
+            edge0_bin: env("EDGE0_BIN", &format!("{home}/Edge0/edge0-infer/build/cpu/bin/edge0-infer")),
+            edge0_dir: env("EDGE0_DIR", &format!("{home}/Edge0/edge0-strata")),
+            edge0_py: env("EDGE0_PY", &format!("{home}/Edge0/edge0-strata/.venv/bin/python")),
+            edge0_key: env("EDGE0_KEY_FILE", "/etc/edge0/api-key"),
             tabby_dir,
         }
     }
@@ -235,6 +245,27 @@ pub fn exl3_served_layout(p: &Paths, base: &str, name: &str, toks: &[String]) ->
     Ok((mdir, ddir, out))
 }
 
+/// The folder of an Edge0 model: unlike every other engine it is a DIRECTORY
+/// (`model.json` + `experts.bin` + …), never a single weights file.
+pub fn resolve_model_dir(p: &Paths, hf_id: &str) -> R<String> {
+    let Some(rest) = hf_id.strip_prefix("local:") else {
+        return Err(BuildError::NotFound(format!(
+            "edge0 needs a local: model folder, got \"{hf_id}\""
+        )));
+    };
+    let slug = safe_name(rest);
+    let dir = format!("{}/{}", p.models_dir, slug);
+    let base = realpath(&p.models_dir);
+    let inside = match (realpath(&dir), &base) {
+        (Some(real), Some(base)) => real.starts_with(&base.join("")) && real != *base,
+        _ => false,
+    };
+    if slug.is_empty() || slug == "." || slug == ".." || !inside || !Path::new(&format!("{dir}/model.json")).is_file() {
+        return Err(BuildError::NotFound(format!("local model \"{slug}\" has no model.json in {}", p.models_dir)));
+    }
+    Ok(dir)
+}
+
 /// `_build_cmd(hf_id, name, extra_tokens, engine, bin_override)`: the engine's argv.
 pub fn build_cmd(p: &Paths, hf_id: &str, name: &str, extra: &[String], engine: &str, bin_override: Option<&str>) -> R<Vec<String>> {
     let has = |f: &str| extra.iter().any(|t| t == f);
@@ -295,6 +326,44 @@ pub fn build_cmd(p: &Paths, hf_id: &str, name: &str, extra: &[String], engine: &
             cmd.push(name.to_string());
             cmd.push("--metrics".into());
             cmd.extend(toks);
+            Ok(cmd)
+        }
+        "edge0" => {
+            // Edge0 is not a llama.cpp model: its weights are a folder of its own
+            // format and it runs on its own engine (edge0-strata). The two flags
+            // the engine spells `--strata-arg X V` are exposed here as X V.
+            let dir = resolve_model_dir(p, hf_id)?;
+            let mut cmd = vec![bin_override.map(str::to_string).unwrap_or_else(|| p.edge0_bin.clone()), "serve".into()];
+            cmd.extend(strs(&["--model"]));
+            cmd.push(dir);
+            cmd.extend(strs(&["--host", "0.0.0.0", "--port", "8000", "--alias"]));
+            cmd.push(name.to_string());
+            cmd.extend(strs(&["--strata-dir", &p.edge0_dir, "--strata-python", &p.edge0_py]));
+            // Listening beyond loopback is REFUSED by the server without a token.
+            if !has("--api-key-file") {
+                cmd.extend(strs(&["--api-key-file", &p.edge0_key]));
+            }
+            if !has("--device") {
+                cmd.extend(strs(&["--device", "cuda"]));
+            }
+            if !has("--context") {
+                cmd.extend(strs(&["--context", "262144"]));
+            }
+            // The engine fills whatever memory it finds with expert blobs, so the
+            // reservation is what keeps a floor free for the rest of the box.
+            for (flag, default) in [("--kv-resident", "32768"), ("--vram-reserve-mib", "20480")] {
+                let value = extra.iter().position(|t| t == flag).and_then(|i| extra.get(i + 1)).cloned()
+                    .unwrap_or_else(|| default.to_string());
+                cmd.extend(strs(&["--strata-arg", flag, "--strata-arg", &value]));
+            }
+            cmd.extend(extra.iter().filter(|t| !matches!(t.as_str(), "--kv-resident" | "--vram-reserve-mib"))
+                .filter(|t| {
+                    // keep the VALUE of a translated flag out too
+                    let i = extra.iter().position(|x| x == *t);
+                    !(matches!(i.and_then(|i| extra.get(i.wrapping_sub(1))).map(String::as_str),
+                               Some("--kv-resident") | Some("--vram-reserve-mib")))
+                })
+                .cloned());
             Ok(cmd)
         }
         _ => {

@@ -218,7 +218,18 @@ pub fn probe_models(address: &str) -> bool {
     let Ok(mut s) = TcpStream::connect_timeout(&addr, Duration::from_secs(2)) else { return false };
     let _ = s.set_read_timeout(Some(Duration::from_secs(2)));
     let _ = s.set_write_timeout(Some(Duration::from_secs(2)));
-    if s.write_all(b"GET /v1/models HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").is_err() {
+    // An engine that requires a token (Edge0 refuses to listen beyond loopback
+    // without one) answers 401 to a bare request: the probe carries it, at no
+    // cost to llama.cpp and vLLM, which ignore it.
+    let key = std::env::var("EDGE0_KEY_FILE").ok().filter(|v| !v.is_empty())
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let request = match key {
+        Some(k) => format!("GET /v1/models HTTP/1.0\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {k}\r\nConnection: close\r\n\r\n"),
+        None => "GET /v1/models HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n".to_string(),
+    };
+    if s.write_all(request.as_bytes()).is_err() {
         return false;
     }
     let mut head = [0u8; 12];

@@ -35,12 +35,24 @@ est ouvert à `172.19.0.0/16` et au loopback dans `vllm-restrict.service`, comme
 8000/8001/8188, et il écoute hors loopback avec un jeton (`/etc/edge0/api-key`,
 0600 — le serveur refuse d'écouter ailleurs sans).
 
-**Ce qui reste à faire** : `vllm-runner` ne connaît que `vllm`, `llamacpp` et
-`ds4`. Edge0 est donc servi par systemd et enregistré dans LiteLLM (modèle
-`edge0-145b`), mais le portail ne peut pas encore le lancer ni l'afficher comme
-modèle actif — il lit l'état du runner. Brancher un moteur `edge0` dans le runner
-est le travail suivant ; en attendant, Flash-Next est resté le modèle servi et
-`auto-model` a été repointé dessus.
+**Edge0 est désormais un moteur du runner** (`edge0`), donc lançable depuis
+Admin → Lancer. Trois pièces ont dû être taillées pour que la chaîne tienne :
+
+- le runner construit la commande (`edge0-infer serve --model <dossier> …` avec
+  `--api-key-file`, les limites de contexte et la réservation mémoire), et la
+  version Rust de l'analyseur refuse une valeur qui commence par `--` : les deux
+  réglages `--kv-resident` / `--vram-reserve-mib` sont exposés **en flags de
+  premier rang** dans le catalogue et traduits en `--strata-arg` au lancement ;
+- la **sonde de disponibilité** envoie le jeton (Edge0 répond 401 sans lui) —
+  sans ça le runner ne voyait jamais le modèle prêt ;
+- le portail envoie le même jeton à LiteLLM (`api_key`, au lieu du `dummy` des
+  autres moteurs) et sa sonde `/v1/models` le porte aussi.
+
+Ce dernier point cachait un piège mesuré en direct : la sonde du portail
+répondait 401, si bien que `/api/modelhealth` **gardait le modèle précédent
+pendant dix minutes** et le playground envoyait « qwen38-flash-next… » au nouveau
+moteur, qui répondait 401 à son tour. Une fois la sonde corrigée, la page affiche
+`edge0-145b`, 22,6 tok/s, TTFT 2,4 s.
 
 **Licence** : `edge0-community-model-1.0`, commercial sur demande
 (info@edge0.ai), base Qwen3.8-Flash-Next — ce n'est pas une licence libre, à

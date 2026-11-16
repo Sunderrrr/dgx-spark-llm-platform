@@ -40,6 +40,10 @@ fn command_construction_matches_runner_py() {
         tabby_dir: format!("{root}/tabby"),
         exl3_py: "/root/venvs/exl3/bin/python".into(),
         exl3_run_dir: format!("{root}/home/exl3"),
+        edge0_bin: format!("{root}/Edge0/edge0-infer/build/cpu/bin/edge0-infer"),
+        edge0_dir: format!("{root}/Edge0/edge0-strata"),
+        edge0_py: format!("{root}/Edge0/edge0-strata/.venv/bin/python"),
+        edge0_key: format!("{root}/edge0-key"),
     };
     let cases: Vec<Value> = serde_json::from_str(&include_str!("fixtures/build_cmd.json").replace("@ROOT@", &root)).unwrap();
     let mut bad = Vec::new();

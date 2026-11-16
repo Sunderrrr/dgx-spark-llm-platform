@@ -52,6 +52,9 @@ fn ctx_flag(engine: &str) -> &'static str {
         "llamacpp" => "ctx-size",
         "ds4" => "ctx",
         "exllamav3" => "max-seq-len",
+        // Edge0 (edge0-strata) shares one pool of --context cells between the
+        // requests it is running; the same rule as a unified llama.cpp cache.
+        "edge0" => "context",
         _ => "max-model-len",
     }
 }
@@ -79,6 +82,10 @@ pub fn effective_ctx(args: &str, engine: &str) -> Option<i64> {
         if let Some(per_slot) = arg_int(args, "kv-unified-per-slot").filter(|n| *n > 0) {
             return Some(per_slot);
         }
+    }
+    if engine == "edge0" {
+        // One shared pool: --context IS the window a request can address.
+        return arg_int(args, "context");
     }
     let ctx = arg_int(args, ctx_flag(engine))?;
     if engine == "llamacpp" {

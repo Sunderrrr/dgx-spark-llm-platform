@@ -603,10 +603,19 @@ through LiteLLM ("Victor Hugo a écrit Les Misérables.").
 Port 8095 is admitted for `172.19.0.0/16` and loopback in
 `vllm-restrict.service`, like 8000/8001/8188.
 
-**Not integrated yet**: `vllm-runner` knows `vllm`, `llamacpp` and `ds4` only, so
-the portal cannot launch this model or show it as *the* active one. It is
-registered in LiteLLM as `edge0-145b` and runs on its own. Adding an `edge0`
-engine to the runner is the next step.
+**It is a runner engine** (`edge0`), so Admin → Launch drives it like the others:
+
+- the catalog row is `local:Edge0-145B-NVFP4`, engine `edge0`, arguments
+  `--context 262144 --kv-resident 32768 --vram-reserve-mib 20480`;
+- those last two are FIRST-CLASS flags translated to the engine's
+  `--strata-arg --kv-resident …` form, because the argument parser refuses a
+  value that starts with `--`;
+- the readiness probe and the portal's `/v1/models` probe both carry the token —
+  the engine answers 401 without it, and a bare probe made `/api/modelhealth`
+  keep the PREVIOUS model for ten minutes (the playground then sent the old name
+  to the new engine and got a 401 of its own);
+- LiteLLM's route for an `edge0` model uses that token instead of the `dummy`
+  placeholder the other engines accept.
 
 **Licence**: `edge0-community-model-1.0` (commercial licensing on request,
 `info@edge0.ai`), base model Qwen3.8-Flash-Next. Not an open licence.

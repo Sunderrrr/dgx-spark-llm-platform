@@ -106,6 +106,22 @@ pub static LLAMA_VALUE_FLAGS: &[&str] = &[
     "--ubatch-size",
 ];
 
+/// Edge0 (edge0-strata, a latent sparse MoE): its own engine, its own flags.
+/// `--kv-resident` and `--vram-reserve-mib` are FIRST-CLASS here even though the
+/// engine spells them `--strata-arg --kv-resident …`: the argument parser refuses
+/// a value that starts with `--`, and the runner translates them (build.rs).
+pub static EDGE0_BOOL_FLAGS: &[&str] = &["--kv-grow", "--no-warmup"];
+
+pub static EDGE0_VALUE_FLAGS: &[&str] = &[
+    "--context",
+    "--device",
+    "--kv-resident",
+    "--max-queue",
+    "--prefill-chunk",
+    "--session-idle-seconds",
+    "--vram-reserve-mib",
+];
+
 pub static DS4_BOOL_FLAGS: &[&str] = &[
     "--cpu",
     "--cuda",

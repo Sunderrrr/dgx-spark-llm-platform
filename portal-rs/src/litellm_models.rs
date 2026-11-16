@@ -55,9 +55,20 @@ fn upstream(name: &str, engine: &str) -> String {
     if engine == "ds4" { "deepseek-chat".into() } else { name.to_string() }
 }
 
+/// The engine's own token, when it needs one. Edge0 (edge0-strata) refuses to
+/// listen beyond loopback without `--api-key-file`, so its route cannot use the
+/// placeholder the other engines accept.
+fn engine_api_key(engine: &str) -> String {
+    if engine != "edge0" {
+        return "dummy".into();
+    }
+    let path = std::env::var("EDGE0_KEY_FILE").unwrap_or_else(|_| "/etc/edge0/api-key".into());
+    std::fs::read_to_string(path).map(|s| s.trim().to_string()).unwrap_or_else(|_| "dummy".into())
+}
+
 /// `_litellm_upsert`: (re)create the route `public_name` → `upstream` on the
 /// engine; the previous entry is put back when the creation is refused.
-async fn upsert(public_name: &str, upstream: &str, max_input: i64, max_output: i64) -> bool {
+async fn upsert(public_name: &str, upstream: &str, max_input: i64, max_output: i64, api_key: &str) -> bool {
     if key().is_empty() {
         return false;
     }
@@ -66,7 +77,7 @@ async fn upsert(public_name: &str, upstream: &str, max_input: i64, max_output: i
         "litellm_params": {
             "model": format!("openai/{upstream}"),
             "api_base": engine_base(),
-            "api_key": "dummy",
+            "api_key": api_key,
             "input_cost_per_token": 1,
             "output_cost_per_token": 1,
             // Thinking models: reasoning off by default (a request that asks wins).
@@ -103,7 +114,7 @@ async fn upsert(public_name: &str, upstream: &str, max_input: i64, max_output: i
 /// `_register_litellm_model(name, vllm_args, engine)`.
 pub async fn register(name: &str, args: &str, engine: &str) -> bool {
     let (max_input, max_output) = crate::health::ctx_split(args, engine);
-    upsert(name, &upstream(name, engine), max_input, max_output).await
+    upsert(name, &upstream(name, engine), max_input, max_output, &engine_api_key(engine)).await
 }
 
 /// Where LiteLLM reaches the decision engine: its own port, never :8000.
@@ -178,7 +189,7 @@ pub async fn point_auto_model(name: &str, args: &str, engine: &str) -> bool {
     }
     let (max_input, max_output) = crate::health::ctx_split(args, engine);
     let auto = std::env::var("AUTO_MODEL_NAME").unwrap_or_else(|_| "auto-model".into());
-    upsert(&auto, &upstream(name, engine), max_input, max_output).await
+    upsert(&auto, &upstream(name, engine), max_input, max_output, &engine_api_key(engine)).await
 }
 
 #[cfg(test)]

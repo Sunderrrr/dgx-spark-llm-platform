@@ -48,7 +48,18 @@ fn apply(state: &mut State, now: Instant, probe: Option<Vec<String>>) -> Vec<Str
 async fn probe() -> Option<Vec<String>> {
     // Shared client (see probes::reachable): building one per call costs more
     // than the request itself.
-    let resp = crate::sidecars::http().get(format!("{}/models", engine_api())).timeout(Duration::from_secs(3)).send().await.ok()?;
+    // The engine's token when it has one (Edge0 refuses a bare request): the
+    // header is harmless for llama.cpp and vLLM, which ignore it. Without it the
+    // probe answered 401 and this list kept the PREVIOUS model for ten minutes —
+    // which is what the playground then sent to the new engine (2026-11-16).
+    let mut req = crate::sidecars::http().get(format!("{}/models", engine_api())).timeout(Duration::from_secs(3));
+    if let Ok(k) = std::fs::read_to_string("/etc/edge0/api-key") {
+        let k = k.trim();
+        if !k.is_empty() {
+            req = req.bearer_auth(k);
+        }
+    }
+    let resp = req.send().await.ok()?;
     if !resp.status().is_success() {
         return None;
     }

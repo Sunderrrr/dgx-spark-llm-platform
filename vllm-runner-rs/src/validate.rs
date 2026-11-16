@@ -9,6 +9,7 @@ pub fn flags_for(engine: &str) -> (&'static [&'static str], &'static [&'static s
         "exllamav3" => (flags::EXL3_BOOL_FLAGS, flags::EXL3_VALUE_FLAGS),
         "llamacpp" => (flags::LLAMA_BOOL_FLAGS, flags::LLAMA_VALUE_FLAGS),
         "ds4" => (flags::DS4_BOOL_FLAGS, flags::DS4_VALUE_FLAGS),
+        "edge0" => (flags::EDGE0_BOOL_FLAGS, flags::EDGE0_VALUE_FLAGS),
         "ocr" => (flags::OCR_BOOL_FLAGS, flags::OCR_VALUE_FLAGS),
         _ => (flags::BOOL_FLAGS, flags::VALUE_FLAGS),
     }

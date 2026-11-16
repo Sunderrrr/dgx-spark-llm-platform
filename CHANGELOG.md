@@ -1,6 +1,32 @@
 # Changelog
 
 
+## 2026-11-16 (suite 6) — le 500 « System message must be at the beginning »
+
+Erreur vue côté client : `litellm.InternalServerError … While executing
+CallExpression at line 3211 … raise_exception('System message must be at the
+beginnin…`. Le message complet, retrouvé dans le journal du moteur :
+
+```
+Jinja Exception: System message must be at the beginning.
+```
+
+**Cause** : le gabarit de Qwen (llama.cpp, minja) refuse tout `system` qui n'est
+pas le **premier** message. Reproduit à la demande avec
+`messages: [user, system]` → 500. Le portail, lui, ignore déjà les `system`
+fournis par le client (`parse_messages`) et place le sien en tête : la requête
+venait d'un client qui renvoie son propre prompt système **dans** la conversation.
+
+**Correctif** : normalisation dans LiteLLM, à l'endroit qui voit TOUTES les
+requêtes — `async_pre_call_hook` (le mécanisme déjà utilisé pour
+`reasoning_effort`). Les messages `system` sont fusionnés en **un seul, en tête** ;
+une requête déjà correcte n'est pas touchée. Essai préalable infructueux :
+`log_pre_api_call` voit la requête trop tard, le modifier là ne change rien
+(mesuré) — le commentaire du code le dit, pour ne pas refaire l'erreur.
+
+Vérifié : la même requête qui renvoyait 500 répond maintenant « Bonjour. », et
+trois tests unitaires couvrent le déplacement, la fusion et le cas déjà correct.
+
 ## 2026-11-16 (suite 5) — le mode vocal écrit la langue PARLÉE, pas celle de l'interface
 
 Symptôme : en parlant français dans le micro, la transcription sortait en anglais

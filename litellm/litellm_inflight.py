@@ -116,6 +116,27 @@ def _remove(kwargs):
         conn.close()
 
 
+def _normalise_system(messages):
+    """Return `messages` with every `system` entry merged into ONE, placed first.
+
+    Some engines refuse a `system` message that is not the first one — llama.cpp's
+    template raises « System message must be at the beginning » (HTTP 500,
+    2026-11-16, reproduced with [user, system]). A client that resends its own
+    system prompt inside `messages` breaks a request that is valid everywhere
+    else; one leading message is the only shape every engine accepts. Everything
+    else keeps its order and identity, and a request that is already correct is
+    returned untouched.
+    """
+    if not isinstance(messages, list) or not messages:
+        return messages
+    systems = [m for m in messages if isinstance(m, dict) and m.get("role") == "system"]
+    if not systems or (len(systems) == 1 and messages[0] is systems[0]):
+        return messages
+    rest = [m for m in messages if not (isinstance(m, dict) and m.get("role") == "system")]
+    merged = "\n\n".join(str(m.get("content") or "") for m in systems if m.get("content"))
+    return ([{"role": "system", "content": merged}] if merged else []) + rest
+
+
 class InflightActivity(CustomLogger):
     """LiteLLM hooks: opening at start, removal at the end (success or failure).
 
@@ -126,7 +147,25 @@ class InflightActivity(CustomLogger):
     """
 
     # ── Paths actually taken by the proxy ───────────────────────────────────
+    async def async_pre_call_hook(self, user_api_key_dict=None, cache=None, data=None, call_type=None):
+        """Rewrite the request before it leaves the proxy.
+
+        This is the hook that CAN change what is sent (`log_pre_api_call` sees the
+        request too late — measured 2026-11-16: the normalisation there changed
+        nothing). Same mechanism as `thinking_effort`.
+        """
+        try:
+            if isinstance(data, dict):
+                normalised = _normalise_system(data.get("messages"))
+                if normalised is not data.get("messages"):
+                    data["messages"] = normalised
+        except Exception as exc:                     # never fail the request
+            print(f"[inflight] system normalisation ignored: {exc}", flush=True)
+        return data
+
     def log_pre_api_call(self, model=None, messages=None, kwargs=None):
+        # System-message normalisation lives in `async_pre_call_hook`: mutating
+        # the list HERE changes nothing that is sent (measured 2026-11-16).
         self._safe(_record, kwargs)
 
     def log_success_event(self, kwargs=None, response_obj=None,

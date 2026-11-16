@@ -134,3 +134,31 @@ class InflightActivityTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SystemNormalisationTest(unittest.TestCase):
+    """`system` must be ONE message, first — llama.cpp's template refuses the rest."""
+
+    def setUp(self):
+        import importlib.util, pathlib
+        here = pathlib.Path(__file__).with_name("litellm_inflight.py")
+        spec = importlib.util.spec_from_file_location("inflight_under_test", here)
+        self.mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.mod)
+
+    def test_a_late_system_message_is_moved_first(self):
+        msgs = [{"role": "user", "content": "salut"}, {"role": "system", "content": "réponds en français"}]
+        out = self.mod._normalise_system(msgs)
+        self.assertEqual([m["role"] for m in out], ["system", "user"])
+        self.assertIn("français", out[0]["content"])
+
+    def test_two_system_messages_are_merged(self):
+        msgs = [{"role": "system", "content": "A"}, {"role": "user", "content": "q"}, {"role": "system", "content": "B"}]
+        out = self.mod._normalise_system(msgs)
+        self.assertEqual(len([m for m in out if m["role"] == "system"]), 1)
+        self.assertIn("A", out[0]["content"])
+        self.assertIn("B", out[0]["content"])
+
+    def test_a_correct_request_is_left_alone(self):
+        msgs = [{"role": "system", "content": "A"}, {"role": "user", "content": "q"}]
+        self.assertIs(self.mod._normalise_system(msgs), msgs)

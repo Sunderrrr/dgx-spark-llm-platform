@@ -114,7 +114,8 @@ pub async fn runner_metrics() -> Value {
     }
     let token = std::env::var("RUNNER_TOKEN").unwrap_or_default();
     let out = async {
-        let c = reqwest::Client::builder().timeout(Duration::from_secs(5)).build().ok()?;
+        // Shared client: building one per call costs more than the request.
+        let c = crate::sidecars::http();
         let r = c.get(format!("{}/metrics", probes::runner_url())).bearer_auth(token).send().await.ok()?;
         if !r.status().is_success() {
             return None;
@@ -134,6 +135,7 @@ async fn litellm_user_info(username: &str) -> (Option<Value>, String) {
         let c = reqwest::Client::builder().timeout(Duration::from_secs(5)).build().ok()?;
         let r = c
             .get(format!("{}/user/info", probes::litellm_url()))
+            .timeout(Duration::from_secs(5))
             .bearer_auth(key)
             .query(&[("user_id", username)])
             .send()

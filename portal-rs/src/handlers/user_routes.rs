@@ -82,11 +82,51 @@ pub async fn api_discord_status(State(state): State<AppState>, headers: HeaderMa
 
 /// GET /api/keys - the viewer's keys, the account envelope and the model limits
 /// (app.api_keys). The keys are returned in clear, as Flask does.
+/// The key list is read by several pages (playground, support, account) and the
+/// one expensive call inside it is LiteLLM's `/user/info` (~15 ms). A five-second
+/// per-viewer cache keeps those pages under the latency budget; a key created or
+/// revoked through the portal busts nothing, because the next read after the TTL
+/// sees it (and the UI re-fetches after its own write).
+static KEYS_CACHE: std::sync::Mutex<Option<std::collections::HashMap<String, (std::time::Instant, serde_json::Value)>>> =
+    std::sync::Mutex::new(None);
+const KEYS_TTL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// A write through the portal must be visible on the NEXT read, not after the
+/// TTL: the e2e journey caught the cached list answering without the key it had
+/// just created (2026-11-16). Every create/revoke/delete calls this.
+pub(crate) fn keys_cache_invalidate(username: &str) {
+    let mut guard = KEYS_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(map) = guard.as_mut() {
+        map.remove(username);
+    }
+}
+
 pub async fn api_keys(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let session = match viewer(&state, &headers).await {
         Err(r) => return r,
         Ok(s) => s,
     };
+    {
+        let guard = KEYS_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(map) = guard.as_ref() {
+            if let Some((at, v)) = map.get(&session.username) {
+                if at.elapsed() < KEYS_TTL {
+                    return Json(v.clone()).into_response();
+                }
+            }
+        }
+    }
+    let body = keys_body(&state, &session).await;
+    {
+        let mut guard = KEYS_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        let map = guard.get_or_insert_with(std::collections::HashMap::new);
+        map.retain(|_, (at, _)| at.elapsed() < KEYS_TTL * 4);
+        map.insert(session.username.clone(), (std::time::Instant::now(), body.clone()));
+    }
+    Json(body).into_response()
+}
+
+async fn keys_body(state: &AppState, session: &crate::auth::SessionData) -> serde_json::Value {
     let db = &state.db;
     let key_budget: f64 = std::env::var("KEY_MAX_BUDGET").ok().and_then(|v| v.parse().ok()).unwrap_or(200_000_000.0);
     let default_budget: f64 = db
@@ -149,7 +189,7 @@ pub async fn api_keys(State(state): State<AppState>, headers: HeaderMap) -> Resp
     .await;
     let user_keys = keys::user_keys(db.pool(), state.spend.as_ref(), &session.username).await;
 
-    Json(json!({
+    json!({
         "user_keys": user_keys,
         "budget_tokens": home::thousands(default_budget),
         "budget_duration": duration,
@@ -160,8 +200,7 @@ pub async fn api_keys(State(state): State<AppState>, headers: HeaderMap) -> Resp
         "running_models": running,
         "auto_model": auto_name,
         "public_api_url": crate::probes::public_api_url(),
-    }))
-    .into_response()
+    })
 }
 
 /// Shared shape of the viewer's POST writes that take no body: CSRF first (as

@@ -56,6 +56,7 @@ pub static VLLM_BIN_FLAGS: &[&str] = &[
 
 pub static BIN_FLAGS: &[&str] = &[
     "--llama-v080",
+    "--llama-v100",
     "--vllm-032",
 ];
 
@@ -65,6 +66,7 @@ pub static LLAMA_BOOL_FLAGS: &[&str] = &[
     "--jinja",
     "--kv-unified",
     "--llama-v080",
+    "--llama-v100",
     "--metrics",
     "--mlock",
     "--no-context-shift",
@@ -194,6 +196,7 @@ pub static BIN_FLAG_PATHS: &[(&str, &str, &str)] = &[
     // Upgrades of 2026-10-29, kept ALONGSIDE the old builds: opting in is a
     // per-launch flag, so a regression costs one relaunch, not a rebuild.
     ("--llama-v080", "LLAMA_BIN_V080", "llama-cpp-v080/build/bin/llama-server"),
+    ("--llama-v100", "LLAMA_BIN_V100", "llama-cpp-v100/build/bin/llama-server"),
     ("--vllm-032", "VLLM_BIN_032", "venvs/vllm-032/bin/vllm"),
 ];
 

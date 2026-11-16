@@ -70,6 +70,10 @@ function parseUnlimitedOcrBlocks(raw: string): OcrBlock[] {
 }
 
 function parseChandraBlocks(html: string): OcrBlock[] {
+  // SSR has no DOM: the page rendered from history data reaches this before the
+  // browser takes over, and `new DOMParser()` threw "DOMParser is not defined",
+  // turning /ocr into a 500 in production (found by a latency sweep, 2026-11-16).
+  if (typeof DOMParser === "undefined") return [];
   const doc = new DOMParser().parseFromString(html, "text/html");
   const nodes = Array.from(doc.body.querySelectorAll(":scope > div[data-bbox]"));
   return nodes.map((el) => {
@@ -152,6 +156,9 @@ function nodeToMarkdown(node: Node): string {
 function ocrToMarkdown(raw: string, blocks: OcrBlock[]): string {
   if (!raw) return "";
   if (raw.includes("data-bbox=")) {
+    if (typeof DOMParser === "undefined") {
+      return blocks.map((b) => b.text).filter(Boolean).join("\n\n");
+    }
     const doc = new DOMParser().parseFromString(raw, "text/html");
     return Array.from(doc.body.childNodes).map(nodeToMarkdown).join("").replace(/\n{3,}/g, "\n\n").trim();
   }

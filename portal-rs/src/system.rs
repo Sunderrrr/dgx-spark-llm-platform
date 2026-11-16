@@ -61,8 +61,15 @@ pub async fn runner_metrics() -> Option<Value> {
 pub async fn runner_status() -> Value {
     let token = std::env::var("RUNNER_TOKEN").unwrap_or_default();
     let fetched = async {
-        let c = reqwest::Client::builder().timeout(Duration::from_secs(3)).build().ok()?;
-        let r = c.get(format!("{}/status", probes::runner_url())).bearer_auth(token).send().await.ok()?;
+        // Shared client, per-request timeout: building one per call costs more
+        // than the status round-trip (measured on /api/running-models, 2026-11-16).
+        let r = crate::sidecars::http()
+            .get(format!("{}/status", probes::runner_url()))
+            .timeout(Duration::from_secs(3))
+            .bearer_auth(token)
+            .send()
+            .await
+            .ok()?;
         if !r.status().is_success() {
             return None;
         }

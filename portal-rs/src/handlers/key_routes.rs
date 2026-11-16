@@ -94,7 +94,10 @@ pub async fn keys_form(State(state): State<AppState>, headers: HeaderMap, body: 
                 .bind(user).bind(&alias).bind(&new_key).bind(keys::iso(&chrono::Local::now().naive_local()))
                 .execute(pool).await
             {
-                Ok(_) => answer(StatusCode::OK, json!({"ok": true, "key_alias": alias, "key": new_key})),
+                Ok(_) => {
+                    crate::handlers::keys_cache_invalidate(&session.username);
+                    answer(StatusCode::OK, json!({"ok": true, "key_alias": alias, "key": new_key}))
+                }
                 Err(_) => server_error(),
             }
         }
@@ -112,7 +115,10 @@ pub async fn keys_form(State(state): State<AppState>, headers: HeaderMap, body: 
                 return answer(StatusCode::SERVICE_UNAVAILABLE, json!({"ok": false, "error": "La clé n'a PAS pu être révoquée : LiteLLM n'a pas répondu. Elle est encore valide, réessaie."}));
             }
             match sqlx::query("DELETE FROM api_keys WHERE key_value=? AND username=?").bind(k).bind(user).execute(pool).await {
-                Ok(_) => answer(StatusCode::OK, json!({"ok": true})),
+                Ok(_) => {
+                    crate::handlers::keys_cache_invalidate(&session.username);
+                    answer(StatusCode::OK, json!({"ok": true}))
+                }
                 Err(_) => server_error(),
             }
         }

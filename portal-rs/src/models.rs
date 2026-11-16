@@ -46,8 +46,9 @@ fn apply(state: &mut State, now: Instant, probe: Option<Vec<String>>) -> Vec<Str
 }
 
 async fn probe() -> Option<Vec<String>> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(3)).build().ok()?;
-    let resp = client.get(format!("{}/models", engine_api())).send().await.ok()?;
+    // Shared client (see probes::reachable): building one per call costs more
+    // than the request itself.
+    let resp = crate::sidecars::http().get(format!("{}/models", engine_api())).timeout(Duration::from_secs(3)).send().await.ok()?;
     if !resp.status().is_success() {
         return None;
     }

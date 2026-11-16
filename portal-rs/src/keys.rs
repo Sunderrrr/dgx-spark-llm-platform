@@ -48,9 +48,9 @@ pub async fn account_info(username: &str) -> AccountInfo {
     let base = std::env::var("LITELLM_URL").unwrap_or_else(|_| "http://litellm:4001".to_string());
     let key = std::env::var("LITELLM_MASTER_KEY").unwrap_or_default();
     let fetched = async {
-        let c = reqwest::Client::builder().timeout(Duration::from_secs(5)).build().ok()?;
-        let r = c
+        let r = crate::sidecars::http()
             .get(format!("{}/user/info", base.trim_end_matches('/')))
+            .timeout(std::time::Duration::from_secs(5))
             .bearer_auth(key)
             .query(&[("user_id", username)])
             .send()

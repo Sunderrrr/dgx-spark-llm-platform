@@ -83,7 +83,7 @@ services:
     # during a chat call, none after. Note: the CHAT hooks only — a
     # `/v1/systemone` call does not go through them (measured), so the admin
     # in-flight panel stays chat-only.
-    image: ghcr.io/berriai/litellm@sha256:37e2dafb088a7723beb998590682957386dfc83ffea1848486f8e0e5cfac0b06
+    image: ghcr.io/berriai/litellm@sha256:11175975a3093e05e92faee2fe2fe3412a3ae2fcaa849eb0fe25d5f0d8bcb2e9
     container_name: litellm
     restart: unless-stopped
     # Run tini as PID 1: the Prisma bootstrap spawns node helpers, and without

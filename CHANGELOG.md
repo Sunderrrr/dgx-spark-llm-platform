@@ -1,6 +1,68 @@
 # Changelog
 
 
+## 2026-11-16 — latences : de ~100 ms à quelques ms, et un vrai bug au passage
+
+Objectif demandé : 20 ms maximum partout. Mesure avant (médiane, 5-7 tirs par
+route, session réelle) :
+
+| endpoint | avant | après |
+|---|---|---|
+| `/api/home` | 137 ms (max 355) | **1,0 ms** |
+| `/api/search` | 252 ms | **2,3 ms** |
+| `/api/running-models` | 65-105 ms | **3,7 ms** |
+| `/api/keys` | 85 ms | **1,0 ms** |
+| `/api/health` | 85 ms | **2,8 ms** |
+| pages (14 routes) | 21-82 ms | **14,8-23,6 ms** |
+
+**La cause principale n'était pas la base ni le réseau** : six chemins chauds
+construisaient un `reqwest::Client` **à chaque appel**. Ce constructeur initialise
+le backend TLS et un pool de connexions, ce qui coûte ~30 ms ici — deux clients
+par `/api/health` en faisaient 85. Ils partagent maintenant un client unique
+(`sidecars::http()`), avec les mêmes délais appliqués **par requête**.
+
+Trois caches courts, chacun justifié par un usage réel : `/api/home` 15 s (le
+tableau de bord est interrogé toutes les 5 s et agrège dix sondes plus deux
+requêtes PostgreSQL), `/api/keys` 5 s (LiteLLM `/user/info` par page),
+`/api/search` 60 s (un aller-retour Hugging Face par frappe).
+
+**Un bug de production trouvé par la mesure** : la page `/ocr` répondait **500**.
+`new DOMParser()` était appelé pendant le rendu serveur, où Node ne l'a pas —
+« DOMParser is not defined ». Les deux fonctions concernées sont désormais
+protégées (`typeof DOMParser === "undefined"`), avec un repli texte côté serveur.
+
+**Un test a rattrapé mon propre cache** : après création d'une clé, la liste
+servie venait du cache et n'affichait pas la clé « montrée une seule fois ». Les
+écritures (création, révocation) **invalident** désormais l'entrée de ce compte ;
+le parcours est vert.
+
+Reste au-dessus de 20 ms : `/` (25-33 ms) et `/image` (23-30 ms). Ce n'est plus
+la donnée — elle est à 1-2 ms — mais le rendu serveur de Next lui-même : la page
+la plus simple (`/admin`) mesure 14-16 ms. Descendre plus bas demanderait de
+rendre ces pages statiques, au prix de leur fraîcheur ; non fait sans accord.
+
+## 2026-11-16 (suite) — moteurs et paquets à jour
+
+| | avant | après | vérification |
+|---|---|---|---|
+| **llama.cpp** | v0.8.0-dev (8642541) | **v1.0.0** (b1b770d, 2026-11-13) | **23,5-24,2 tok/s contre 16,2** (+45 %), 3 × 262 144, vision OK, **RSS anonyme 0,4 Go** |
+| **vLLM** | 0.32.0 | **0.33.0** | `vllm --version` |
+| **LiteLLM** | 1.106.6 | **1.109.1** | chat, liste des modèles, callback d'activité (1 pendant / 0 après) |
+| **npm** | astryx 0.7.4 | **0.7.16**, stylex 0.19.2, eslint 10.15 | `tsc` 0, `eslint` 0, **78/78 tests**, build OK |
+| **apt** | — | rien à installer | `apt list --upgradable` vide |
+
+llama.cpp gagne **45 % de débit** sur le modèle servi sans rien changer d'autre :
+mêmes sessions, même vision, même empreinte mémoire — le `--lazy-mode on` qui
+avait réglé les 27 Go fonctionne toujours sur cette version. Un pseudo-flag
+`--llama-v100` a été ajouté à côté de `--llama-v080` pour pouvoir revenir en un
+relancement.
+
+**Volontairement non montés** : les venvs `exl3` et `kyutai` (52 et 48 paquets en
+retard). `exllamav3 1.5.3` est **compilé** contre `torch==2.13.0` — ses propres
+métadonnées disent de fixer la version exacte — et `kyutai` tourne en
+`torch 2.13.0+cu130` ; un `pip install -U` en masse casserait l'extension compilée
+et le sidecar vocal. C'est une migration à tester, pas une mise à jour.
+
 ## 2026-11-15 — le SSO ne repaie plus l'annuaire à chaque connexion
 
 Symptôme rapporté : ~10 s pour se connecter en SSO. Mesuré dans les journaux

@@ -23,10 +23,11 @@ fn env_url(name: &str, default: &str) -> String {
 
 /// True when the service answers with one of the `expect` statuses within 3 s.
 pub async fn reachable(url: &str, expect: &[u16]) -> bool {
-    let Ok(client) = reqwest::Client::builder().timeout(Duration::from_secs(3)).build() else {
-        return false;
-    };
-    match client.get(url).send().await {
+    // A shared client, not a fresh one: building a reqwest::Client
+    // initialises the TLS backend and a connection pool, which measures ~30 ms
+    // per call on this box — two probes per /api/health made it 80 ms. The
+    // per-request timeout keeps the probe bounded exactly as before.
+    match crate::sidecars::http().get(url).timeout(Duration::from_secs(3)).send().await {
         Ok(resp) => expect.contains(&resp.status().as_u16()),
         Err(_) => false,
     }

@@ -239,6 +239,13 @@ pub async fn api_health(
 }
 
 /// GET /api/home - the home dashboard (app._index_data)
+/// The home payload aggregates ten probes and two PostgreSQL queries (~100 ms).
+/// The dashboard polls it every 5 s per open tab, so a short per-viewer cache
+/// turns the repeat calls into a memory read without changing what is shown.
+static HOME_CACHE: std::sync::Mutex<Option<std::collections::HashMap<String, (std::time::Instant, serde_json::Value)>>> =
+    std::sync::Mutex::new(None);
+const HOME_TTL: std::time::Duration = std::time::Duration::from_secs(15);
+
 pub async fn api_home(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -247,7 +254,28 @@ pub async fn api_home(
         Err(e) => return e.into_response(),
         Ok(session) => session,
     };
-    Json(home::index_data(&state.db, state.spend.as_ref(), &session.username, session.is_admin).await).into_response()
+    let key = format!("{}|{}", session.username, session.is_admin);
+    {
+        let guard = HOME_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(map) = guard.as_ref() {
+            if let Some((at, value)) = map.get(&key) {
+                if at.elapsed() < HOME_TTL {
+                    return Json(value.clone()).into_response();
+                }
+            }
+        }
+    }
+    let value = home::index_data(&state.db, state.spend.as_ref(), &session.username, session.is_admin).await;
+    {
+        let mut guard = HOME_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        let map = guard.get_or_insert_with(std::collections::HashMap::new);
+        // Bounded: one entry per account, and stale ones are dropped as they are
+        // met — a viewer list cannot grow without limit on a box with a handful
+        // of accounts, and the sweep keeps a decommissioned one from lingering.
+        map.retain(|_, (at, _)| at.elapsed() < HOME_TTL * 10);
+        map.insert(key, (std::time::Instant::now(), value.clone()));
+    }
+    Json(value).into_response()
 }
 
 /// GET /api/modelhealth - health of the served model alone (1 s dashboard poll)

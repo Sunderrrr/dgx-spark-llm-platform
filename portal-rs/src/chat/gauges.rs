@@ -153,8 +153,15 @@ pub async fn slots_busy() -> Option<(usize, usize)> {
         Some(i) => api[..i].to_string(),
         None => api,
     };
-    let c = reqwest::Client::builder().timeout(Duration::from_secs(2)).build().ok()?;
-    let slots: serde_json::Value = c.get(format!("{base}/slots")).send().await.ok()?.json().await.ok()?;
+    let slots: serde_json::Value = crate::sidecars::http()
+        .get(format!("{base}/slots"))
+        .timeout(Duration::from_secs(2))
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
     let list = slots.as_array().filter(|a| !a.is_empty())?;
     Some((list.iter().filter(|s| s.get("is_processing").is_some_and(crate::keys::truthy)).count(), list.len()))
 }

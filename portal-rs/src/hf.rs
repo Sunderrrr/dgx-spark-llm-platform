@@ -79,11 +79,10 @@ pub fn guess_engine(model: &Value) -> &'static str {
 
 /// One HF call → (models, has more pages). Raises instead of returning empty.
 async fn page(params: &[(&str, String)]) -> Result<(Vec<Value>, bool), HfError> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(8))
-        .build()
-        .map_err(|e| HfError::Unavailable(format!("HF injoignable ({})", e.without_url())))?;
-    let mut req = client.get("https://huggingface.co/api/models").query(params);
+    // Shared client (building one per search costs more than the round-trip),
+    // with the same 8 s budget as before applied per request.
+    let client = crate::sidecars::http();
+    let mut req = client.get("https://huggingface.co/api/models").query(params).timeout(Duration::from_secs(8));
     let t = token();
     if !t.is_empty() {
         req = req.bearer_auth(t);
@@ -116,7 +115,36 @@ async fn page(params: &[(&str, String)]) -> Result<(Vec<Value>, bool), HfError> 
 
 /// search_hf_models_page: the models of one page (engine guessed, the file list
 /// and the internal id dropped), and whether there is a next page.
+/// A search repeated inside this window is answered from memory: the catalog
+/// page re-renders on every keystroke pause, and each miss costs a ~200 ms
+/// round-trip to Hugging Face plus a per-call client build before 2026-11-16.
+const SEARCH_TTL: Duration = Duration::from_secs(60);
+static SEARCH_CACHE: std::sync::Mutex<Option<std::collections::HashMap<String, (std::time::Instant, (Vec<Value>, bool))>>> =
+    std::sync::Mutex::new(None);
+
 pub async fn search_page(query: &str, task: Option<&str>, gb10_only: bool, skip: u32) -> Result<(Vec<Value>, bool), HfError> {
+    let key = format!("{query}|{}|{gb10_only}|{skip}", task.unwrap_or(""));
+    {
+        let guard = SEARCH_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(map) = guard.as_ref() {
+            if let Some((at, hit)) = map.get(&key) {
+                if at.elapsed() < SEARCH_TTL {
+                    return Ok(hit.clone());
+                }
+            }
+        }
+    }
+    let out = search_page_uncached(query, task, gb10_only, skip).await?;
+    {
+        let mut guard = SEARCH_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        let map = guard.get_or_insert_with(std::collections::HashMap::new);
+        map.retain(|_, (at, _)| at.elapsed() < SEARCH_TTL * 4);
+        map.insert(key, (std::time::Instant::now(), out.clone()));
+    }
+    Ok(out)
+}
+
+async fn search_page_uncached(query: &str, task: Option<&str>, gb10_only: bool, skip: u32) -> Result<(Vec<Value>, bool), HfError> {
     let (mut models, more) = page(&search_params(query, task, gb10_only, skip)).await?;
     for m in models.iter_mut() {
         let engine = guess_engine(m);

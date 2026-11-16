@@ -1,6 +1,33 @@
 # Changelog
 
 
+## 2026-11-16 (suite 5) — le mode vocal écrit la langue PARLÉE, pas celle de l'interface
+
+Symptôme : en parlant français dans le micro, la transcription sortait en anglais
+et le modèle répondait en anglais. Reproduit et mesuré sur le même extrait de
+1,5 s :
+
+| requête | résultat |
+|---|---|
+| `language=en` (ce que faisait le mode vocal) | **« Thank you. »** |
+| sans langue (auto-détection) | « Bonjour, je voudrais connaître… » |
+
+**La cause** : `VoiceMode.tsx` forçait `language` à la **langue de l'interface**
+(`useLang()`). L'interface étant en anglais, chaque tour partait avec `en` :
+Whisper ne traduisait pas, il *transcrivait en anglais* ce qu'il entendait — et
+comme le modèle reçoit le texte, il répondait en anglais.
+
+**Correctif** : le mode vocal n'impose plus aucune langue ; Whisper détecte sur
+la phrase entière. Le commentaire d'origine (« une phrase courte, trop peu pour
+détecter : « Arrête d'expliquer » est sorti en islandais ») est traité autrement :
+la dictation écrite, elle, relit un tampon qui grandit — et le service refuse les
+clips de moins de 0,3 s. `return_language=True` a été essayé pour mémoriser la
+détection d'un tour à l'autre : **transformers 5.20 l'ignore** (le pipeline ne
+rend que `text` et `chunks`), donc le verrou a été retiré plutôt que laissé mort.
+
+Vérifié après correction, sur un extrait court et sur la phrase complète : les
+deux reviennent en français.
+
 ## 2026-11-16 (suite 4) — la recherche web ne dépend plus du modèle
 
 Trois fois signalé, et chaque fois la même cause profonde : **on demandait au

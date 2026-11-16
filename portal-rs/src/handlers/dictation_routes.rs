@@ -111,7 +111,18 @@ pub async fn api_transcribe(State(state): State<AppState>, req: Request) -> Resp
             }
         }
         Some(Ok(r)) => match r.json::<Value>().await {
-            Ok(b) => Json(json!({"text": b.get("text").cloned().unwrap_or(json!(""))})).into_response(),
+            Ok(b) => {
+                // The detected language travels back: a voice turn is one short
+                // sentence, too little for a reliable detection on every pass, so
+                // the client keeps the first answer and forces it afterwards
+                // (measured: forcing the UI language wrote French speech in
+                // English, 2026-11-16).
+                let mut out = json!({"text": b.get("text").cloned().unwrap_or(json!(""))});
+                if let Some(l) = b.get("language").filter(|v| crate::keys::truthy(v)) {
+                    out["language"] = l.clone();
+                }
+                Json(out).into_response()
+            }
             Err(_) => err503("Service de transcription injoignable."),
         },
     }

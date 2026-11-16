@@ -184,6 +184,12 @@ async def transcribe(
     kwargs = {}
     if language:
         kwargs["generate_kwargs"] = {"language": language}
+    # No language forced: the model detects it. `return_language=True` was tried
+    # and does NOT work on transformers 5.20 (the pipeline returns only "text"
+    # and "chunks"), so the caller cannot pin a detection — it simply relies on
+    # detection, which is right for a whole sentence (measured 2026-11-16: a
+    # 1.5 s French clip forced to `en` came back as "Thank you.", the same clip
+    # auto-detected came back in French).
 
     try:
         # Blocking (GPU) call: keep it off the event loop, otherwise
@@ -198,6 +204,7 @@ async def transcribe(
         raise HTTPException(status_code=500, detail="Échec de la transcription.")
 
     text = (out.get("text") or "").strip()
+    detected = out.get("language") if isinstance(out, dict) else None
     # On non-speech (silence, breath, continuous noise), Whisper loops and
     # returns strings like « . . . . . » or « Beep! Beep! ». It is very visible in
     # live dictation, where the first round often lands before the first word. A
@@ -205,4 +212,7 @@ async def transcribe(
     # than polluting the field.
     if not any(c.isalnum() for c in text):
         text = ""
-    return JSONResponse({"text": text})
+    body = {"text": text}
+    if detected:
+        body["language"] = detected
+    return JSONResponse(body)

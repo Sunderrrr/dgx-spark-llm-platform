@@ -51,20 +51,26 @@ const VOICE_LABELS: Record<string, string> = { "fr-a": "A", "fr-b": "B", "fr-c":
 /** Messages kept on screen: the voice mode is the end of a conversation. */
 const SHOWN_MESSAGES = 16;
 
-async function transcribe(wav: Blob, csrf: string, lang: string): Promise<{ text: string; starting?: boolean; error?: string }> {
+async function transcribe(wav: Blob, csrf: string, lang: string): Promise<{ text: string; language?: string; starting?: boolean; error?: string }> {
   const body = new FormData();
   body.append("audio", new File([wav], "speech.wav", { type: "audio/wav" }));
-  // The language is forced: a voice turn is one short sentence, too little for
-  // Whisper to detect it — « Arrête d'expliquer, fais-le » came out as
-  // Icelandic (2026-10-14). The written dictation keeps auto-detection: it
-  // re-reads a growing buffer, which is enough to settle the language.
-  body.append("language", lang);
+  // The FIRST turn lets Whisper detect the spoken language and reports it back;
+  // the rest of the conversation forces that language, because a one-sentence
+  // turn is too little to detect reliably. Forcing the UI language here was the
+  // bug of 2026-11-16: an English interface dictated French speech in English,
+  // and the model then answered in English. A forced language (the caller's
+  // `lang`) is still honoured when it is explicit.
+  if (lang) body.append("language", lang);
   const res = await fetch("/api/transcribe", {
     method: "POST", credentials: "include", headers: { "X-CSRFToken": csrf }, body,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) return { text: "", error: data?.error || `HTTP ${res.status}` };
-  return { text: typeof data.text === "string" ? data.text : "", starting: !!data.starting };
+  return {
+    text: typeof data.text === "string" ? data.text : "",
+    language: typeof data.language === "string" ? data.language : undefined,
+    starting: !!data.starting,
+  };
 }
 
 export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrupt, onClose }: Props) {
@@ -87,6 +93,7 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
 
   const micRef = useRef<MicListener | null>(null);
   const playerRef = useRef<SpeechPlayer | null>(null);
+
   const glowRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   // The answer being voiced: its index in `messages`, how far its text has
@@ -321,7 +328,11 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
           return;
         }
         setPhase("thinking");
-        let r = await transcribe(wav, live.current.csrf, live.current.lang);
+        // No forced language: the SPOKEN language is not the interface language.
+        // Forcing it was the bug of 2026-11-16 — an English UI dictated French
+        // speech as English ("Thank you."), and the model answered in English.
+        // Whisper detects on a whole sentence; measured, it gets French right.
+        let r = await transcribe(wav, live.current.csrf, "");
         // First use: the transcription service is still loading — wait for it.
         for (let k = 0; r.starting && k < 30; k++) {
           setNotice(t("Démarrage de la transcription…"));

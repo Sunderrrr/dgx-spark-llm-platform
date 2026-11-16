@@ -553,3 +553,60 @@ new image (2.14.1) sat unused, because the container had not been recreated.
 After building, recreate with the script (`HOME=/root bash
 asr/asr-recreate.sh openai/whisper-large-v3-turbo`,
 `sudo /usr/local/sbin/image-recreate.sh black-forest-labs/FLUX.2-klein-4B`).
+
+## Edge0 145B (NVFP4) — the model that is not a GGUF
+
+`/root/models/Edge0-145B-NVFP4` (106 GB) is a **latent sparse MoE with its own
+runtime**, not a llama.cpp model: the weights are `experts.bin` (47.6 GB),
+`model-skeleton.gguf`, `ple-fp8.gguf` (51.2 GB), `mtp/` plus a `model.json`, and
+the model folder's `start.sh` launches **`strata`**. llama.cpp cannot read that
+layout.
+
+Built here (aarch64 + CUDA 13 + sm_121; the engine's CMakeLists names the GB10 on
+purpose):
+
+```sh
+git clone https://github.com/Edge0-AI/Edge0.git /root/Edge0
+# engine, against the pinned llama.cpp ggml it requires
+cd /root/Edge0/edge0-strata && mkdir -p third_party/llama.cpp
+curl -sL https://github.com/ggml-org/llama.cpp/archive/3cf03257f219afbe7334045ff7c6a06ac68c627d.tar.gz \
+  | tar -xz --strip-components=1 -C third_party/llama.cpp
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc -DCMAKE_CUDA_ARCHITECTURES=121 \
+  -DSTRATA_ENABLE_CUDA=ON -DSTRATA_GGML_DIR="$PWD/third_party/llama.cpp"
+cmake --build build --target strata -j 8
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+# front end
+cd /root/Edge0/edge0-infer && cmake --preset cpu && cmake --build --preset cpu -j 8
+```
+
+Serving is `edge0-serve.service` (port 8095, OpenAI-compatible), whose flags are
+the whole memory story:
+
+```
+--context 262144 --kv-resident 32768 --vram-reserve-mib 20480
+```
+
+**`--vram-reserve-mib` is not a micro-optimisation, it is the only knob that
+keeps the promise.** Measured: `--context 131072` left **5 GiB** free while
+`--context 262144` left **8 GiB**, because the engine fills whatever memory it
+finds with expert blobs — a smaller context just buys more experts. Reserving
+20 GiB explicitly gave **23-24 GiB free during generation**, with three
+concurrent requests working and ~50 tok/s combined (21-31 tok/s alone).
+
+Two details that cost time: the server refuses `--host 0.0.0.0` without
+`--api-key-file` (a token lives in `/etc/edge0/api-key`, 0600, and LiteLLM sends
+it), and `--thinking` is rejected for a delegated model — thinking is switched
+per request with `chat_template_kwargs {"enable_thinking": false}`, verified
+through LiteLLM ("Victor Hugo a écrit Les Misérables.").
+
+Port 8095 is admitted for `172.19.0.0/16` and loopback in
+`vllm-restrict.service`, like 8000/8001/8188.
+
+**Not integrated yet**: `vllm-runner` knows `vllm`, `llamacpp` and `ds4` only, so
+the portal cannot launch this model or show it as *the* active one. It is
+registered in LiteLLM as `edge0-145b` and runs on its own. Adding an `edge0`
+engine to the runner is the next step.
+
+**Licence**: `edge0-community-model-1.0` (commercial licensing on request,
+`info@edge0.ai`), base model Qwen3.8-Flash-Next. Not an open licence.

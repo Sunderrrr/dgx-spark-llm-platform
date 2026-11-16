@@ -1,6 +1,51 @@
 # Changelog
 
 
+## 2026-11-16 (suite 3) — le 40B supprimé, Edge0 145B installé et mesuré
+
+**`qwen38-40b-turbo-brilliance-q4` supprimé partout** : 24 Go de fichiers
+(`/root/models/qwen38-40b-turbo-brilliance-q4`), ligne du catalogue, et entrée
+LiteLLM. Le disque est passé de 299 à 323 Go libres.
+
+**Edge0 145B NVFP4 — le point qui change tout : ce n'est pas un modèle
+llama.cpp.** Le dépôt ne contient pas des tenseurs GGUF mais un format propre
+(`experts.bin` 47,6 Go, `model-skeleton.gguf`, `ple-fp8.gguf` 51,2 Go, `mtp/`,
+un `model.json`) et un script `start.sh` qui lance **`strata`**, son moteur, un
+fork de Strata. llama.cpp ne peut pas l'ouvrir : la demande « lance-le sur
+llama.cpp » est donc impossible telle quelle, et c'est le moteur Edge0 qui a été
+construit.
+
+Fait, mesuré sur cette machine :
+
+| | |
+|---|---|
+| moteur | `edge0-strata` compilé pour **aarch64 + CUDA 13 + sm_121** (le CMakeLists mentionne explicitement le GB10/DGX Spark), `edge0-infer` en preset cpu, `.venv` Python |
+| modèle | 106 Go téléchargés dans `/root/models/Edge0-145B-NVFP4` |
+| service | `edge0-serve.service`, port **8095**, OpenAI-compatible (`/v1/chat/completions`) |
+| contexte | **262 144** (natif), `--kv-resident 32768` |
+| mémoire libre | **23-24 Go** pendant la génération, avec `--vram-reserve-mib 20480` |
+| débit | **21-31 tok/s** seul, **~50 tok/s** à trois requêtes simultanées (elles passent toutes) |
+| raisonnement | modèle *thinking* : `chat_template_kwargs {"enable_thinking": false}` pour une réponse directe (vérifié : « Victor Hugo a écrit Les Misérables. ») |
+
+Le levier mémoire n'est pas le contexte : le moteur **remplit** la mémoire libérée
+avec des experts (contexte 131k laissait 5 Go libres, contexte 262k en laissait 8).
+Le seul réglage qui tient la promesse est `--vram-reserve-mib 20480` : il réserve
+20 GiB au système et le moteur dimensionne ses caches sur le reste. Le port 8095
+est ouvert à `172.19.0.0/16` et au loopback dans `vllm-restrict.service`, comme
+8000/8001/8188, et il écoute hors loopback avec un jeton (`/etc/edge0/api-key`,
+0600 — le serveur refuse d'écouter ailleurs sans).
+
+**Ce qui reste à faire** : `vllm-runner` ne connaît que `vllm`, `llamacpp` et
+`ds4`. Edge0 est donc servi par systemd et enregistré dans LiteLLM (modèle
+`edge0-145b`), mais le portail ne peut pas encore le lancer ni l'afficher comme
+modèle actif — il lit l'état du runner. Brancher un moteur `edge0` dans le runner
+est le travail suivant ; en attendant, Flash-Next est resté le modèle servi et
+`auto-model` a été repointé dessus.
+
+**Licence** : `edge0-community-model-1.0`, commercial sur demande
+(info@edge0.ai), base Qwen3.8-Flash-Next — ce n'est pas une licence libre, à
+savoir avant d'en faire le modèle par défaut.
+
 ## 2026-11-16 (suite 2) — voix réparée, recherche web vérifiée et accélérée
 
 **Le mode vocal ne parlait plus** : après trois phrases échouées, l'interface

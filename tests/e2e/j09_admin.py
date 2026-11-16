@@ -109,20 +109,33 @@ def main() -> int:
             r = ctx.request.get(f"{c.BASE}/api/admin")
             data = r.json() if r.status == 200 else None
             names = [m.get("name", "") for m in (data or {}).get("model_cfgs", []) if m.get("name")]
-            if len(names) < 2:
-                p.fail("model catalog", "at least 2 catalog entries",
-                       f"{len(names)} entry(ies) — the filter cannot be checked")
+            if not names:
+                p.fail("model catalog", "at least 1 catalog entry", "the catalog is empty")
             before = page.get_by_role("button", name=c.either_label("Lancer", "Launch")).count()
             catalog_filter = page.get_by_label(c.either_label("Filtrer le catalogue",
                                                               "Filter the catalog")).first
-            catalog_filter.fill(names[0])
-            page.wait_for_timeout(900)
-            after = page.get_by_role("button", name=c.either_label("Lancer", "Launch")).count()
-            if not (0 < after < before):
-                p.fail("catalog filter",
-                       f"the list narrowed (1 entry for « {names[0]} », out of {before})",
-                       f"{after} entry(ies) visible for « {names[0]} » (before the filter: {before})")
-            p.ok("catalog filter", f"« {names[0]} »: {before} → {after} entry(ies) shown")
+            if len(names) >= 2:
+                # Several entries: filter by one name and expect the list to narrow.
+                catalog_filter.fill(names[0])
+                page.wait_for_timeout(900)
+                after = page.get_by_role("button", name=c.either_label("Lancer", "Launch")).count()
+                if not (0 < after < before):
+                    p.fail("catalog filter",
+                           f"the list narrowed (1 entry for « {names[0]} », out of {before})",
+                           f"{after} entry(ies) visible for « {names[0]} » (before the filter: {before})")
+                p.ok("catalog filter", f"« {names[0]} »: {before} → {after} entry(ies) shown")
+            else:
+                # One entry (the operator pruned the catalog on 2026-11-16): there is
+                # nothing to narrow DOWN to, so filter by a name that cannot match and
+                # expect the list to empty — the filter is still exercised.
+                catalog_filter.fill("zzz-no-such-model")
+                page.wait_for_timeout(900)
+                after = page.get_by_role("button", name=c.either_label("Lancer", "Launch")).count()
+                if after != 0:
+                    p.fail("catalog filter", "0 entries for an unmatched filter",
+                           f"{after} entry(ies) visible for « zzz-no-such-model » (before: {before})")
+                p.ok("catalog filter", f"unmatched filter: {before} → 0 entry(ies) shown")
+                catalog_filter.fill("")
 
             # ── 6. The /users page lists the accounts ───────────────────────
             page.goto(f"{c.BASE}/users", wait_until="domcontentloaded")

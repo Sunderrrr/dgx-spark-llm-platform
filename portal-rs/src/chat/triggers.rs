@@ -66,9 +66,19 @@ pub fn request_text(content: &str) -> String {
 fn search_request() -> &'static Regex {
     static C: OnceLock<Regex> = OnceLock::new();
     re(&C, concat!(
+        // "cherche sur internet", "regarde sur le web"
         r"(?i)(?:cherche|recherche|regarde|va voir|renseigne-toi|informe-toi)",
         r"[^.!?\n]{0,30}?\b(?:sur (?:le )?(?:web|internet|net)|sur google)",
-        r"|(?:fais|lance|effectue)[^.!?\n]{0,20}?\brecherche\b",
+        // "fais/faire/effectue une recherche" — the operator's own phrasing
+        // ("tu peux faire une recherche internet …") matched NOTHING until
+        // 2026-11-16, and the model answered "I have no internet access".
+        r"|(?:fais|fait|faites|faire|faisons|lance|lancez|effectue|effectuez|effectuer)",
+        r"\s+(?:une\s+|des\s+|la\s+)?recherches?\b",
+        r"|\brecherches?\s+(?:internet|web|en ligne)\b",
+        // "cherche-moi", "peux-tu chercher", "trouve-nous des infos sur"
+        r"|(?:cherche|recherche|trouve)[-\s](?:moi|nous|leur)\b",
+        r"|(?:peux|pourrais|peut|pourrait)[-\s](?:tu|vous)[^.!?\n]{0,20}?\b(?:chercher|rechercher|regarder)\b",
+        r"|\b(?:des\s+)?(?:infos?|informations?)\s+(?:sur|à propos de)\b",
         r"|recherche\s+web|web\s*search|search\s+(?:the\s+)?web|search\s+online",
         r"|google[-\s]?(?:le|la|it)\b"
     ))
@@ -202,6 +212,13 @@ mod tests {
             "vas rechercher sur internet la date de a la quelle les election présidentiel de 2027 on lieu en france",
             "cherche sur internet la date des présidentielles 2027",
             "recherche web : élections 2027 France",
+            // The second report (2026-11-16, afternoon): "faire une recherche"
+            // matched no pattern at all, so nothing was searched and the model
+            // announced it had no internet access.
+            "tu peux faire une recherche internet pour regarder quelle sont les mesure fare du partie politique lfi pour les election présidentiel en france stp",
+            "faire une recherche sur les mesures de LFI",
+            "peux-tu chercher les mesures phares de LFI",
+            "cherche-moi des infos sur le programme de LFI",
         ] {
             assert!(search_relevant(&m(s)), "devrait déclencher la recherche : {s}");
         }

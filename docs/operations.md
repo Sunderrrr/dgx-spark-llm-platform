@@ -619,3 +619,36 @@ Port 8095 is admitted for `172.19.0.0/16` and loopback in
 
 **Licence**: `edge0-community-model-1.0` (commercial licensing on request,
 `info@edge0.ai`), base model Qwen3.8-Flash-Next. Not an open licence.
+
+## Web search as an MCP server (for agents outside the portal)
+
+The playground searches for itself when the request is explicit (see the chat
+section), which is what a model without function calling needs. Outside the
+portal — OpenCode, the harness, any MCP client — the same two sidecars are
+exposed by a small stdio server:
+
+```sh
+python3 scripts/mcp-websearch.py     # JSON-RPC per line on stdin/stdout
+```
+
+Two tools: `web_search(question, count)` and `read_pages(urls)`. It reaches
+SearXNG and crawl4ai **through their containers** (`docker exec`), so nothing is
+published and `web_net` keeps its isolation.
+
+OpenCode cannot search the web on its own without a paid provider (Exa,
+Firecrawl, Parallel, Tavily, TinyFish — all API keys). It speaks MCP, so:
+
+```sh
+opencode mcp add websearch -- python3 /root/ai-platform/scripts/mcp-websearch.py
+opencode mcp list          # expect: ✓ websearch   connected
+```
+
+or by hand in `opencode.jsonc`:
+
+```jsonc
+{ "mcp": { "servers": { "websearch": {
+  "type": "local", "command": ["python3", "/root/ai-platform/scripts/mcp-websearch.py"] } } } }
+```
+
+The tool description tells the model to call it **whenever the user explicitly
+asks for a web search** — the same rule the portal applies on its own side.

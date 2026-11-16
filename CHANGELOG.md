@@ -1,6 +1,32 @@
 # Changelog
 
 
+## 2026-11-16 (suite 4) — la recherche web ne dépend plus du modèle
+
+Trois fois signalé, et chaque fois la même cause profonde : **on demandait au
+modèle de décider de chercher**. Un modèle qui n'émet pas d'appel d'outil (Edge0,
+tout gabarit sans *function calling*) répondait donc « je n'ai pas d'accès
+internet » — un MCP n'y aurait rien changé, puisque le modèle n'appelle rien.
+
+**La demande explicite est maintenant déterministe** : quand le message demande
+une recherche (`armed.web`), le portail **cherche lui-même**, émet les mêmes
+étapes SSE, puis injecte les résultats dans le message de l'utilisateur —
+`o.findings`, le seul canal que lit la réponse finale. Mesuré sur Edge0 : 477
+jetons de synthèse avec les sources, au lieu d'un refus.
+
+Le motif de déclenchement a aussi été élargi : « faire une recherche internet »
+ne correspondait à **aucun** motif (il fallait « recherche **sur** internet »),
+et deux nouvelles formulations de l'opérateur sont désormais verrouillées par un
+test unitaire, avec la vérification inverse qu'une question ordinaire ne
+déclenche pas.
+
+**Et pour les agents hors du portail** : `scripts/mcp-websearch.py`, un serveur
+MCP stdio (deux outils, `web_search` et `read_pages`) qui passe par les
+conteneurs SearXNG et crawl4ai — rien de publié, `web_net` garde son isolement.
+Il répond, listé et testé. OpenCode n'a **pas** de recherche auto-hébergée (ses
+cinq fournisseurs exigent une clé payante) mais parle MCP : le branchement tient
+en une commande, documentée dans `docs/operations.md`.
+
 ## 2026-11-16 (suite 3) — le 40B supprimé, Edge0 145B installé et mesuré
 
 **`qwen38-40b-turbo-brilliance-q4` supprimé partout** : 24 Go de fichiers

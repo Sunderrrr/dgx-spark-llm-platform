@@ -119,7 +119,55 @@ pub async fn run(state: &AppState, model: &str, msgs: &[Msg], user_key: &str, us
     let mut short = tools_context(msgs);
     let edit_ok = armed.files.as_ref().is_some_and(|f| !f.is_empty());
     let mut tools: Vec<Value> = Vec::new();
+    // ── The explicit web request is DETERMINISTIC, not a model decision ──────
+    // `armed.web` is already the proof that the last user message asks for a
+    // search. Waiting for a tool call meant that a model which never emits one
+    // (Edge0, any template without function calling) answered « je n'ai pas
+    // d'accès internet » — twice reported (2026-11-16), and no wording fixed it.
+    // The portal therefore searches FIRST and injects the findings; the tools
+    // stay listed for the models that do call them.
     if armed.web {
+        let question = short.iter().rev().find(|m| m.get("role").and_then(Value::as_str) == Some("user"))
+            .and_then(|m| m.get("content").and_then(Value::as_str)).unwrap_or("").to_string();
+        let args = json!({"question": question});
+        web_step(out, websearch::announce("recherche_web", &args)).await;
+        let mut log = std::mem::take(&mut o.step_log);
+        let r = with_heartbeats(out, async {
+            let res = websearch::exec("recherche_web", &args, &mut log).await;
+            (res, log)
+        })
+        .await;
+        o.step_log = r.1;
+        web_step(out, o.step_log.last().cloned().unwrap_or_default()).await;
+        // The findings go INTO the last user message: a `tool` message needs a
+        // tool_call_id that does not exist here, and a late `system` message
+        // confuses several templates. This is how `reinjection` already works.
+        let injected = match r.0 {
+            Ok(text) => format!(
+                "\n\n[Résultats de recherche web — utilise-les, cite les sources]\n{}",
+                take(&text, TOOLS_RESULT_PROMPT)
+            ),
+            Err(()) => {
+                eprintln!("[chat] web prefetch: the search tool failed");
+                "\n\n[La recherche web a échoué (outil en panne). Dis-le tel quel à l'utilisateur.]".to_string()
+            }
+        };
+        if let Some(last) = short.iter_mut().rev().find(|m| m.get("role").and_then(Value::as_str) == Some("user")) {
+            if let Some(c) = last.get("content").and_then(Value::as_str) {
+                last["content"] = json!(format!("{c}{injected}"));
+            }
+        }
+        // `o.findings` is what `reinjection()` appends to the user message of the
+        // FINAL call — the only channel the answering model reads. Injecting into
+        // `short` alone only fed the tool-decision turns, and the answer still
+        // claimed "no internet access" (measured 2026-11-16).
+        if !injected.contains("échoué") {
+            if let Some(last) = short.iter().rev().find(|m| m.get("role").and_then(Value::as_str) == Some("user")) {
+                if let Some(c) = last.get("content").and_then(Value::as_str) {
+                    o.findings.push(("recherche_web".into(), take(c, 20000)));
+                }
+            }
+        }
         tools.extend(websearch::tools());
     }
     if armed.image {

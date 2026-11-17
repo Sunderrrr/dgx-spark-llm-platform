@@ -29,6 +29,8 @@ import {
 import { useT } from "@/lib/i18n";
 import { HfModelSearch, PresetSummary, type HfPreset } from "./ModelSearch";
 import { AddVoiceDialog } from "./VoiceCatalogDialog";
+import { AddImageDialog } from "./ImageCatalogDialog";
+import { AddVideoDialog } from "./VideoCatalogDialog";
 import {
   SIDECAR_LABEL,
   SIDECAR_VARIANT,
@@ -112,7 +114,7 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
   const llmCfgs = (data?.model_cfgs ?? []).filter((cfg) => match(cfg.name, cfg.hf_model_id));
   const ocrCfgs = (data?.ocr_cfgs ?? []).filter((cfg) => match(cfg.name, cfg.hf_model_id));
   const voiceCfgs = (data?.voice_cfgs ?? []).filter((cfg) => match(cfg.name, cfg.repo_id));
-  const imageIds = (data?.image_model_ids ?? []).filter((mid) => match(mid));
+  const imageCfgs = (data?.image_model_ids ?? []).filter((cfg) => match(cfg.name, cfg.hf_model_id));
   const emptyCatalog = <Text type="supporting" color="secondary">{t("Aucun modèle ne correspond.")}</Text>;
 
   return (
@@ -599,40 +601,63 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
         )}
 
         {data && catalogKind === "image" && (
+          <VStack gap={3}>
+            <AddImageDialog isDisabled={actionDisabled} onSubmit={(params) => act("/admin/image/catalog/add", params)} />
           <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
-            {imageIds.map((mid) => (
-              <Card key={mid}>
+            {imageCfgs.map((cfg) => (
+              <Card key={cfg.hf_model_id}>
                 <VStack gap={2}>
-                  <Text weight="semibold" wordBreak="break-all">{mid}</Text>
+                  <Text weight="semibold" wordBreak="break-all">{cfg.name}</Text>
                   <Text type="supporting" color="secondary">
-                    {mid === data.image_model_name ? t("Modèle actif") : t("diffusers · text-to-image")}
+                    {cfg.hf_model_id}
+                  </Text>
+                  <Text type="supporting" color="secondary">
+                    {t("{s} étapes · guidance {g} · dossier {d}")
+                      .replace("{s}", String(cfg.steps))
+                      .replace("{g}", String(cfg.guidance))
+                      .replace("{d}", cfg.slug)}
+                    {cfg.hf_model_id === data.image_model_name ? ` · ${t("Modèle actif")}` : ""}
                   </Text>
                   <HStack gap={2}>
-                    <Button label={t("Lancer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled} onClick={() => act("/admin/image/launch", { model_id: mid })} />
+                    <Button label={t("Lancer")} variant="primary" size="sm" icon={<Icon icon={PlayIcon} size="sm" />} isDisabled={actionDisabled}
+                      onClick={() => void act("/admin/image/launch", { model_id: cfg.hf_model_id })} />
+                    <Button label={t("Supprimer")} variant="secondary" size="sm" isIconOnly icon={<Icon icon={TrashIcon} size="sm" />}
+                      isDisabled={actionDisabled}
+                      onClick={() => void act(`/admin/image/catalog/delete/${cfg.id}`, {})} />
                   </HStack>
                 </VStack>
               </Card>
             ))}
-            {imageIds.length === 0 && emptyCatalog}
-            <Card>
-              <VStack gap={1}>
-                <Text type="supporting" color="secondary">{t("Ajouter un modèle image")}</Text>
-                <Text type="supporting" color="secondary">
-                  {t("Les poids image (gated, ~35 Go) se téléchargent côté hôte puis s'ajoutent à la liste blanche — même principe que l'OCR/voix. Lance ensuite le modèle ci-contre.")}
-                </Text>
-              </VStack>
-            </Card>
+            {imageCfgs.length === 0 && emptyCatalog}
           </Grid>
+          </VStack>
         )}
 
         {data && catalogKind === "video" && (
-          <Card>
-            <VStack gap={1}>
-              <Text type="supporting" color="secondary">
-                {t("La vidéo n'a pas de catalogue : un seul workflow ComfyUI figé, démarré et arrêté depuis la ligne « Backends » ci-dessus.")}
-              </Text>
-            </VStack>
-          </Card>
+          <VStack gap={3}>
+            <AddVideoDialog isDisabled={actionDisabled} onSubmit={(params) => act("/admin/video/catalog/add", params)} />
+            <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
+              {(data.video_cfgs ?? []).map((cfg) => (
+                <Card key={cfg.id}>
+                  <VStack gap={2}>
+                    <Text weight="semibold">{cfg.name}</Text>
+                    <Text type="supporting" color="secondary" wordBreak="break-all">{cfg.unet_file}</Text>
+                    <Text type="supporting" color="secondary" wordBreak="break-all">{cfg.vae_file}</Text>
+                    <Button
+                      label={t("Supprimer")}
+                      variant="secondary"
+                      size="sm"
+                      isIconOnly
+                      icon={<Icon icon={TrashIcon} size="sm" />}
+                      isDisabled={actionDisabled}
+                      onClick={() => void act(`/admin/video/catalog/delete/${cfg.id}`, {})}
+                    />
+                  </VStack>
+                </Card>
+              ))}
+              {(data.video_cfgs ?? []).length === 0 ? emptyCatalog : null}
+            </Grid>
+          </VStack>
         )}
       </VStack>
     </VStack>

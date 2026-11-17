@@ -55,9 +55,13 @@ export type AdminData = {
   image_status: string;
   /** The decision model: a second engine on its own port, never the chat one. */
   video_model_name?: string;
+  /// The video catalog (video_configs): the files the ComfyUI workflow loads.
+  video_cfgs?: { id: number; name: string; hf_model_id: string; unet_file: string; vae_file: string; audio_vae_file: string }[];
   decisions?: { status: string; name?: string; model?: string; ref?: string; args?: string; enabled?: boolean; port?: number | null; libre_gib?: number | null };
   image_model_name: string | null;
-  image_model_ids: string[];
+  /// The image catalog (image_configs): a diffusers folder, its display name and
+  /// the two inference settings that differ per model.
+  image_model_ids: { id: number; name: string; hf_model_id: string; slug: string; steps: number; guidance: number }[];
   ocr_cfgs: OcrCfg[];
   voice_cfgs: VoiceCfg[];
 };

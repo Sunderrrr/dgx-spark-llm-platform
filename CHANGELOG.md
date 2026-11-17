@@ -1,6 +1,34 @@
 # Changelog
 
 
+## 2026-11-17 (suite 3) — image et vidéo deviennent modulaires
+
+Comme l'OCR et les LLM : un catalogue, un bouton « Ajouter », une recherche
+Hugging Face filtrée sur la catégorie, et un lancement qui lit la ligne choisie.
+
+**Image** (`image_configs`) : chaque entrée porte le dépôt diffusers, le dossier
+local, le nom affiché et **les deux réglages d'inférence qui dépendent du
+modèle** — un modèle distillé tourne à 4 étapes / guidance 1.0, un modèle complet
+demande 28 à 50 étapes / guidance 4 à 6. Ces valeurs étaient écrites en dur dans
+`image-recreate.sh` pour FLUX seul ; le script valide désormais ses arguments
+**par forme** (slug, bornes), plus contre une liste fermée, et le runner les
+transmet. Le lancement ne compare plus à une constante.
+
+**Vidéo** (`video_configs`) : les gabarits ComfyUI portaient les noms de fichiers
+(`unet_name` au nœud 127, les deux VAE aux nœuds 119 et 120), donc un seul modèle
+pouvait tourner. Le graphe substitue maintenant les fichiers de l'entrée
+catalogue ; les noms sont validés (pas de `/`, pas de `..` — ComfyUI les résout
+dans ses propres dossiers).
+
+Les deux catalogues sont amorcés (FLUX.2 Klein 4B, MiniMax H3) pour qu'ils ne
+soient jamais vides, et les poids se déposent côté hôte : le catalogue **nomme**
+les fichiers, il ne les télécharge pas.
+
+Bug attrapé au passage : mes requêtes `CREATE TABLE` d'`image_catalog.rs`
+contenaient un `\\` (échappement) au lieu d'une continuation de ligne — la table
+n'était jamais créée et le catalogue restait vide, sans erreur visible. Corrigé,
+et vérifié : les deux listes remontent dans `/api/admin`.
+
 ## 2026-11-17 (suite 2) — voix : un vrai « Ajouter un modèle », image/vidéo expliqués
 
 **Voix** : le catalogue a maintenant son bouton et son dialogue. La liste est

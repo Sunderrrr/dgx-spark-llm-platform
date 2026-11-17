@@ -340,13 +340,44 @@ async fn asr_launch(body: Bytes) -> Response {
     ok_detail(ok, out).into_response()
 }
 
+/// POST /image/launch — the image sidecar on a catalog entry.
+///
+/// It used to accept ONE identifier (FLUX.2 Klein) and nothing else; the catalog
+/// now decides, and this route only checks SHAPES before handing them to the
+/// script, which validates again (two layers, neither trusts the caller).
 async fn image_launch(body: Bytes) -> Response {
     let data = json_or_empty(&body);
-    let model = data.get("model_id").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-    if model != "black-forest-labs/FLUX.2-klein-4B" {
+    let text = |k: &str| data.get(k).and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let model = text("model_id");
+    let slug = text("slug");
+    let name = text("name");
+    let steps = data.get("steps").and_then(|v| v.as_i64()).unwrap_or(28);
+    let guidance = data.get("guidance").and_then(|v| v.as_f64()).unwrap_or(4.0);
+    let org_repo = {
+        let mut parts = model.split('/');
+        matches!((parts.next(), parts.next(), parts.next()), (Some(a), Some(b), None)
+                 if !a.is_empty() && !b.is_empty()
+                 && a.chars().all(|c| c.is_ascii_alphanumeric() || "-._".contains(c))
+                 && b.chars().all(|c| c.is_ascii_alphanumeric() || "-._".contains(c)))
+    };
+    let ok_slug = !slug.is_empty()
+        && slug.len() <= 60
+        && slug.chars().next().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if !org_repo || !ok_slug || name.is_empty() || !(1..=200).contains(&steps) || !(0.0..=30.0).contains(&guidance) {
         return (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "detail": "invalid model_id"}))).into_response();
     }
-    let (ok, out) = sudo(&["/usr/local/sbin/image-recreate.sh", &model], Duration::from_secs(180));
+    let (ok, out) = sudo(
+        &[
+            "/usr/local/sbin/image-recreate.sh",
+            &model,
+            &slug,
+            &name,
+            &steps.to_string(),
+            &guidance.to_string(),
+        ],
+        Duration::from_secs(180),
+    );
     ok_detail(ok, out).into_response()
 }
 

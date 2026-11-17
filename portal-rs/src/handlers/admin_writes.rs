@@ -492,3 +492,146 @@ mod tests {
         assert!(!username_ok(&"a".repeat(65)));
     }
 }
+
+/// POST /admin/image/catalog/add — a diffusers model the image sidecar can serve.
+///
+/// The sidecar takes a FOLDER, a name and two inference settings; the catalog
+/// stores exactly that, so a distilled few-step model and a full one can live
+/// side by side (`image-recreate.sh` used to hardcode them for FLUX alone).
+pub async fn admin_image_catalog_add(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let (s, form) = match admin_form(&state, &headers, &body, "/admin/image/catalog/add").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let name = field(&form, "name").trim().to_string();
+    let hf_id = field(&form, "hf_model_id").trim().to_string();
+    if name.is_empty() || hf_id.is_empty() || !hf_id.contains('/') {
+        return json_error("Nom et identifiant Hugging Face requis.", StatusCode::BAD_REQUEST);
+    }
+    let slug = {
+        let given = field(&form, "slug").trim().to_string();
+        if given.is_empty() { crate::image_catalog::slug_of(&hf_id) } else { crate::image_catalog::slug_of(&given) }
+    };
+    if slug.is_empty() {
+        return json_error("Identifiant de modèle invalide.", StatusCode::BAD_REQUEST);
+    }
+    let steps = field(&form, "steps").trim().parse::<i64>().unwrap_or(28).clamp(1, 200);
+    let guidance = field(&form, "guidance").trim().parse::<f64>().unwrap_or(4.0).clamp(0.0, 30.0);
+    crate::image_catalog::ensure_table(state.db.pool()).await;
+    let r = sqlx::query(
+        "INSERT INTO image_configs (name, hf_model_id, slug, steps, guidance, added_at) VALUES (?,?,?,?,?,?)",
+    )
+    .bind(&name)
+    .bind(&hf_id)
+    .bind(&slug)
+    .bind(steps)
+    .bind(guidance)
+    .bind(local_now())
+    .execute(state.db.pool())
+    .await;
+    match r {
+        Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
+            return json_error("Un modèle image porte déjà ce nom.", StatusCode::BAD_REQUEST)
+        }
+        Err(_) => return auth::html_status(StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(_) => {}
+    }
+    crate::sessions::log_audit(state.db.pool(), &s.username, "image.catalog.add", &format!("{name} ({hf_id})")).await;
+    json_ok(&format!("Modèle image {name} ajouté au catalogue."), json!({"slug": slug}))
+}
+
+/// POST /admin/image/catalog/delete/:cid
+pub async fn admin_image_catalog_delete(
+    State(state): State<AppState>,
+    Path(cid): Path<String>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    let (s, _form) = match admin_form(&state, &headers, &body, "/admin/image/catalog/delete/x").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let Some(id) = parse_id(&cid) else { return auth::html_status(StatusCode::NOT_FOUND) };
+    let r = sqlx::query("DELETE FROM image_configs WHERE id=?").bind(id).execute(state.db.pool()).await;
+    match r {
+        Ok(res) if res.rows_affected() == 0 => json_error("Modèle image introuvable.", StatusCode::NOT_FOUND),
+        Err(_) => auth::html_status(StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(_) => {
+            crate::sessions::log_audit(state.db.pool(), &s.username, "image.catalog.delete", &cid).await;
+            json_ok("Modèle image supprimé du catalogue.", json!({}))
+        }
+    }
+}
+
+/// A path segment as an id; anything else is not found.
+fn parse_id(raw: &str) -> Option<i64> {
+    raw.trim().parse::<i64>().ok().filter(|n| *n > 0)
+}
+
+/// POST /admin/video/catalog/add — the files a video generation loads.
+///
+/// ComfyUI resolves them by NAME inside its own model folders; the catalog stores
+/// the names the workflow will carry, so a second pipeline is a row, not a code
+/// change.
+pub async fn admin_video_catalog_add(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let (s, form) = match admin_form(&state, &headers, &body, "/admin/video/catalog/add").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let name = field(&form, "name").trim().to_string();
+    let unet = field(&form, "unet_file").trim().to_string();
+    let vae = field(&form, "vae_file").trim().to_string();
+    let audio = field(&form, "audio_vae_file").trim().to_string();
+    // A file name, never a path: ComfyUI looks them up in its own folders, and a
+    // `../` would read outside them.
+    let safe_name = |n: &str| {
+        !n.is_empty() && n.len() <= 200 && !n.contains('/') && !n.contains('\\') && !n.contains("..")
+    };
+    if name.is_empty() || !safe_name(&unet) || !safe_name(&vae) || (!audio.is_empty() && !safe_name(&audio)) {
+        return json_error("Nom, fichier UNET et fichier VAE requis (noms de fichiers, sans chemin).", StatusCode::BAD_REQUEST);
+    }
+    crate::video_catalog::ensure_table(state.db.pool()).await;
+    let r = sqlx::query(
+        "INSERT INTO video_configs (name, hf_model_id, unet_file, vae_file, audio_vae_file, added_at) VALUES (?,?,?,?,?,?)",
+    )
+    .bind(&name)
+    .bind(field(&form, "hf_model_id").trim().to_string())
+    .bind(&unet)
+    .bind(&vae)
+    .bind(&audio)
+    .bind(local_now())
+    .execute(state.db.pool())
+    .await;
+    match r {
+        Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
+            return json_error("Un modèle vidéo porte déjà ce nom.", StatusCode::BAD_REQUEST)
+        }
+        Err(_) => return auth::html_status(StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(_) => {}
+    }
+    crate::sessions::log_audit(state.db.pool(), &s.username, "video.catalog.add", &format!("{name} ({unet})")).await;
+    json_ok(&format!("Modèle vidéo {name} ajouté au catalogue."), json!({}))
+}
+
+/// POST /admin/video/catalog/delete/:cid
+pub async fn admin_video_catalog_delete(
+    State(state): State<AppState>,
+    Path(cid): Path<String>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    let (s, _form) = match admin_form(&state, &headers, &body, "/admin/video/catalog/delete/x").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let Some(id) = parse_id(&cid) else { return auth::html_status(StatusCode::NOT_FOUND) };
+    let r = sqlx::query("DELETE FROM video_configs WHERE id=?").bind(id).execute(state.db.pool()).await;
+    match r {
+        Ok(res) if res.rows_affected() == 0 => json_error("Modèle vidéo introuvable.", StatusCode::NOT_FOUND),
+        Err(_) => auth::html_status(StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(_) => {
+            crate::sessions::log_audit(state.db.pool(), &s.username, "video.catalog.delete", &cid).await;
+            json_ok("Modèle vidéo supprimé du catalogue.", json!({}))
+        }
+    }
+}

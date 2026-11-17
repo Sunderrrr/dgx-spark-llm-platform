@@ -93,7 +93,30 @@ pub(crate) fn reference_image(name: &str, mime: &str, data: &[u8]) -> Result<(),
 
 /// `comfyui_generate` without the network: the graph to submit.
 pub(crate) fn h3_graph(uploaded: Option<&str>, prompt: &str, duration: f64, seed: u32) -> Option<Value> {
+    h3_graph_with(uploaded, prompt, duration, seed, None)
+}
+
+/// The same graph, with the model files of a catalog entry substituted.
+///
+/// The templates hardcoded `unet_name` (node 127) and the two VAEs (nodes 119 and
+/// 120), which is what made the video pipeline single-model until 2026-11-17.
+pub(crate) fn h3_graph_with(
+    uploaded: Option<&str>,
+    prompt: &str,
+    duration: f64,
+    seed: u32,
+    model: Option<&crate::video_catalog::VideoModel>,
+) -> Option<Value> {
     let mut g: Value = serde_json::from_str(if uploaded.is_some() { R2V_TEMPLATE } else { T2V_TEMPLATE }).ok()?;
+    if let Some(m) = model {
+        *g.pointer_mut("/127/inputs/unet_name")? = json!(m.unet_file);
+        if !m.vae_file.is_empty() {
+            *g.pointer_mut("/119/inputs/vae_name")? = json!(m.vae_file);
+        }
+        if !m.audio_vae_file.is_empty() {
+            *g.pointer_mut("/120/inputs/vae_name")? = json!(m.audio_vae_file);
+        }
+    }
     if let Some(name) = uploaded {
         *g.pointer_mut("/137/inputs/image")? = json!(name);
     }
@@ -106,6 +129,16 @@ pub(crate) fn h3_graph(uploaded: Option<&str>, prompt: &str, duration: f64, seed
 
 /// `comfyui_generate`: the prompt id, or None.
 pub(crate) async fn comfyui_generate(image: Option<Vec<u8>>, prompt: &str, duration: f64) -> Option<String> {
+    comfyui_generate_with(image, prompt, duration, None).await
+}
+
+/// The same, on a catalog entry's files.
+pub(crate) async fn comfyui_generate_with(
+    image: Option<Vec<u8>>,
+    prompt: &str,
+    duration: f64,
+    model: Option<&crate::video_catalog::VideoModel>,
+) -> Option<String> {
     let mut uploaded = None;
     if let Some(bytes) = image {
         let part = reqwest::multipart::Part::bytes(bytes).file_name("ref.png");
@@ -118,7 +151,7 @@ pub(crate) async fn comfyui_generate(image: Option<Vec<u8>>, prompt: &str, durat
     }
     let mut seed = [0u8; 4];
     getrandom::getrandom(&mut seed).ok()?;
-    let graph = h3_graph(uploaded.as_deref(), prompt, duration, u32::from_le_bytes(seed))?;
+    let graph = h3_graph_with(uploaded.as_deref(), prompt, duration, u32::from_le_bytes(seed), model)?;
     let r = client(15)?.post(format!("{}/prompt", comfyui_url())).json(&json!({"prompt": graph})).send().await.ok()?;
     if !r.status().is_success() {
         return None;
@@ -282,7 +315,8 @@ pub async fn api_video_generate(State(state): State<AppState>, req: Request) -> 
         return (StatusCode::BAD_REQUEST, Json(json!({"error": "Un prompt texte est requis."}))).into_response();
     }
     let duration = form.get("duration").map_or(Some(5.0), |d| d.trim().parse::<f64>().ok()).filter(|d| d.is_finite()).unwrap_or(5.0);
-    let Some(pid) = comfyui_generate(image, &prompt, duration).await else {
+    let model = crate::video_catalog::active(state.db.pool(), "").await;
+    let Some(pid) = comfyui_generate_with(image, &prompt, duration, model.as_ref()).await else {
         let msg = format!("ComfyUI inaccessible ou requête refusée.{}", guards::shared_memory_note());
         return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": msg}))).into_response();
     };

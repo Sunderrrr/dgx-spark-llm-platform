@@ -448,14 +448,16 @@ pub async fn admin_image_launch(State(state): State<AppState>, headers: HeaderMa
         Ok(v) => v,
         Err(r) => return r,
     };
+    // The catalog decides, not a constant: FLUX was the only entry on
+    // 2026-11-17, and a second model could not be launched at all.
     let model_id = field(&form, "model_id");
-    if model_id != "black-forest-labs/FLUX.2-klein-4B" {
+    let Some(row) = crate::image_catalog::find(state.db.pool(), &model_id).await else {
         return (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "error": "Modèle image inconnu."}))).into_response();
-    }
+    };
     if let Some(err) = crate::chat::tools::media::mem_guard("image") {
         return (StatusCode::INSUFFICIENT_STORAGE, Json(json!({"ok": false, "error": err}))).into_response();
     }
-    let (ok, detail) = crate::launches::launch_media("image", json!({"model_id": model_id}), 180).await;
+    let (ok, detail) = crate::launches::launch_media("image", json!({"model_id": row.hf_model_id, "slug": row.slug, "name": row.name, "steps": row.steps, "guidance": row.guidance}), 180).await;
     media_launch_answer(
         &state,
         &s.username,

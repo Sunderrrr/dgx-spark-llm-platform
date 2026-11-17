@@ -167,7 +167,7 @@ pub async fn api_admin(State(state): State<AppState>, uri: Uri, headers: HeaderM
         "model_cfgs": model_cfgs,
         "ocr_cfgs": ocr_cfgs,
         "voice_cfgs": voice_cfgs,
-        "image_model_ids": ["black-forest-labs/FLUX.2-klein-4B"],
+        "image_model_ids": crate::image_catalog::list(state.db.pool()).await,
         "budget_reqs": budget_reqs,
         "budget_grants": grants,
         "default_key_budget": setting_or(&state, "default_key_budget", key_budget_default()).await,
@@ -183,6 +183,7 @@ pub async fn api_admin(State(state): State<AppState>, uri: Uri, headers: HeaderM
         // nothing at all: the same name the home page uses is sent here, so the
         // card can always say what runs (or « aucun modèle »).
         "video_model_name": sidecars::video_model_name(),
+        "video_cfgs": crate::video_catalog::list(state.db.pool()).await,
         "decisions": decisions,
     });
     if let (Some(o), Some(e)) = (out.as_object_mut(), extra.as_object()) {

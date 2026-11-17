@@ -28,6 +28,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
 import { HfModelSearch, PresetSummary, type HfPreset } from "./ModelSearch";
+import { AddVoiceDialog } from "./VoiceCatalogDialog";
 import {
   SIDECAR_LABEL,
   SIDECAR_VARIANT,
@@ -333,12 +334,22 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
         <HStack hAlign="between" vAlign="center" wrap="wrap" gap={3}>
           <HStack gap={3} vAlign="center">
             <Text weight="semibold">{t("Catalogue")}</Text>
+            {CATALOG_NOTE[catalogKind] ? (
+              <Text type="supporting" color="secondary">
+                {t(CATALOG_NOTE[catalogKind])}
+              </Text>
+            ) : null}
+            {catalogKind === "voice" ? (
+              <AddVoiceDialog
+                isDisabled={actionDisabled}
+                onSubmit={(params) => act("/admin/voice/catalog/add", params)}
+              />
+            ) : null}
             {CATALOG_SEARCH[catalogKind] ? (
               <AddModelDialog
                 isDisabled={actionDisabled}
                 task={CATALOG_SEARCH[catalogKind].task}
                 title={CATALOG_SEARCH[catalogKind].title}
-                addUrl={CATALOG_SEARCH[catalogKind].addUrl}
                 onSubmit={(params) => act(CATALOG_SEARCH[catalogKind].addUrl, params)}
                 onDownload={
                   // Only the chat catalog has weights the runner downloads.
@@ -693,6 +704,16 @@ function ArgsEditForm({ cfg, isDisabled, onSubmit }: {
 /// lands. `download` is false where the platform has no downloader for that
 /// catalog (voice engines are a closed list; image/video models are ComfyUI
 /// checkpoints, not HF repos with the same layout).
+/// Why some categories have no « Add a model » at all: saying it beats a button
+/// that cannot work. Sources: the image launch hardcodes FLUX.2-klein-4B, the
+/// video pipeline is a frozen ComfyUI workflow (MiniMax-H3), decisions serves one
+/// registers-only model.
+const CATALOG_NOTE: Record<string, string> = {
+  image: "Ce sidecar sert un modèle fixe (black-forest-labs/FLUX.2-klein-4B) : il n'y a pas de catalogue à remplir.",
+  video: "Le sidecar vidéo exécute un workflow figé (MiniMax-H3) : il n'expose aucun choix de modèle.",
+  decisions: "Le moteur de décision sert un modèle unique : il n'y a rien à choisir ici.",
+};
+
 const CATALOG_SEARCH: Record<string, { task: string; title: string; addUrl: string; download: boolean }> = {
   llm: { task: "text-generation", title: "Ajouter un modèle", addUrl: "/admin/model/add", download: true },
   ocr: { task: "image-to-text", title: "Ajouter un modèle OCR", addUrl: "/admin/ocr/catalog/add", download: false },
@@ -728,12 +749,11 @@ const ENGINES: Record<string, { label: string; id: string; exampleId: string; ar
 /** « Ajouter un modèle » (POST /admin/model/add) in a dialog: the inline card
  *  squeezed four unlabelled fields into a catalog tile, with nothing saying
  *  what an « HF ID » or the engine args look like for the chosen engine. */
-function AddModelDialog({ isDisabled, task, title, addUrl, onSubmit, onDownload }: {
+function AddModelDialog({ isDisabled, task, title, onSubmit, onDownload }: {
   isDisabled: boolean;
   /// The Hugging Face task of the category being edited.
   task: string;
   title: string;
-  addUrl: string;
   onSubmit: (params: Record<string, string>) => Promise<ActResult>;
   /// Called with the catalog name once the entry exists: adding a model without
   /// its weights leaves a row that a launch refuses (« not in HF cache »).

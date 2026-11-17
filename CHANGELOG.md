@@ -1,6 +1,26 @@
 # Changelog
 
 
+## 2026-11-17 (suite 2) — voix : un vrai « Ajouter un modèle », image/vidéo expliqués
+
+**Voix** : le catalogue a maintenant son bouton et son dialogue. La liste est
+**recherchable** mais bornée aux **6 moteurs que le sidecar sait construire**
+(kyutai, Qwen3-TTS 1.7B/0.6B, chatterbox, turbo, multilingual) — c'est la liste
+fermée que le backend valide (`VOICE_REPO_IDS`). Sélectionner pré-remplit le nom
+(`tts-1.6b-en-fr` par exemple) ; « Ajouter » écrit dans `voice_configs`.
+
+**Image, vidéo, décisions** : pas de catalogue, et c'est désormais **écrit dans
+l'écran** plutôt que silencieux —
+
+| catégorie | pourquoi il n'y a rien à ajouter |
+|---|---|
+| Image | le sidecar sert un modèle fixe, `black-forest-labs/FLUX.2-klein-4B`, codé en dur dans le lancement |
+| Vidéo | le pipeline est un **workflow ComfyUI figé** (MiniMax-H3) : aucun identifiant de modèle n'est exposé |
+| Décisions | un seul modèle, `clef-q4km` |
+
+Un bouton « Ajouter » dans ces trois-là aurait promis des modèles que rien ne
+peut servir : mieux vaut une phrase qui le dit.
+
 ## 2026-11-17 (suite) — la recherche Hugging Face dans les autres catégories
 
 Deux corrections demandées :

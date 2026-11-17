@@ -13,6 +13,12 @@ export type Lang = "fr" | "en";
  * dictionary; a missing entry falls back to French rather than
  * showing a key name. */
 const EN: Record<string, string> = {
+  "Le moteur de décision sert un modèle unique : il n'y a rien à choisir ici.": "The decisions engine serves a single model: there is nothing to pick here.",
+  "Le sidecar vidéo exécute un workflow figé (MiniMax-H3) : il n'expose aucun choix de modèle.": "The video sidecar runs a frozen workflow (MiniMax-H3): it exposes no model choice.",
+  "Ce sidecar sert un modèle fixe (black-forest-labs/FLUX.2-klein-4B) : il n'y a pas de catalogue à remplir.": "This sidecar serves a fixed model (black-forest-labs/FLUX.2-klein-4B): there is no catalog to fill.",
+  "Aucun moteur ne correspond.": "No engine matches.",
+  "Rechercher un moteur": "Search an engine",
+  "Le sidecar vocal sert un moteur à la fois : seuls ceux qu'il sait construire sont proposés.": "The voice sidecar serves one engine at a time: only the ones it can build are offered.",
   "accès sur autorisation Hugging Face": "requires Hugging Face approval",
   "{v} Go à télécharger": "{v} GB to download",
   "contexte {v}": "context {v}",

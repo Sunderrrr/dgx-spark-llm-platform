@@ -215,6 +215,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/model/download", get(handlers::api_model_download))
         .route("/admin/ocr/catalog/launch", post(handlers::admin_ocr_launch))
         .route("/admin/voice/catalog/launch", post(handlers::admin_voice_launch))
+        .route("/admin/decisions/catalog/add", post(handlers::admin_decisions_catalog_add))
+        .route("/admin/decisions/catalog/delete/:cid", post(handlers::admin_decisions_catalog_delete))
         .route("/admin/video/catalog/add", post(handlers::admin_video_catalog_add))
         .route("/admin/video/catalog/delete/:cid", post(handlers::admin_video_catalog_delete))
         .route("/admin/image/catalog/add", post(handlers::admin_image_catalog_add))

@@ -62,7 +62,10 @@ pub async fn api_decisions_start(State(state): State<AppState>, headers: HeaderM
         Err(r) => return r,
         Ok(s) => s,
     };
-    let (code, v) = crate::decisions::start().await;
+    // The catalog decides WHICH model: its row travels to the runner, which
+    // overrides its own environment for this launch only.
+    let model = crate::decisions_catalog::active(state.db.pool(), "").await;
+    let (code, v) = crate::decisions::start_with(model.as_ref()).await;
     // The LiteLLM route follows a real start: `mode: decisions` is what makes
     // `/v1/systemone` answer for this model. A refused start registers nothing.
     if code == 200 && v.get("error").is_none() {

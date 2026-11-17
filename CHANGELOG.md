@@ -1,6 +1,25 @@
 # Changelog
 
 
+## 2026-11-17 (suite 4) — le moteur de décision aussi a son catalogue
+
+Le modèle de décision (System One, `/v1/systemone`) était choisi par
+**`DECISIONS_MODEL` dans l'environnement** : en changer imposait d'éditer `.env`
+et de **redémarrer le runner — ce qui tue le modèle de chat**. Il a maintenant
+`decisions_configs`, comme les autres : un onglet « Décisions » dans le
+catalogue, un bouton « Ajouter un modèle de décision », une recherche Hugging
+Face, une suppression par ligne.
+
+La ligne choisie **voyage avec la demande de démarrage** : le portail envoie
+`{model, name, args}` à `/decisions/start`, le runner construit une configuration
+pour CETTE exécution (`start_with`) sans toucher à la sienne. Validé en vrai :
+démarrage depuis le catalogue → `{"model":"clef-q4km","ok":true,"port":8002,
+"status":"starting"}`, puis `/v1/models` sur 8002 annonce `clef-q4km`, et le
+moteur s'arrête proprement (`{"ok":true,"status":"stopped"}`, 27 Go rendus).
+
+Le moteur reste **arrêté** par défaut (il coûte ~17 Go à côté du modèle de chat) ;
+c'est un clic, et il est désormais réversible sans arrêter le chat.
+
 ## 2026-11-17 (suite 3) — image et vidéo deviennent modulaires
 
 Comme l'OCR et les LLM : un catalogue, un bouton « Ajouter », une recherche

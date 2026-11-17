@@ -484,8 +484,21 @@ async fn decisions_status(Extension(d): Extension<Arc<Decisions>>) -> Json<Value
 
 /// `POST /decisions/start` — the memory floor refusal is the answer that
 /// matters: it leaves the chat model serving.
-async fn decisions_start(Extension(d): Extension<Arc<Decisions>>) -> Response {
-    match d.start() {
+async fn decisions_start(Extension(d): Extension<Arc<Decisions>>, body: Option<Bytes>) -> Response {
+    // Optional body: a catalog entry (`model`, `name`, `args`) drives THIS launch;
+    // without one, the environment's DECISIONS_MODEL is used as before.
+    let data = body.map(|b| json_or_empty(&b)).unwrap_or_else(|| json!({}));
+    let model = data.get("model").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let args_raw = data.get("args").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let started = if model.is_empty() {
+        d.start()
+    } else {
+        let args = runner_rs::decisions::shell_words(&args_raw);
+        let cfg = d.cfg_for(&model, &name, &args);
+        d.start_with(&cfg)
+    };
+    match started {
         Ok(v) => (StatusCode::OK, Json(v)).into_response(),
         Err((code, v)) => (StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_REQUEST), Json(v)).into_response(),
     }

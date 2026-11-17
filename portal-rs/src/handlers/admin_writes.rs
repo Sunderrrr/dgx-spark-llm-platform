@@ -635,3 +635,65 @@ pub async fn admin_video_catalog_delete(
         }
     }
 }
+
+/// POST /admin/decisions/catalog/add — a GGUF the decision engine can load.
+///
+/// The editor checks it like the chat allow-list does: an argument that the
+/// engine refuses would fail at launch, long after the operator clicked.
+pub async fn admin_decisions_catalog_add(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let (s, form) = match admin_form(&state, &headers, &body, "/admin/decisions/catalog/add").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let name = field(&form, "name").trim().to_string();
+    let hf_id = field(&form, "hf_model_id").trim().to_string();
+    let args = field(&form, "args").trim().to_string();
+    if name.is_empty() || hf_id.is_empty() || (!hf_id.contains('/') && !hf_id.starts_with("local:")) {
+        return json_error(
+            "Nom et identifiant requis (dépôt Hugging Face ou local:<dossier>).",
+            StatusCode::BAD_REQUEST,
+        );
+    }
+    crate::decisions_catalog::ensure_table(state.db.pool()).await;
+    let r = sqlx::query(
+        "INSERT INTO decisions_configs (name, hf_model_id, args, added_at) VALUES (?,?,?,?)",
+    )
+    .bind(&name)
+    .bind(&hf_id)
+    .bind(&args)
+    .bind(local_now())
+    .execute(state.db.pool())
+    .await;
+    match r {
+        Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
+            return json_error("Un modèle de décision porte déjà ce nom.", StatusCode::BAD_REQUEST)
+        }
+        Err(_) => return auth::html_status(StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(_) => {}
+    }
+    crate::sessions::log_audit(state.db.pool(), &s.username, "decisions.catalog.add", &format!("{name} ({hf_id})")).await;
+    json_ok(&format!("Modèle de décision {name} ajouté au catalogue."), json!({}))
+}
+
+/// POST /admin/decisions/catalog/delete/:cid
+pub async fn admin_decisions_catalog_delete(
+    State(state): State<AppState>,
+    Path(cid): Path<String>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    let (s, _form) = match admin_form(&state, &headers, &body, "/admin/decisions/catalog/delete/x").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let Some(id) = parse_id(&cid) else { return auth::html_status(StatusCode::NOT_FOUND) };
+    let r = sqlx::query("DELETE FROM decisions_configs WHERE id=?").bind(id).execute(state.db.pool()).await;
+    match r {
+        Ok(res) if res.rows_affected() == 0 => json_error("Modèle de décision introuvable.", StatusCode::NOT_FOUND),
+        Err(_) => auth::html_status(StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(_) => {
+            crate::sessions::log_audit(state.db.pool(), &s.username, "decisions.catalog.delete", &cid).await;
+            json_ok("Modèle de décision supprimé du catalogue.", json!({}))
+        }
+    }
+}

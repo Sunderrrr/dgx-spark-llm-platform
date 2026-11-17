@@ -31,6 +31,7 @@ import { HfModelSearch, PresetSummary, type HfPreset } from "./ModelSearch";
 import { AddVoiceDialog } from "./VoiceCatalogDialog";
 import { AddImageDialog } from "./ImageCatalogDialog";
 import { AddVideoDialog } from "./VideoCatalogDialog";
+import { DecisionsCatalogDialog } from "./DecisionsCatalogDialog";
 import {
   SIDECAR_LABEL,
   SIDECAR_VARIANT,
@@ -336,6 +337,9 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
         <HStack hAlign="between" vAlign="center" wrap="wrap" gap={3}>
           <HStack gap={3} vAlign="center">
             <Text weight="semibold">{t("Catalogue")}</Text>
+            {catalogKind === "decisions" ? (
+              <DecisionsCatalogDialog isDisabled={actionDisabled} onSubmit={(params) => act("/admin/decisions/catalog/add", params)} />
+            ) : null}
             {CATALOG_NOTE[catalogKind] ? (
               <Text type="supporting" color="secondary">
                 {t(CATALOG_NOTE[catalogKind])}
@@ -633,6 +637,30 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
           </VStack>
         )}
 
+        {data && catalogKind === "decisions" && (
+          <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
+            {(data.decisions_cfgs ?? []).map((cfg) => (
+              <Card key={cfg.id}>
+                <VStack gap={2}>
+                  <Text weight="semibold">{cfg.name}</Text>
+                  <Text type="supporting" color="secondary" wordBreak="break-all">{cfg.hf_model_id}</Text>
+                  <Text type="supporting" color="secondary" wordBreak="break-all">{cfg.args}</Text>
+                  <Button
+                    label={t("Supprimer")}
+                    variant="secondary"
+                    size="sm"
+                    isIconOnly
+                    icon={<Icon icon={TrashIcon} size="sm" />}
+                    isDisabled={actionDisabled}
+                    onClick={() => void act(`/admin/decisions/catalog/delete/${cfg.id}`, {})}
+                  />
+                </VStack>
+              </Card>
+            ))}
+            {(data.decisions_cfgs ?? []).length === 0 ? emptyCatalog : null}
+          </Grid>
+        )}
+
         {data && catalogKind === "video" && (
           <VStack gap={3}>
             <AddVideoDialog isDisabled={actionDisabled} onSubmit={(params) => act("/admin/video/catalog/add", params)} />
@@ -736,7 +764,6 @@ function ArgsEditForm({ cfg, isDisabled, onSubmit }: {
 const CATALOG_NOTE: Record<string, string> = {
   image: "Ce sidecar sert un modèle fixe (black-forest-labs/FLUX.2-klein-4B) : il n'y a pas de catalogue à remplir.",
   video: "Le sidecar vidéo exécute un workflow figé (MiniMax-H3) : il n'expose aucun choix de modèle.",
-  decisions: "Le moteur de décision sert un modèle unique : il n'y a rien à choisir ici.",
 };
 
 const CATALOG_SEARCH: Record<string, { task: string; title: string; addUrl: string; download: boolean }> = {

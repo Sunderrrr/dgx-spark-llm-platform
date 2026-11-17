@@ -50,6 +50,7 @@ pub mod sso;
 pub mod webauthn;
 pub mod latency;
 pub mod decisions;
+pub mod decisions_catalog;
 
 pub use db::Database;
 pub use error::ApiError;

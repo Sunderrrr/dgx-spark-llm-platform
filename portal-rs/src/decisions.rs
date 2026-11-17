@@ -130,7 +130,17 @@ pub async fn running_name() -> Option<String> {
 /// Start/stop the decision engine. The runner answers the memory refusals; the
 /// portal only relays them (never hides a refusal behind « démarré »).
 pub async fn start() -> (u16, Value) {
-    match runner("/decisions/start", Some(&json!({}))).await {
+    start_with(None).await
+}
+
+/// The same, on a catalog entry: the model and its arguments travel with the
+/// request, so the runner uses them for THIS launch instead of its environment.
+pub async fn start_with(model: Option<&crate::decisions_catalog::DecisionModel>) -> (u16, Value) {
+    let body = match model {
+        Some(m) => json!({"model": m.hf_model_id, "name": m.name, "args": m.args}),
+        None => json!({}),
+    };
+    match runner("/decisions/start", Some(&body)).await {
         // The runner's own status is the truth (200, 400 not configured,
         // 409 memory floor): the page shows its sentence as it is.
         Some((code, v)) => (code, v),

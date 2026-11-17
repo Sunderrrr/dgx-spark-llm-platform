@@ -13,6 +13,11 @@ export type Lang = "fr" | "en";
  * dictionary; a missing entry falls back to French rather than
  * showing a key name. */
 const EN: Record<string, string> = {
+  "Le moteur de décision évalue le prompt en un lot : un grand contexte ne sert à rien.": "The decision engine evaluates the prompt in one batch: a large context buys nothing.",
+  "Arguments du moteur": "Engine arguments",
+  "Identifiant (dépôt ou local:<dossier>)": "Identifier (repository or local:<folder>)",
+  "Un GGUF qui répond sur /v1/systemone : pas un modèle de conversation.": "A GGUF that answers on /v1/systemone: not a chat model.",
+  "Ajouter un modèle de décision": "Add a decision model",
   "Identifiant Hugging Face": "Hugging Face identifier",
   "Dans ComfyUI/models/diffusion_models/": "In ComfyUI/models/diffusion_models/",
   "Les fichiers se déposent dans ComfyUI côté hôte : le catalogue ne fait que les nommer.": "The files are placed in ComfyUI on the host: the catalog only names them.",

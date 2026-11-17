@@ -184,6 +184,7 @@ pub async fn api_admin(State(state): State<AppState>, uri: Uri, headers: HeaderM
         // card can always say what runs (or « aucun modèle »).
         "video_model_name": sidecars::video_model_name(),
         "video_cfgs": crate::video_catalog::list(state.db.pool()).await,
+        "decisions_cfgs": crate::decisions_catalog::list(state.db.pool()).await,
         "decisions": decisions,
     });
     if let (Some(o), Some(e)) = (out.as_object_mut(), extra.as_object()) {

@@ -56,6 +56,8 @@ export type AdminData = {
   /** The decision model: a second engine on its own port, never the chat one. */
   video_model_name?: string;
   /// The video catalog (video_configs): the files the ComfyUI workflow loads.
+  /// The decision-model catalog (decisions_configs): GGUFs for the System One engine.
+  decisions_cfgs?: { id: number; name: string; hf_model_id: string; args: string }[];
   video_cfgs?: { id: number; name: string; hf_model_id: string; unet_file: string; vae_file: string; audio_vae_file: string }[];
   decisions?: { status: string; name?: string; model?: string; ref?: string; args?: string; enabled?: boolean; port?: number | null; libre_gib?: number | null };
   image_model_name: string | null;

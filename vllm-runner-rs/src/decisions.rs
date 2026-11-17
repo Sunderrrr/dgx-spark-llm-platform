@@ -70,6 +70,23 @@ impl DecisionsCfg {
     }
 }
 
+impl DecisionsCfg {
+    /// The same environment configuration, pointed at another model: the catalog
+    /// choices come from the database, not from `DECISIONS_MODEL`, and the rest
+    /// (port, binary, memory floor) stays as the host configured it.
+    pub fn with_model(&self, hf_id: &str, name: &str, args: &[String]) -> DecisionsCfg {
+        let mut out = self.clone();
+        out.hf_id = hf_id.to_string();
+        if !name.is_empty() {
+            out.name = name.to_string();
+        }
+        if !args.is_empty() {
+            out.args = args.to_vec();
+        }
+        out
+    }
+}
+
 /// A small `shlex.split`: the arguments come from one environment variable, so
 /// quoted values must survive (`--chat-template-kwargs '{"a": 1}'`).
 pub fn shell_words(raw: &str) -> Vec<String> {
@@ -123,6 +140,11 @@ impl Decisions {
         }
     }
 
+    /// The environment's configuration, pointed at another model.
+    pub fn cfg_for(&self, hf_id: &str, name: &str, args: &[String]) -> DecisionsCfg {
+        self.cfg.with_model(hf_id, name, args)
+    }
+
     pub fn enabled(&self) -> bool {
         !self.cfg.hf_id.is_empty()
     }
@@ -154,8 +176,15 @@ impl Decisions {
     /// `POST /decisions/start`: the memory floor first — a refusal leaves the
     /// box (and the chat model) exactly as it was.
     pub fn start(&self) -> Result<Value, (u16, Value)> {
-        if !self.enabled() {
-            return Err((400, json!({"error": "Service de décision non configuré (DECISIONS_MODEL vide)."})));
+        let cfg = self.cfg.clone();
+        self.start_with(&cfg)
+    }
+
+    /// The same start, on a configuration the caller provides: a catalog entry
+    /// overrides the model and its arguments without touching the environment.
+    pub fn start_with(&self, cfg: &DecisionsCfg) -> Result<Value, (u16, Value)> {
+        if cfg.hf_id.is_empty() {
+            return Err((400, json!({"error": "Service de décision non configuré (aucun modèle choisi)."})));
         }
         let _ops = self.ops.lock().unwrap_or_else(|e| e.into_inner());
         {
@@ -165,54 +194,54 @@ impl Decisions {
             }
         }
         let free = crate::state::mem_available_gib().unwrap_or(0.0);
-        if free < self.cfg.min_free_gib {
+        if free < cfg.min_free_gib {
             return Err((
                 409,
                 json!({
                     "error": format!(
                         "Mémoire insuffisante pour lancer le modèle de décision : {free:.1} GiB disponibles, plancher {:.0} GiB. Le modèle de chat occupe le reste — arrête un service annexe plutôt que de le remplacer.",
-                        self.cfg.min_free_gib
+                        cfg.min_free_gib
                     ),
                     "libre_gib": free,
-                    "floor_gib": self.cfg.min_free_gib,
+                    "floor_gib": cfg.min_free_gib,
                 }),
             ));
         }
-        if !Path::new(&self.cfg.bin).exists() {
-            return Err((400, json!({"error": format!("Binaire llama.cpp introuvable : {}", self.cfg.bin)})));
+        if !Path::new(&cfg.bin).exists() {
+            return Err((400, json!({"error": format!("Binaire llama.cpp introuvable : {}", cfg.bin)})));
         }
-        let gguf = crate::build::resolve_gguf(&self.cfg.paths(), &self.cfg.hf_id).map_err(|e| (400, json!({"error": e.message()})))?;
+        let gguf = crate::build::resolve_gguf(&cfg.paths(), &cfg.hf_id).map_err(|e| (400, json!({"error": e.message()})))?;
 
         let mut cmd: Vec<String> = vec![
-            self.cfg.bin.clone(),
+            cfg.bin.clone(),
             "-m".into(),
             gguf.clone(),
             "--host".into(),
             "0.0.0.0".into(),
             "--port".into(),
-            self.cfg.port.to_string(),
+            cfg.port.to_string(),
             "--alias".into(),
-            self.cfg.name.clone(),
+            cfg.name.clone(),
             "--metrics".into(),
         ];
-        cmd.extend(self.cfg.args.iter().cloned());
+        cmd.extend(cfg.args.iter().cloned());
 
         let stamp = crate::service::file_stamp();
-        let mut run_log = crate::state::open_run_log(&self.cfg.log_dir, &self.cfg.name, "decisions", &stamp);
+        let mut run_log = crate::state::open_run_log(&cfg.log_dir, &cfg.name, "decisions", &stamp);
         if let Some(j) = run_log.as_mut() {
-            j.write(&format!("[runner] {} start decisions — {} ({})", crate::service::iso_now(), self.cfg.name, self.cfg.hf_id));
+            j.write(&format!("[runner] {} start decisions — {} ({})", crate::service::iso_now(), cfg.name, cfg.hf_id));
             j.write(&format!("$ {}", cmd.join(" ")));
         }
         {
             let mut s = self.state();
             s.logs.clear();
-            s.model = Some(self.cfg.name.clone());
+            s.model = Some(cfg.name.clone());
             s.engine = Some("decisions".into());
             s.status = "starting".into();
         }
-        let env = crate::launch_env::build("llamacpp", &Default::default(), &self.cfg.hf_home, &|k| std::env::var(k).ok());
+        let env = crate::launch_env::build("llamacpp", &Default::default(), &cfg.hf_home, &|k| std::env::var(k).ok());
         self.sup.spawn(&cmd, &Default::default(), &env, None, run_log).map_err(|e| (500, json!({"error": format!("Lancement impossible : {e}")})))?;
-        Ok(json!({"ok": true, "status": "starting", "port": self.cfg.port, "model": self.cfg.name}))
+        Ok(json!({"ok": true, "status": "starting", "port": cfg.port, "model": cfg.name}))
     }
 
     /// `POST /decisions/stop`: only our own process; the chat model is never

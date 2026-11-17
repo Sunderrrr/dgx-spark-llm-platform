@@ -205,6 +205,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/admin/storage", get(handlers::admin_storage).post(handlers::admin_storage_save))
         .route("/admin/runner/stream", get(handlers::admin_runner_stream))
         .route("/admin/model/preset", post(handlers::admin_model_preset))
+        .route("/admin/model/plan", post(handlers::admin_model_plan))
         .route("/admin/model/add", post(handlers::admin_model_add))
         .route("/admin/model/launch", post(handlers::admin_model_launch))
         .route("/admin/model/stop", post(handlers::admin_model_stop))

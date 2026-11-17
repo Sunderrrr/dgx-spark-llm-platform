@@ -109,6 +109,10 @@ export function HfModelSearch({
       if (d.ok) {
         onPick(d);
         setError(null);
+        // The list has done its job: keeping it under a filled form leaves the
+        // operator wondering which model the fields describe (reported 2026-11-17).
+        setHits([]);
+        setQ("");
       } else {
         setError(d.error ?? t("Préréglage indisponible."));
       }

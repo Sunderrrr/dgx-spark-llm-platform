@@ -1,6 +1,30 @@
 # Changelog
 
 
+## 2026-11-17 (suite) — la recherche Hugging Face dans les autres catégories
+
+Deux corrections demandées :
+
+**La liste disparaît après « Utiliser ».** Elle restait affichée sous un
+formulaire pré-rempli, sans qu'on sache plus quel modèle les champs décrivaient.
+
+**« Ajouter un modèle » suit la catégorie.** Le bouton du catalogue est maintenant
+générique : il annonce sa catégorie (« Ajouter un modèle OCR »), cherche la tâche
+Hugging Face correspondante (`text-generation` pour les LLM, `image-to-text` pour
+l'OCR) et écrit dans le bon catalogue (`model_configs` ou `ocr_configs`). Vérifié
+dans l'interface : onglet OCR → dialogue → « nougat » → results filtrés.
+
+**Ce qui n'a pas pu être fait, et pourquoi** (vérifié dans le code, pas supposé) :
+
+| catégorie | catalogue | recherche HF |
+|---|---|---|
+| LLM | `model_configs` | ✅ |
+| OCR | `ocr_configs` | ✅ |
+| Voix | liste **fermée** de 6 moteurs (`VOICE_REPO_IDS`) | ❌ un dépôt arbitraire ne serait pas servi par le sidecar |
+| Image / Vidéo | **aucun catalogue** : ce sont des checkpoints ComfyUI | ❌ il faudrait un téléchargeur vers `ComfyUI/models/…` par sous-dossier |
+| Décisions | modèle fixe (`clef-q4km`) | ❌ aucun catalogue |
+
+
 ## 2026-11-17 — chercher, préremplir et télécharger un modèle depuis l'admin
 
 Dans Admin → Modèles → « Ajouter un modèle », le formulaire s'ouvre désormais sur

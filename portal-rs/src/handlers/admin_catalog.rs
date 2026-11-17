@@ -14,6 +14,65 @@ fn int_id(raw: &str) -> Option<i64> {
     (!raw.is_empty() && raw.bytes().all(|c| c.is_ascii_digit())).then(|| raw.parse().ok()).flatten()
 }
 
+/// POST /admin/model/plan — what launching this catalog entry will cost:
+/// weights, KV cache, and the RAM before/after, from /proc/meminfo and the
+/// model's own header. Read-only: the launch is a separate click.
+pub async fn admin_model_plan(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let (_s, form) = match admin_form(&state, &headers, &body, "/admin/model/plan").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let name = field(&form, "model_name");
+    let cfg: Option<(String, Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT hf_model_id, vllm_args, engine FROM model_configs WHERE name=?")
+            .bind(&name)
+            .fetch_optional(state.db.pool())
+            .await
+            .ok()
+            .flatten();
+    let Some((hf_id, args, engine)) = cfg else {
+        return json_error("Modèle introuvable dans le catalogue.", StatusCode::NOT_FOUND);
+    };
+    let models_dir = std::env::var("MODELS_MOUNT").unwrap_or_else(|_| "/models".into());
+    let models = std::path::Path::new(&models_dir);
+    // What stopping the CURRENT model gives back: the launch frees it first, and
+    // without this the bar announced a launch that could never fit.
+    let served = crate::system::runner_status().await;
+    let served_name = served.get("model").and_then(Value::as_str).unwrap_or("").to_string();
+    let mut freed = 0.0;
+    // Same model: relaunching frees it first too, so its own footprint counts as
+    // freed — otherwise relaunching the running model always looked impossible.
+    if !served_name.is_empty() {
+        let row: Option<(String, Option<String>, Option<String>)> =
+            sqlx::query_as("SELECT hf_model_id, vllm_args, engine FROM model_configs WHERE name=?")
+                .bind(&served_name)
+                .fetch_optional(state.db.pool())
+                .await
+                .ok()
+                .flatten();
+        if let Some((cur_hf, cur_args, cur_engine)) = row {
+            let p = crate::launch_plan::plan(
+                &served_name,
+                cur_engine.filter(|e| !e.is_empty()).as_deref().unwrap_or("vllm"),
+                &cur_hf,
+                cur_args.as_deref().unwrap_or(""),
+                models,
+                0.0,
+            );
+            freed = p.get("added_gb").and_then(Value::as_f64).unwrap_or(0.0);
+        }
+    }
+    Json(crate::launch_plan::plan(
+        &name,
+        engine.filter(|e| !e.is_empty()).as_deref().unwrap_or("vllm"),
+        &hf_id,
+        args.as_deref().unwrap_or(""),
+        models,
+        freed,
+    ))
+    .into_response()
+}
+
 /// POST /admin/model/preset — what the search dialog needs to prefill:
 /// catalog name, engine, the engine arguments, the context and the download
 /// size of a Hugging Face repository. Admin-only: it costs two HF calls.

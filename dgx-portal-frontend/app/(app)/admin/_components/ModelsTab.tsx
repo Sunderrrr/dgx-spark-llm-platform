@@ -333,14 +333,22 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
         <HStack hAlign="between" vAlign="center" wrap="wrap" gap={3}>
           <HStack gap={3} vAlign="center">
             <Text weight="semibold">{t("Catalogue")}</Text>
-            {catalogKind === "llm" ? (
+            {CATALOG_SEARCH[catalogKind] ? (
               <AddModelDialog
                 isDisabled={actionDisabled}
-                onSubmit={(params) => act("/admin/model/add", params)}
-                onDownload={async (name) => {
-                  await act("/admin/model/download", { model_name: name, repo: "" });
-                  void refreshDl();
-                }}
+                task={CATALOG_SEARCH[catalogKind].task}
+                title={CATALOG_SEARCH[catalogKind].title}
+                addUrl={CATALOG_SEARCH[catalogKind].addUrl}
+                onSubmit={(params) => act(CATALOG_SEARCH[catalogKind].addUrl, params)}
+                onDownload={
+                  // Only the chat catalog has weights the runner downloads.
+                  CATALOG_SEARCH[catalogKind].download
+                    ? async (name) => {
+                        await act("/admin/model/download", { model_name: name, repo: "" });
+                        void refreshDl();
+                      }
+                    : undefined
+                }
               />
             ) : null}
           </HStack>
@@ -681,6 +689,15 @@ function ArgsEditForm({ cfg, isDisabled, onSubmit }: {
 
 /** What each engine expects, shown in the « add a model » dialog: the kind of
  *  identifier and an example of arguments (the runner allow-lists them). */
+/// Which Hugging Face task each catalog category searches, and where an entry
+/// lands. `download` is false where the platform has no downloader for that
+/// catalog (voice engines are a closed list; image/video models are ComfyUI
+/// checkpoints, not HF repos with the same layout).
+const CATALOG_SEARCH: Record<string, { task: string; title: string; addUrl: string; download: boolean }> = {
+  llm: { task: "text-generation", title: "Ajouter un modèle", addUrl: "/admin/model/add", download: true },
+  ocr: { task: "image-to-text", title: "Ajouter un modèle OCR", addUrl: "/admin/ocr/catalog/add", download: false },
+};
+
 const ENGINES: Record<string, { label: string; id: string; exampleId: string; args: string }> = {
   vllm: {
     label: "vLLM (safetensors)",
@@ -711,12 +728,16 @@ const ENGINES: Record<string, { label: string; id: string; exampleId: string; ar
 /** « Ajouter un modèle » (POST /admin/model/add) in a dialog: the inline card
  *  squeezed four unlabelled fields into a catalog tile, with nothing saying
  *  what an « HF ID » or the engine args look like for the chosen engine. */
-function AddModelDialog({ isDisabled, onSubmit, onDownload }: {
+function AddModelDialog({ isDisabled, task, title, addUrl, onSubmit, onDownload }: {
   isDisabled: boolean;
+  /// The Hugging Face task of the category being edited.
+  task: string;
+  title: string;
+  addUrl: string;
   onSubmit: (params: Record<string, string>) => Promise<ActResult>;
   /// Called with the catalog name once the entry exists: adding a model without
   /// its weights leaves a row that a launch refuses (« not in HF cache »).
-  onDownload: (modelName: string) => Promise<void>;
+  onDownload?: (modelName: string) => Promise<void>;
 }) {
   const t = useT();
   const empty = { name: "", hf_model_id: "", engine: "vllm", vllm_args: "" };
@@ -728,7 +749,7 @@ function AddModelDialog({ isDisabled, onSubmit, onDownload }: {
   return (
     <>
       <Button
-        label={t("Ajouter un modèle")}
+        label={title}
         variant="secondary"
         size="sm"
         icon={<Icon icon={PlusIcon} size="sm" />}
@@ -736,10 +757,10 @@ function AddModelDialog({ isDisabled, onSubmit, onDownload }: {
         onClick={() => { setM(empty); setIsOpen(true); }}
       />
       <Dialog isOpen={isOpen} onOpenChange={setIsOpen} purpose="form">
-        <DialogHeader title={t("Ajouter un modèle")} subtitle={t("Le modèle rejoint le catalogue ; il se lance ensuite depuis sa carte.")} />
+        <DialogHeader title={title} subtitle={t("Le modèle rejoint le catalogue ; il se lance ensuite depuis sa carte.")} />
         <VStack gap={3}>
           <HfModelSearch
-            task="text-generation"
+            task={task}
             isDisabled={isDisabled || downloading}
             onPick={(p) => {
               setPreset(p);
@@ -798,7 +819,7 @@ function AddModelDialog({ isDisabled, onSubmit, onDownload }: {
                 if (res.ok) {
                   // …and the weights come down right away: the entry alone is
                   // useless, a launch would answer « not in HF cache ».
-                  await onDownload(m.name.trim());
+                  if (onDownload) await onDownload(m.name.trim());
                   setIsOpen(false);
                 }
                 setDownloading(false);

@@ -219,15 +219,15 @@ pub fn preset_name(repo: &str) -> String {
     out.trim_matches('-').chars().take(60).collect()
 }
 
-fn rd_u32(b: &[u8], o: usize) -> Option<u32> {
+pub fn rd_u32(b: &[u8], o: usize) -> Option<u32> {
     b.get(o..o + 4).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
 }
 
-fn rd_u64(b: &[u8], o: usize) -> Option<u64> {
+pub fn rd_u64(b: &[u8], o: usize) -> Option<u64> {
     b.get(o..o + 8).map(|s| u64::from_le_bytes([s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]]))
 }
 
-fn rd_str(b: &[u8], pos: &mut usize) -> Option<String> {
+pub fn rd_str(b: &[u8], pos: &mut usize) -> Option<String> {
     let len = rd_u64(b, *pos)? as usize;
     *pos += 8;
     if len > 8192 {
@@ -249,54 +249,116 @@ fn gguf_scalar_size(t: u32) -> Option<usize> {
     }
 }
 
-/// `<arch>.context_length` from a GGUF header. `None` for anything the parser
-/// does not recognise — the caller then keeps its default instead of failing.
-///
-/// Only the header is needed, so a 512 KiB byte range of the file is enough:
-/// the tensors (gigabytes) come after the key/value table.
-pub fn gguf_context(bytes: &[u8]) -> Option<u32> {
-    if bytes.len() < 24 || bytes.get(0..4)? != b"GGUF" {
-        return None;
+/// The GGUF metadata the launch plan needs, read from the header only.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct GgufMeta {
+    pub context: Option<u32>,
+    pub layers: Option<u32>,
+    pub heads: Option<u32>,
+    pub kv_heads: Option<u32>,
+    pub embedding: Option<u32>,
+}
+
+impl GgufMeta {
+    /// Bytes of K/V for `ctx` tokens, in f16 (llama.cpp's default cache).
+    ///
+    /// Two tensors (K and V), `layers` of them, `kv_heads x head_dim` each, two
+    /// bytes per value — llama.cpp's own arithmetic. None when the header did not
+    /// carry the shapes, so the caller shows nothing rather than a made-up figure.
+    pub fn kv_bytes(&self, ctx: u64) -> Option<u64> {
+        let layers = self.layers? as u64;
+        let kv_heads = self.kv_heads? as u64;
+        let heads = self.heads.filter(|h| *h > 0).map(u64::from).unwrap_or(kv_heads) as u64;
+        let embed = self.embedding? as u64;
+        if kv_heads == 0 || heads == 0 || embed == 0 {
+            return None;
+        }
+        let head_dim = embed / heads;
+        Some(2 * layers * kv_heads * head_dim * ctx * 2)
     }
-    let n_kv = rd_u64(bytes, 16)? as usize;
+}
+
+/// Parse a GGUF header (the first ~512 KiB of the file, tensors excluded).
+///
+/// Unknown value types stop the walk: the caller keeps what it already has
+/// instead of failing — a wrong shape would be worse than no shape.
+pub fn gguf_meta(bytes: &[u8]) -> GgufMeta {
+    let mut meta = GgufMeta::default();
+    if bytes.len() < 24 || bytes.get(0..4) != Some(b"GGUF") {
+        return meta;
+    }
+    let Some(n_kv) = rd_u64(bytes, 16) else { return meta };
     let mut pos = 24;
-    for _ in 0..n_kv.min(256) {
-        let key = rd_str(bytes, &mut pos)?;
-        let vtype = rd_u32(bytes, pos)?;
+    let mut arch = String::new();
+    for _ in 0..(n_kv as usize).min(512) {
+        let Some(key) = rd_str(bytes, &mut pos) else { return meta };
+        let Some(vtype) = rd_u32(bytes, pos) else { return meta };
         pos += 4;
         if vtype == 4 {
-            let value = rd_u32(bytes, pos);
+            let Some(value) = rd_u32(bytes, pos) else { return meta };
             pos += 4;
-            if key.ends_with(".context_length") {
-                return value.filter(|v| *v > 0);
+            if key == "general.architecture" {
+                continue;
+            }
+            // Suffixes, not the last segment: the keys are
+            // `<arch>.attention.head_count` and `<arch>.attention.head_count_kv`,
+            // and taking `rsplit('.')` matched neither (2026-11-17 — the plan
+            // silently reported no shapes at all).
+            let mine = arch.is_empty() || key.starts_with(&format!("{arch}."));
+            if mine {
+                if key.ends_with(".attention.head_count_kv") || key == "attention.head_count_kv" {
+                    meta.kv_heads = Some(value);
+                } else if key.ends_with(".attention.head_count") || key == "attention.head_count" {
+                    meta.heads = Some(value);
+                } else if key.ends_with(".context_length") || key == "context_length" {
+                    meta.context = Some(value);
+                } else if key.ends_with(".block_count") || key == "block_count" {
+                    meta.layers = Some(value);
+                } else if key.ends_with(".embedding_length") || key == "embedding_length" {
+                    meta.embedding = Some(value);
+                }
             }
         } else if vtype == 8 {
-            let _ = rd_str(bytes, &mut pos)?;
+            let Some(s) = rd_str(bytes, &mut pos) else { return meta };
+            if key == "general.architecture" {
+                arch = s;
+            }
         } else if vtype == 9 {
-            // An array: the element type, the count, then the elements. Strings
-            // have a length prefix, which is exactly where a naive `size * n`
-            // walk desynchronises (the token list is the first big one).
-            let elem = rd_u32(bytes, pos)?;
-            let n = rd_u64(bytes, pos + 4)? as usize;
+            let (Some(elem), Some(n)) = (rd_u32(bytes, pos), rd_u64(bytes, pos + 4)) else { return meta };
             pos += 12;
             if n > 1_000_000 {
-                return None;
+                return meta;
             }
             if elem == 8 {
                 for _ in 0..n {
-                    let _ = rd_str(bytes, &mut pos)?;
+                    if rd_str(bytes, &mut pos).is_none() {
+                        return meta;
+                    }
                 }
             } else {
-                pos += gguf_scalar_size(elem)?.checked_mul(n)?;
+                let Some(size) = gguf_scalar_size(elem) else { return meta };
+                match size.checked_mul(n as usize) {
+                    Some(b) => pos += b,
+                    None => return meta,
+                }
             }
         } else {
-            pos += gguf_scalar_size(vtype)?;
+            let Some(size) = gguf_scalar_size(vtype) else { return meta };
+            pos += size;
         }
         if pos > bytes.len() {
-            return None;
+            return meta;
+        }
+        if meta.context.is_some() && meta.layers.is_some() && meta.kv_heads.is_some() && meta.embedding.is_some() {
+            break;
         }
     }
-    None
+    meta
+}
+
+/// `gguf_meta` over the first bytes of a file: what a header-only reader wants.
+pub fn gguf_context(bytes: &[u8]) -> Option<u32> {
+    gguf_meta(bytes).context
 }
 
 /// One repository, as the admin dialog needs it: is it a GGUF (llama.cpp) or a

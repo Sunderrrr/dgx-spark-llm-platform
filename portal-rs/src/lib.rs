@@ -41,6 +41,7 @@ pub mod rowjson;
 pub mod discord;
 pub mod mailer;
 pub mod litellm_models;
+pub mod launch_plan;
 pub mod launches;
 pub mod ldap;
 pub mod sso;

@@ -13,6 +13,17 @@ export type Lang = "fr" | "en";
  * dictionary; a missing entry falls back to French rather than
  * showing a key name. */
 const EN: Record<string, string> = {
+  "accès sur autorisation Hugging Face": "requires Hugging Face approval",
+  "{v} Go à télécharger": "{v} GB to download",
+  "contexte {v}": "context {v}",
+  "Utiliser": "Use",
+  "Sélectionné": "Selected",
+  "téléchargements": "downloads",
+  "Recherche…": "Searching…",
+  "Tout le catalogue Hugging Face, filtré sur cette catégorie. Sélectionne un modèle : nom, moteur et paramètres sont pré-remplis.": "The whole Hugging Face catalogue, filtered on this category. Pick a model and the name, engine and parameters are filled in.",
+  "Rechercher sur Hugging Face": "Search Hugging Face",
+  "Préréglage indisponible.": "Preset unavailable.",
+  "Recherche indisponible.": "Search unavailable.",
   // ── Décisions (decision model page) ─────────────────────────────────────
   "Décisions": "Decisions",
   "Ce JSON ne se lit pas : rien à formater.": "This JSON does not parse: nothing to format.",

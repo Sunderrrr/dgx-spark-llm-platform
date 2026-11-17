@@ -143,8 +143,17 @@ pub async fn run(state: &AppState, model: &str, msgs: &[Msg], user_key: &str, us
         // tool_call_id that does not exist here, and a late `system` message
         // confuses several templates. This is how `reinjection` already works.
         let injected = match r.0 {
+            // The instruction names the OUTPUT the user expects. Measured
+            // 2026-11-16: without it the model summarised the findings and
+            // dropped every address, which the web-search journey reports as
+            // « expected web addresses in the answer ».
             Ok(text) => format!(
-                "\n\n[Résultats de recherche web — utilise-les, cite les sources]\n{}",
+                "{}{}",
+                concat!(
+                    "\n\n[Résultats de recherche web — réponds à partir de ces informations, ",
+                    "et cite AU MOINS DEUX sources en recopiant leur adresse complète (https://…) ",
+                    "telle quelle dans ta réponse.]\n"
+                ),
                 take(&text, TOOLS_RESULT_PROMPT)
             ),
             Err(()) => {

@@ -652,3 +652,23 @@ or by hand in `opencode.jsonc`:
 
 The tool description tells the model to call it **whenever the user explicitly
 asks for a web search** — the same rule the portal applies on its own side.
+
+## Adding a model from the console
+
+Admin → Models → « Add a model » starts with a **live Hugging Face search**,
+filtered on the category's task. Picking a result calls
+`POST /admin/model/preset`, which reports what the repository actually contains:
+
+- a `.gguf` means **llama.cpp**; a safetensors checkpoint means **vLLM**;
+- the context comes from the **GGUF header** (`<arch>.context_length`, read with a
+  512 KiB HTTP `Range` request — the tensors are gigabytes away) or from
+  `config.json` (`max_position_embeddings`);
+- the engine arguments follow from both, and the file sizes give the download.
+
+Adding then downloads the weights: a catalog row alone would be refused at launch
+with « not in HF cache — download it first ».
+
+**Gotcha that costs an afternoon**: the download runs as `vllmrunner` with
+`HF_HOME=/root/.cache/huggingface`, so the Hugging Face token there must be
+readable by that account — `0640 root:vllmrunner`, not `0600 root:root`.
+Otherwise every download dies on `PermissionError: … /token`.

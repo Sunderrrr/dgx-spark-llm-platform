@@ -14,6 +14,30 @@ fn int_id(raw: &str) -> Option<i64> {
     (!raw.is_empty() && raw.bytes().all(|c| c.is_ascii_digit())).then(|| raw.parse().ok()).flatten()
 }
 
+/// POST /admin/model/preset — what the search dialog needs to prefill:
+/// catalog name, engine, the engine arguments, the context and the download
+/// size of a Hugging Face repository. Admin-only: it costs two HF calls.
+pub async fn admin_model_preset(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let (s, form) = match admin_form(&state, &headers, &body, "/admin/model/preset").await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let repo = field(&form, "hf_model_id").trim().to_string();
+    if repo.is_empty() {
+        return json_error("Identifiant Hugging Face requis.", StatusCode::BAD_REQUEST);
+    }
+    match crate::hf::repo_preset(&repo).await {
+        Ok(v) => {
+            crate::sessions::log_audit(state.db.pool(), &s.username, "model.preset", &repo).await;
+            Json(v).into_response()
+        }
+        Err(crate::hf::HfError::Unavailable(msg)) => json_error(
+            &format!("Préréglage indisponible : {msg}."),
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+    }
+}
+
 /// POST /admin/model/add - a catalog entry, routed by LiteLLM at once.
 pub async fn admin_model_add(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
     let (s, form) = match admin_form(&state, &headers, &body, "/admin/model/add").await {

@@ -199,3 +199,271 @@ mod tests {
         assert!(!TASKS.contains(&"something-else"));
     }
 }
+
+// ── The admin preset: everything a catalog entry needs, without guessing ──
+
+/// The catalog name derived from a repository id: `Org/Qwen3-8B-GGUF` →
+/// `qwen3-8b-gguf`. Lower-cased, anything that is not alphanumeric folded to a
+/// single '-', bounded to 60 characters.
+pub fn preset_name(repo: &str) -> String {
+    let last = repo.rsplit('/').next().unwrap_or(repo);
+    let mut out = String::new();
+    for c in last.chars() {
+        let c = c.to_ascii_lowercase();
+        if c.is_ascii_alphanumeric() {
+            out.push(c);
+        } else if !out.ends_with('-') && !out.is_empty() {
+            out.push('-');
+        }
+    }
+    out.trim_matches('-').chars().take(60).collect()
+}
+
+fn rd_u32(b: &[u8], o: usize) -> Option<u32> {
+    b.get(o..o + 4).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
+}
+
+fn rd_u64(b: &[u8], o: usize) -> Option<u64> {
+    b.get(o..o + 8).map(|s| u64::from_le_bytes([s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]]))
+}
+
+fn rd_str(b: &[u8], pos: &mut usize) -> Option<String> {
+    let len = rd_u64(b, *pos)? as usize;
+    *pos += 8;
+    if len > 8192 {
+        return None;
+    }
+    let s = String::from_utf8_lossy(b.get(*pos..*pos + len)?).to_string();
+    *pos += len;
+    Some(s)
+}
+
+/// The scalar size of a GGUF value type, or None for the variable ones.
+fn gguf_scalar_size(t: u32) -> Option<usize> {
+    match t {
+        0 | 1 | 7 => Some(1),
+        2 | 3 => Some(2),
+        4 | 5 | 6 => Some(4),
+        10 | 11 | 12 => Some(8),
+        _ => None,
+    }
+}
+
+/// `<arch>.context_length` from a GGUF header. `None` for anything the parser
+/// does not recognise — the caller then keeps its default instead of failing.
+///
+/// Only the header is needed, so a 512 KiB byte range of the file is enough:
+/// the tensors (gigabytes) come after the key/value table.
+pub fn gguf_context(bytes: &[u8]) -> Option<u32> {
+    if bytes.len() < 24 || bytes.get(0..4)? != b"GGUF" {
+        return None;
+    }
+    let n_kv = rd_u64(bytes, 16)? as usize;
+    let mut pos = 24;
+    for _ in 0..n_kv.min(256) {
+        let key = rd_str(bytes, &mut pos)?;
+        let vtype = rd_u32(bytes, pos)?;
+        pos += 4;
+        if vtype == 4 {
+            let value = rd_u32(bytes, pos);
+            pos += 4;
+            if key.ends_with(".context_length") {
+                return value.filter(|v| *v > 0);
+            }
+        } else if vtype == 8 {
+            let _ = rd_str(bytes, &mut pos)?;
+        } else if vtype == 9 {
+            // An array: the element type, the count, then the elements. Strings
+            // have a length prefix, which is exactly where a naive `size * n`
+            // walk desynchronises (the token list is the first big one).
+            let elem = rd_u32(bytes, pos)?;
+            let n = rd_u64(bytes, pos + 4)? as usize;
+            pos += 12;
+            if n > 1_000_000 {
+                return None;
+            }
+            if elem == 8 {
+                for _ in 0..n {
+                    let _ = rd_str(bytes, &mut pos)?;
+                }
+            } else {
+                pos += gguf_scalar_size(elem)?.checked_mul(n)?;
+            }
+        } else {
+            pos += gguf_scalar_size(vtype)?;
+        }
+        if pos > bytes.len() {
+            return None;
+        }
+    }
+    None
+}
+
+/// One repository, as the admin dialog needs it: is it a GGUF (llama.cpp) or a
+/// transformers checkpoint (vLLM), how big, how much context, and the engine
+/// arguments that fit.
+pub async fn repo_preset(repo: &str) -> Result<Value, HfError> {
+    let repo = repo.trim().trim_matches('/');
+    if !repo.contains('/') || repo.len() > 200 || repo.contains("..") {
+        return Err(HfError::Unavailable("identifiant de modèle invalide".into()));
+    }
+    let info = repo_json(repo, true).await?;
+    let files: Vec<(String, i64)> = info
+        .get("siblings")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|s| {
+                    let name = s.get("rfilename").and_then(Value::as_str)?.to_string();
+                    Some((name, s.get("size").and_then(Value::as_i64).unwrap_or(0)))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let total_bytes: i64 = files.iter().map(|(_, n)| *n).sum();
+    let gguf: Vec<&(String, i64)> = files.iter().filter(|(n, _)| n.to_ascii_lowercase().ends_with(".gguf")).collect();
+    let is_gguf = !gguf.is_empty();
+    let has_safetensors = files.iter().any(|(n, _)| n.ends_with(".safetensors"));
+    let engine = if is_gguf { "llamacpp" } else { "vllm" };
+
+    // The context: the GGUF header when we have one, `config.json` otherwise.
+    let mut context = None;
+    if is_gguf {
+        // The smallest qualifying file is the model itself, not a projection.
+        if let Some((name, _)) = gguf
+            .iter()
+            .filter(|(n, _)| !n.to_ascii_lowercase().contains("mmproj"))
+            .min_by_key(|(_, size)| *size)
+        {
+            context = gguf_header_context(repo, name).await;
+        }
+    } else if has_safetensors {
+        if let Ok(cfg) = repo_json_file(repo, "config.json").await {
+            context = cfg.get("max_position_embeddings").and_then(Value::as_i64);
+        }
+    }
+    let ctx = context.filter(|c| *c >= 1024).unwrap_or(32768);
+    // Half the window is generation: the catalogue advertises input + output.
+    let args = match engine {
+        "llamacpp" => format!(
+            "--ctx-size {} --parallel 4 --n-predict {} --n-gpu-layers 999 --flash-attn on --jinja",
+            ctx,
+            (ctx / 4).max(1024)
+        ),
+        _ => format!("--max-model-len {}", ctx),
+    };
+    Ok(json!({
+        "ok": true,
+        "hf_model_id": repo,
+        "name": preset_name(repo),
+        "engine": engine,
+        "vllm_args": args,
+        "context": ctx,
+        "size_gb": (total_bytes as f64 / 1e9 * 10.0).round() / 10.0,
+        "gguf": is_gguf,
+        "safetensors": has_safetensors,
+        "gated": info.get("gated").cloned().unwrap_or(json!(false)),
+        "downloads": info.get("downloads").cloned().unwrap_or(json!(0)),
+        "pipeline_tag": info.get("pipeline_tag").cloned().unwrap_or(json!(null)),
+        "context_source": if is_gguf { "gguf" } else { "config.json" },
+    }))
+}
+
+/// `GET /api/models/{repo}?blobs=true` (sizes included), with the token.
+async fn repo_json(repo: &str, blobs: bool) -> Result<Value, HfError> {
+    let url = if blobs {
+        format!("https://huggingface.co/api/models/{repo}?blobs=true")
+    } else {
+        format!("https://huggingface.co/api/models/{repo}")
+    };
+    get_json(&url, Duration::from_secs(15)).await
+}
+
+/// One file of a repository, as JSON (`config.json`).
+async fn repo_json_file(repo: &str, file: &str) -> Result<Value, HfError> {
+    get_json(&format!("https://huggingface.co/{repo}/resolve/main/{file}"), Duration::from_secs(15)).await
+}
+
+/// The header of one GGUF file, through an HTTP Range request.
+async fn gguf_header_context(repo: &str, file: &str) -> Option<i64> {
+    let url = format!("https://huggingface.co/{repo}/resolve/main/{file}");
+    let mut req = crate::sidecars::http().get(url).timeout(Duration::from_secs(20)).header("Range", "bytes=0-524287");
+    let t = token();
+    if !t.is_empty() {
+        req = req.bearer_auth(t);
+    }
+    let resp = req.send().await.ok()?;
+    let bytes = resp.bytes().await.ok()?;
+    gguf_context(&bytes).map(i64::from)
+}
+
+async fn get_json(url: &str, timeout: Duration) -> Result<Value, HfError> {
+    let mut req = crate::sidecars::http().get(url).timeout(timeout);
+    let t = token();
+    if !t.is_empty() {
+        req = req.bearer_auth(t);
+    }
+    let resp = req.send().await.map_err(|e| {
+        HfError::Unavailable(format!("HF injoignable ({})", if e.is_timeout() { "TimeoutError" } else { "ConnectionError" }))
+    })?;
+    if !resp.status().is_success() {
+        return Err(HfError::Unavailable(format!("HF a répondu {}", resp.status().as_u16())));
+    }
+    resp.json::<Value>().await.map_err(|_| HfError::Unavailable("réponse HF illisible".into()))
+}
+
+#[cfg(test)]
+mod preset_tests {
+    use super::*;
+
+    #[test]
+    fn a_catalog_name_follows_the_repository() {
+        assert_eq!(preset_name("Qwen/Qwen3-8B-GGUF"), "qwen3-8b-gguf");
+        assert_eq!(preset_name("unsloth/DeepSeek-R1.Q4"), "deepseek-r1-q4");
+        assert_eq!(preset_name("Org/Model__x"), "model-x");
+        assert_eq!(preset_name("a/.."), "");
+        assert!(preset_name(&"z".repeat(200)).len() <= 60);
+    }
+
+    /// A minimal but real GGUF header: magic, version, counts, then the two keys
+    /// llama.cpp writes for a model, with an array in front of them.
+    fn synthetic_header(context: u32) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(b"GGUF");
+        b.extend_from_slice(&3u32.to_le_bytes());          // version
+        b.extend_from_slice(&1u64.to_le_bytes());          // n_tensors
+        b.extend_from_slice(&3u64.to_le_bytes());          // n_kv
+        let mut push_str = |b: &mut Vec<u8>, s: &str| {
+            b.extend_from_slice(&(s.len() as u64).to_le_bytes());
+            b.extend_from_slice(s.as_bytes());
+        };
+        push_str(&mut b, "general.architecture");
+        b.extend_from_slice(&8u32.to_le_bytes());          // string
+        push_str(&mut b, "qwen3");
+        push_str(&mut b, "tokenizer.ggml.tokens");
+        b.extend_from_slice(&9u32.to_le_bytes());          // array
+        b.extend_from_slice(&8u32.to_le_bytes());          // of strings
+        b.extend_from_slice(&2u64.to_le_bytes());
+        push_str(&mut b, "a");
+        push_str(&mut b, "b");
+        push_str(&mut b, "qwen3.context_length");
+        b.extend_from_slice(&4u32.to_le_bytes());          // u32
+        b.extend_from_slice(&context.to_le_bytes());
+        b
+    }
+
+    #[test]
+    fn the_context_is_read_from_the_header() {
+        assert_eq!(gguf_context(&synthetic_header(262144)), Some(262144));
+        assert_eq!(gguf_context(&synthetic_header(4096)), Some(4096));
+    }
+
+    #[test]
+    fn a_non_gguf_answers_none() {
+        assert_eq!(gguf_context(b"not a gguf file at all"), None);
+        assert_eq!(gguf_context(&[]), None);
+        let mut truncated = synthetic_header(8192);
+        truncated.truncate(40);
+        assert_eq!(gguf_context(&truncated), None);
+    }
+}

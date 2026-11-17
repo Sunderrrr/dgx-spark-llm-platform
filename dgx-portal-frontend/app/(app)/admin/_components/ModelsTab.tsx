@@ -27,6 +27,7 @@ import {
   ArrowDownTrayIcon,
 } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
+import { HfModelSearch, PresetSummary, type HfPreset } from "./ModelSearch";
 import {
   SIDECAR_LABEL,
   SIDECAR_VARIANT,
@@ -333,7 +334,14 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
           <HStack gap={3} vAlign="center">
             <Text weight="semibold">{t("Catalogue")}</Text>
             {catalogKind === "llm" ? (
-              <AddModelDialog isDisabled={actionDisabled} onSubmit={(params) => act("/admin/model/add", params)} />
+              <AddModelDialog
+                isDisabled={actionDisabled}
+                onSubmit={(params) => act("/admin/model/add", params)}
+                onDownload={async (name) => {
+                  await act("/admin/model/download", { model_name: name, repo: "" });
+                  void refreshDl();
+                }}
+              />
             ) : null}
           </HStack>
           <SegmentedControl label={t("Type de modèle")} value={catalogKind} onChange={(v) => setCatalogKind(v as CatalogKind)}>
@@ -703,14 +711,19 @@ const ENGINES: Record<string, { label: string; id: string; exampleId: string; ar
 /** « Ajouter un modèle » (POST /admin/model/add) in a dialog: the inline card
  *  squeezed four unlabelled fields into a catalog tile, with nothing saying
  *  what an « HF ID » or the engine args look like for the chosen engine. */
-function AddModelDialog({ isDisabled, onSubmit }: {
+function AddModelDialog({ isDisabled, onSubmit, onDownload }: {
   isDisabled: boolean;
   onSubmit: (params: Record<string, string>) => Promise<ActResult>;
+  /// Called with the catalog name once the entry exists: adding a model without
+  /// its weights leaves a row that a launch refuses (« not in HF cache »).
+  onDownload: (modelName: string) => Promise<void>;
 }) {
   const t = useT();
   const empty = { name: "", hf_model_id: "", engine: "vllm", vllm_args: "" };
   const [isOpen, setIsOpen] = useState(false);
   const [m, setM] = useState(empty);
+  const [preset, setPreset] = useState<HfPreset | null>(null);
+  const [downloading, setDownloading] = useState(false);
   const engine = ENGINES[m.engine] ?? ENGINES.vllm;
   return (
     <>
@@ -725,6 +738,21 @@ function AddModelDialog({ isDisabled, onSubmit }: {
       <Dialog isOpen={isOpen} onOpenChange={setIsOpen} purpose="form">
         <DialogHeader title={t("Ajouter un modèle")} subtitle={t("Le modèle rejoint le catalogue ; il se lance ensuite depuis sa carte.")} />
         <VStack gap={3}>
+          <HfModelSearch
+            task="text-generation"
+            isDisabled={isDisabled || downloading}
+            onPick={(p) => {
+              setPreset(p);
+              setM((s) => ({
+                ...s,
+                name: p.name ?? s.name,
+                hf_model_id: p.hf_model_id ?? s.hf_model_id,
+                engine: p.engine ?? s.engine,
+                vllm_args: p.vllm_args ?? s.vllm_args,
+              }));
+            }}
+          />
+          {preset ? <PresetSummary preset={preset} /> : null}
           <Selector
             label={t("Moteur")}
             value={m.engine}
@@ -764,9 +792,16 @@ function AddModelDialog({ isDisabled, onSubmit }: {
               icon={<Icon icon={PlusIcon} size="sm" />}
               isDisabled={isDisabled || !m.name.trim() || !m.hf_model_id.trim()}
               onClick={async () => {
+                setDownloading(true);
                 const res = await onSubmit({ ...m, name: m.name.trim(), hf_model_id: m.hf_model_id.trim() });
                 // On failure the dialog stays open (act() toasts the reason).
-                if (res.ok) setIsOpen(false);
+                if (res.ok) {
+                  // …and the weights come down right away: the entry alone is
+                  // useless, a launch would answer « not in HF cache ».
+                  await onDownload(m.name.trim());
+                  setIsOpen(false);
+                }
+                setDownloading(false);
               }}
             />
           </HStack>

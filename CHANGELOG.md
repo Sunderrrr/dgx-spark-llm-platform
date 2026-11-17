@@ -1,6 +1,39 @@
 # Changelog
 
 
+## 2026-11-17 — chercher, préremplir et télécharger un modèle depuis l'admin
+
+Dans Admin → Modèles → « Ajouter un modèle », le formulaire s'ouvre désormais sur
+une **recherche Hugging Face en direct** : tout le catalogue du site, filtré sur
+la tâche de la catégorie éditée (`text-generation` pour les LLM), jamais une liste
+statique. Sélectionner un résultat **pré-remplit** le nom, le moteur et les
+arguments du moteur, et affiche ce que coûtera le téléchargement.
+
+D'où viennent ces valeurs, parce que c'est tout l'intérêt :
+
+| champ | source |
+|---|---|
+| moteur | présence d'un `.gguf` → **llama.cpp**, sinon **vLLM** |
+| contexte | **en-tête GGUF** (`<arch>.context_length`, lu par une requête HTTP `Range` de 512 Kio) ou `config.json` → `max_position_embeddings` |
+| arguments | `--ctx-size <ctx> --parallel 4 --n-predict <ctx/4> --n-gpu-layers 999 --flash-attn on --jinja` en llama.cpp, `--max-model-len <ctx>` en vLLM |
+| taille | somme des fichiers du dépôt |
+| accès | le champ `gated` du dépôt, affiché tel quel |
+
+Vérifié sur de vrais dépôts : `Qwen/Qwen3-8B-GGUF` → llama.cpp, **contexte 40 960**
+lu dans le GGUF, 32 Go ; `google/gemma-3-27b-it` → vLLM, 32 768 (config.json),
+54,9 Go, accès sur autorisation.
+
+**Et l'ajout télécharge** : la ligne de catalogue seule ne sert à rien, un
+lancement répondrait « not in HF cache ». Le dialogue enchaîne donc
+`/admin/model/add` puis `/admin/model/download`. Mesuré de bout en bout sur
+`ggml-org/gemma-3-270m-GGUF` : **291 Mo en 54 s**, puis nettoyé.
+
+Un vrai bug trouvé au passage : ce premier téléchargement a échoué avec
+`PermissionError … /root/.cache/huggingface/token`. `HF_HOME` pointe sur le cache
+de l'opérateur, mais le runner tourne en `vllmrunner` et le jeton était en
+`0600 root:root`. Il est passé en **`0640 root:vllmrunner`** — lisible par le seul
+compte qui en a besoin.
+
 ## 2026-11-16 (suite 6) — le 500 « System message must be at the beginning »
 
 Erreur vue côté client : `litellm.InternalServerError … While executing

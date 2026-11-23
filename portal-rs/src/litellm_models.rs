@@ -68,23 +68,29 @@ fn engine_api_key(engine: &str) -> String {
 
 /// `_litellm_upsert`: (re)create the route `public_name` → `upstream` on the
 /// engine; the previous entry is put back when the creation is refused.
-async fn upsert(public_name: &str, upstream: &str, max_input: i64, max_output: i64, api_key: &str, kwargs: serde_json::Value) -> bool {
+async fn upsert(public_name: &str, upstream: &str, max_input: i64, max_output: i64, api_key: &str, kwargs: Option<serde_json::Value>) -> bool {
     if key().is_empty() {
         return false;
     }
+    // The template kwargs are only present when the LAUNCH set some: the app
+    // decides its reasoning level per request, the platform must not pin it
+    // (operator, 2026-11-24). A model launched without --chat-template-kwargs keeps
+    // its template's own default, and an absent key is not an empty one.
+    let mut params = json!({
+        "model": format!("openai/{upstream}"),
+        "api_base": engine_base(),
+        "api_key": api_key,
+        "input_cost_per_token": 1,
+        "output_cost_per_token": 1,
+    });
+    if let Some(k) = kwargs {
+        params["chat_template_kwargs"] = k.clone();
+        // The same, for the Anthropic endpoint, which only forwards extra_body.
+        params["extra_body"] = json!({"chat_template_kwargs": k});
+    }
     let body = json!({
         "model_name": public_name,
-        "litellm_params": {
-            "model": format!("openai/{upstream}"),
-            "api_base": engine_base(),
-            "api_key": api_key,
-            "input_cost_per_token": 1,
-            "output_cost_per_token": 1,
-            // Thinking models: reasoning off by default (a request that asks wins).
-            "chat_template_kwargs": kwargs,
-            // The same, for the Anthropic endpoint, which only forwards extra_body.
-            "extra_body": {"chat_template_kwargs": kwargs},
-        },
+        "litellm_params": params,
         "model_info": {
             "mode": "chat",
             "supports_function_calling": true,
@@ -156,9 +162,10 @@ fn template_kwargs(args: &str) -> Option<serde_json::Value> {
 /// `_register_litellm_model(name, vllm_args, engine)`.
 pub async fn register(name: &str, args: &str, engine: &str) -> bool {
     let (max_input, max_output) = crate::health::ctx_split(args, engine);
-    // Whatever the engine runs with, the API sends: a template kwarg the launch
-    // set must not be lost on the proxy path.
-    let kwargs = template_kwargs(args).unwrap_or_else(|| json!({"enable_thinking": false}));
+    // Whatever the engine runs with, the API sends — and nothing more: a model
+    // launched without --chat-template-kwargs keeps its template's default, so the
+    // CLIENT chooses its reasoning level.
+    let kwargs = template_kwargs(args);
     upsert(name, &upstream(name, engine), max_input, max_output, &engine_api_key(engine), kwargs).await
 }
 
@@ -234,7 +241,7 @@ pub async fn point_auto_model(name: &str, args: &str, engine: &str) -> bool {
     }
     let (max_input, max_output) = crate::health::ctx_split(args, engine);
     let auto = std::env::var("AUTO_MODEL_NAME").unwrap_or_else(|_| "auto-model".into());
-    let kwargs = template_kwargs(args).unwrap_or_else(|| json!({"enable_thinking": false}));
+    let kwargs = template_kwargs(args);
     upsert(&auto, &upstream(name, engine), max_input, max_output, &engine_api_key(engine), kwargs).await
 }
 

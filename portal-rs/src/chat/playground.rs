@@ -348,6 +348,12 @@ async fn run(state: &AppState, mut t: Turn, out: &Out, rid: &str) {
             let mut ctk = json!({"enable_thinking": think});
             if let Some(e) = &effort {
                 ctk["reasoning_effort"] = json!(e);
+            } else if !think {
+                // "Jamais" has to mean something even for a template that ignores
+                // `enable_thinking`: Inkling-2-Mini always emits a reasoning block,
+                // and `low` is its shortest (measured: 135 chars against 165 at the
+                // template default). The choice stays per-request, made by the app.
+                ctk["reasoning_effort"] = json!("low");
             }
             let mut r = match open(ctk).await {
                 Ok(r) => r,

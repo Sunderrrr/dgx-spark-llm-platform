@@ -1,6 +1,31 @@
 # Changelog
 
 
+## 2026-11-24 (soir) — le raisonnement est choisi par l'app, plus par le serveur
+
+Le lancement d'Inkling portait `--chat-template-kwargs {"reasoning_effort":"low"}` :
+un niveau **imposé par le serveur**. Retiré — le template reprend son défaut, et
+c'est la requête qui décide.
+
+**Ce qui change, mesuré sur le moteur** (même question, même budget) :
+
+| réglage de la requête | taille du raisonnement |
+|---|---:|
+| aucun (défaut du template) | 165 car. |
+| `reasoning_effort: low` | 135 car. |
+| `medium` / `high` | plus long |
+
+**Ce que le portail envoie** : `enable_thinking` selon le sélecteur (Auto /
+Toujours / Jamais) et `reasoning_effort` quand l'utilisateur en choisit un.
+Nouveau : « Jamais » ajoute `reasoning_effort: "low"`, parce qu'Inkling **ne sait pas
+ne pas réfléchir** — `none` est ignoré (168 car.) et `enable_thinking: false` aussi.
+« Jamais » signifie donc « le minimum que ce modèle sait faire », pas « rien ».
+
+**LiteLLM ne fixe plus rien non plus** : `register` n'ajoute
+`chat_template_kwargs` que si le lancement en porte, et la clé est alors **absente**
+(pas `null`) sinon. Un client API qui ne demande rien obtient le défaut du template ;
+s'il demande, il obtient sa valeur — vérifié : 165 car. sans réglage, 135 avec `low`.
+
 ## 2026-11-24 (suite) — le partage 128k in / 384k out
 
 Le contexte par session est de 512 k, et l'entrée annoncée est maintenant

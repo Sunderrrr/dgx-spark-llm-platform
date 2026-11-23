@@ -249,6 +249,24 @@ impl App {
             Ok(t) => t,
             Err(e) => return err(400, serde_json::json!({"error": e})),
         };
+        // The memory floor BEFORE the launch, not only in the watchdog. On
+        // 2026-11-23 a launch with 28 GiB free sailed through this check (it did
+        // not exist here), the engine's CUDA allocation drove MemAvailable to 0,
+        // and the kernel OOM killer — blind to GPU memory — killed the desktop
+        // instead. `stop` frees the previous model first, so the wait is short.
+        let _ = self.stop();
+        if !self.launch_memory_ok("launch") {
+            return err(
+                409,
+                serde_json::json!({
+                    "error": format!(
+                        "Mémoire insuffisante : {} Go libres, plancher {:.0} Go. Arrête un service ou réduis le contexte.",
+                        state::mem_available_gib().unwrap_or(0.0).round() as i64,
+                        self.cfg.min_free_gib
+                    )
+                }),
+            );
+        }
         let _ops = lock(&self.ops);
         match self.start_process(&hf_id, &name, &tokens, &engine) {
             Ok(proc) => {

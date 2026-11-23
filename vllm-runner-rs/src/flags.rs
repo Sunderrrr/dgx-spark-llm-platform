@@ -13,6 +13,7 @@ pub static BOOL_FLAGS: &[&str] = &[
     "--language-model-only",
     "--skip-mm-profiling",
     "--vllm-032",
+    "--vllm-034",
 ];
 
 pub static VALUE_FLAGS: &[&str] = &[
@@ -52,12 +53,15 @@ pub static ENV_FLAGS: &[&str] = &[
 
 pub static VLLM_BIN_FLAGS: &[&str] = &[
     "--vllm-032",
+    "--vllm-034",
 ];
 
 pub static BIN_FLAGS: &[&str] = &[
     "--llama-v080",
     "--llama-v100",
+    "--llama-master",
     "--vllm-032",
+    "--vllm-034",
 ];
 
 pub static LLAMA_BOOL_FLAGS: &[&str] = &[
@@ -67,6 +71,7 @@ pub static LLAMA_BOOL_FLAGS: &[&str] = &[
     "--kv-unified",
     "--llama-v080",
     "--llama-v100",
+    "--llama-master",
     "--metrics",
     "--mlock",
     "--no-context-shift",
@@ -152,6 +157,7 @@ pub static OCR_BOOL_FLAGS: &[&str] = &[
     "--skip-mm-profiling",
     "--trust-remote-code",
     "--vllm-032",
+    "--vllm-034",
 ];
 
 pub static OCR_VALUE_FLAGS: &[&str] = &[
@@ -213,6 +219,10 @@ pub static BIN_FLAG_PATHS: &[(&str, &str, &str)] = &[
     // per-launch flag, so a regression costs one relaunch, not a rebuild.
     ("--llama-v080", "LLAMA_BIN_V080", "llama-cpp-v080/build/bin/llama-server"),
     ("--llama-v100", "LLAMA_BIN_V100", "llama-cpp-v100/build/bin/llama-server"),
+    // 2026-11-23: master 87f816e, built for sm_121. Required by inkling2_loop
+    // (Inkling-2-Mini): the v100 build predates the architecture.
+    ("--llama-master", "LLAMA_BIN_MASTER", "llama-cpp-master/build/bin/llama-server"),
     ("--vllm-032", "VLLM_BIN_032", "venvs/vllm-032/bin/vllm"),
+    ("--vllm-034", "VLLM_BIN_034", "venvs/vllm-034/bin/vllm"),
 ];
 

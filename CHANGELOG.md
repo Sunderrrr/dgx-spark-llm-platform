@@ -1,6 +1,66 @@
 # Changelog
 
 
+## 2026-11-23 (nuit) — un modèle ajouté doit marcher au chat ET à l'API
+
+Trois défauts trouvés en ajoutant Inkling, tous corrigés.
+
+**Le modèle servi n'était pas enregistré dans LiteLLM.** Le portail enregistre
+(`litellm_models::register`) après un lancement réussi — mais un lancement fait
+directement sur le runner le contourne, et le chat répond alors 400 « Invalid
+model name » alors que le moteur sert. `follow_launch` vérifie maintenant, une
+fois le modèle **en service**, que LiteLLM le connaît et l'enregistre sinon
+(`ensure_served`), puis repointe `auto-model`.
+
+**Les réglages de template étaient perdus à l'API.** LiteLLM envoyait toujours
+`enable_thinking: false` — sans effet sur un template qui attend
+`reasoning_effort`, d'où des réponses vides pour tout client avec un petit
+`max_tokens`. `register` dérive désormais les `chat_template_kwargs` des
+`--chat-template-kwargs` du lancement : l'API et le playground envoient la même
+chose au même modèle.
+
+**Le test API réclamait 16 tokens à un modèle qui réfléchit.** Le budget est
+passé à 200, avec la raison écrite dans le test.
+
+Vérifié en vrai : chat sur `inkling-2-mini-abliterated` → « OK » ; tool calling →
+`finish_reason: tool_calls`, `{"city":"Lyon"}` ; `auto-model` repoEinté sur lui ;
+journey « API keys » vert (200 + réponse) ; validation **121/0**.
+
+## 2026-11-23 (soir) — Inkling-2-Mini, llama.cpp master, vLLM 0.34, et le plancher mémoire
+
+**Pourquoi le bureau a disparu à 18:19.** Un lancement à 4 sessions × 1 M tokens a
+demandé au noyau plus de mémoire que la machine n'en a : `global_oom`, et l'OOM killer
+— aveugle à la mémoire GPU — a tué `gnome-shell` et `nxnode.bin` (RSS 10 Mo) au lieu du
+coupable. La machine n'a pas redémarré (uptime 6 jours) : c'est **la session qui est
+morte**. Deux garde-fous n'ont pas joué :
+- **le plancher mémoire du runner** (`MIN_FREE_TO_LAUNCH_GIB = 30`) n'était câblé que
+  sur le watchdog, **pas sur `/launch`** : le lancement est passé avec 28 Go libres ;
+- **earlyoom** ne peut rien viser d'utile : la mémoire GPU n'apparaît dans aucun RSS.
+
+**Corrigé : le plancher s'applique maintenant à `/launch`** (il arrête d'abord le modèle
+précédent, attend la libération, puis refuse en 409 sous le seuil). Un lancement à
+28 Go libres est désormais **refusé**, pas subi.
+
+**Mesures du cache KV d'Inkling** (faites, pas estimées) : ~60-130 Kio par token.
+Conséquence : 4 sessions × 512 k = 2 M tokens ≈ 130-260 Go → **impossible**.
+Configuration retenue : `--ctx-size 524288 --parallel 4 --n-predict 65536` = **512 k
+au total, 131 072 par session**, cache **f16** (le q4_0 n'économise que 17 % et a coûté
+0,2 tok/s sur Flash-Next). Mesuré après chargement : **58 Go libres**.
+
+**Inkling-2-Mini-abliterated** remplace `edge0-145b` au catalogue (poids Edge0 : 106 Go
+supprimés, plus le moteur strata de 1,1 Go). Chargé avec `--jinja` (activé par défaut
+dans master) et `--chat-template-kwargs {"reasoning_effort":"low"}` comme le demande la
+fiche. Vérifié : chat (`OK`), **tool calling** (`finish_reason: tool_calls`, arguments
+`{"city":"Paris"}`), raisonnement dans `reasoning_content`. **Pas de vision** : la fiche
+dit explicitement que le tour de vision n'est pas converti — aucun `mmproj` dans le
+dépôt, donc rien à activer.
+
+**Moteurs mis à jour** : llama.cpp **master 87f816e** (CUDA 13, sm_121) est le binaire
+par défaut (`LLAMA_BIN`), l'ancien reste joignable par `--llama-v100` ; il est le seul à
+connaître `inkling2_loop`. vLLM **0.34.0** est installé dans `/root/venvs/vllm-034` et
+s'active par `--vllm-034` (0.32 reste le défaut), vérifié : `torch 2.14.0+cu130`,
+`cuda: True`.
+
 ## 2026-11-23 (suite) — les cinq points ouverts du run 2 sont fermés
 
 **Deux secrets, plus un seul.** `MEDIA_TOKEN` est désormais distinct de

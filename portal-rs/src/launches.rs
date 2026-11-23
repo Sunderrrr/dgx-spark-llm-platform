@@ -88,7 +88,7 @@ pub async fn launch_chat(pool: &SqlitePool, hf_model_id: &str, name: &str, args:
     if r.status().is_success() {
         crate::litellm_models::register(name, args, engine).await;
         crate::litellm_models::point_auto_model(name, args, engine).await;
-        follow_launch(pool.clone(), name.to_string());
+        follow_launch(pool.clone(), name.to_string(), args.to_string(), engine.to_string());
         return (true, String::new(), false);
     }
     let status = r.status().as_u16();
@@ -124,7 +124,7 @@ async fn announce_launch(pool: &SqlitePool, name: &str) {
 /// `_follow_launch(name)`: accepting is not serving. In the background, the
 /// model is announced once the runner says it serves, or an alert goes out
 /// when it never does within the window (another launch ends the watch).
-fn follow_launch(pool: SqlitePool, name: String) {
+fn follow_launch(pool: SqlitePool, name: String, args: String, engine: String) {
     if std::env::var("DGX_NO_REAPER").as_deref() == Ok("1") {
         return;
     }
@@ -139,6 +139,13 @@ fn follow_launch(pool: SqlitePool, name: String) {
                 return;
             }
             if model == name && status == "running" {
+                // The engine serves: make sure LiteLLM knows the name, whatever
+                // happened at launch time. Without this a launch done outside the
+                // portal (or a registration that failed) leaves the chat with
+                // « Invalid model name » while the model answers (2026-11-23).
+                if !crate::litellm_models::ensure_served(&name, &args, &engine).await {
+                    eprintln!("LiteLLM: « {name} » en service mais non enregistré — chat indisponible");
+                }
                 announce_launch(&pool, &name).await;
                 crate::sessions::log_audit(&pool, "system", "model.served", &format!("{name} chargé et en service")).await;
                 // json.dumps's default layout, as Flask writes it.

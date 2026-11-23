@@ -68,7 +68,7 @@ fn engine_api_key(engine: &str) -> String {
 
 /// `_litellm_upsert`: (re)create the route `public_name` → `upstream` on the
 /// engine; the previous entry is put back when the creation is refused.
-async fn upsert(public_name: &str, upstream: &str, max_input: i64, max_output: i64, api_key: &str) -> bool {
+async fn upsert(public_name: &str, upstream: &str, max_input: i64, max_output: i64, api_key: &str, kwargs: serde_json::Value) -> bool {
     if key().is_empty() {
         return false;
     }
@@ -81,9 +81,9 @@ async fn upsert(public_name: &str, upstream: &str, max_input: i64, max_output: i
             "input_cost_per_token": 1,
             "output_cost_per_token": 1,
             // Thinking models: reasoning off by default (a request that asks wins).
-            "chat_template_kwargs": {"enable_thinking": false},
+            "chat_template_kwargs": kwargs,
             // The same, for the Anthropic endpoint, which only forwards extra_body.
-            "extra_body": {"chat_template_kwargs": {"enable_thinking": false}},
+            "extra_body": {"chat_template_kwargs": kwargs},
         },
         "model_info": {
             "mode": "chat",
@@ -111,10 +111,55 @@ async fn upsert(public_name: &str, upstream: &str, max_input: i64, max_output: i
     false
 }
 
+/// Is the model name known to LiteLLM right now? A launch outside the portal
+/// (or a registration that failed) leaves the chat answering 400 « Invalid model
+/// name » while the model is serving (2026-11-23).
+pub async fn registered(name: &str) -> bool {
+    let Ok(r) = crate::sidecars::http()
+        .get(format!("{}/v1/models", base()))
+        .bearer_auth(key())
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+    else {
+        return false;
+    };
+    let Ok(v) = r.json::<serde_json::Value>().await else { return false };
+    v.get("data")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|a| a.iter().any(|m| m.get("id").and_then(serde_json::Value::as_str) == Some(name)))
+}
+
+/// Register the model if LiteLLM does not know it yet, and make sure the chat
+/// alias still designates it. Called once the engine reports the model running,
+/// so "a new model answers in the chat and through the API" holds even when the
+/// registration at launch time was lost.
+pub async fn ensure_served(name: &str, args: &str, engine: &str) -> bool {
+    if !registered(name).await && !register(name, args, engine).await {
+        return false;
+    }
+    point_auto_model(name, args, engine).await
+}
+
+/// The `--chat-template-kwargs` a model was launched with, if any. LiteLLM must
+/// forward the SAME kwargs, otherwise the API and the playground behave
+/// differently for one model (a thinking template that needs `reasoning_effort`
+/// ignores `enable_thinking`, and every API client gets an empty answer at a
+/// small max_tokens — 2026-11-23).
+fn template_kwargs(args: &str) -> Option<serde_json::Value> {
+    let tokens: Vec<&str> = args.split_whitespace().collect();
+    let i = tokens.iter().position(|t| *t == "--chat-template-kwargs")?;
+    let raw = tokens.get(i + 1)?;
+    serde_json::from_str(raw).ok()
+}
+
 /// `_register_litellm_model(name, vllm_args, engine)`.
 pub async fn register(name: &str, args: &str, engine: &str) -> bool {
     let (max_input, max_output) = crate::health::ctx_split(args, engine);
-    upsert(name, &upstream(name, engine), max_input, max_output, &engine_api_key(engine)).await
+    // Whatever the engine runs with, the API sends: a template kwarg the launch
+    // set must not be lost on the proxy path.
+    let kwargs = template_kwargs(args).unwrap_or_else(|| json!({"enable_thinking": false}));
+    upsert(name, &upstream(name, engine), max_input, max_output, &engine_api_key(engine), kwargs).await
 }
 
 /// Where LiteLLM reaches the decision engine: its own port, never :8000.
@@ -189,7 +234,8 @@ pub async fn point_auto_model(name: &str, args: &str, engine: &str) -> bool {
     }
     let (max_input, max_output) = crate::health::ctx_split(args, engine);
     let auto = std::env::var("AUTO_MODEL_NAME").unwrap_or_else(|_| "auto-model".into());
-    upsert(&auto, &upstream(name, engine), max_input, max_output, &engine_api_key(engine)).await
+    let kwargs = template_kwargs(args).unwrap_or_else(|| json!({"enable_thinking": false}));
+    upsert(&auto, &upstream(name, engine), max_input, max_output, &engine_api_key(engine), kwargs).await
 }
 
 #[cfg(test)]

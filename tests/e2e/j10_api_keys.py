@@ -59,9 +59,13 @@ def read_visible_key(page):
 def call_api(key: str, timeout_s: int = 90):
     """A real HTTP call to the API's DOMAIN (not an internal port)."""
     return c.http("POST", f"{c.API}/v1/chat/completions",
-                  body={"model": "auto-model",
+                  # 200, not 16: the served model may be a THINKING one (Inkling-2-Mini
+        # reasons before it answers), and a 16-token budget is spent entirely on
+        # its reasoning block, leaving an empty content — the platform's contract
+        # (200 with an answer) still holds, the budget was the mismatch.
+        body={"model": "auto-model",
                         "messages": [{"role": "user", "content": "say ok"}],
-                        "max_tokens": 16},
+                        "max_tokens": 200},
                   headers={"Authorization": f"Bearer {key}"},
                   timeout_s=timeout_s)
 

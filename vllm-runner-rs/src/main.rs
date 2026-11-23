@@ -364,7 +364,13 @@ async fn image_launch(body: Bytes) -> Response {
         && slug.len() <= 60
         && slug.chars().next().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
         && slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
-    if !org_repo || !ok_slug || name.is_empty() || !(1..=200).contains(&steps) || !(0.0..=30.0).contains(&guidance) {
+    // The name becomes MODEL_NAME in the container environment: printable, bounded,
+    // no control characters (it is shown in the UI and logged).
+    let ok_name = !name.is_empty()
+        && name.len() <= 64
+        && !name.chars().any(|c| c.is_control())
+        && name.chars().all(|c| c.is_ascii_graphic() || c == ' ');
+    if !org_repo || !ok_slug || !ok_name || !(1..=200).contains(&steps) || !(0.0..=30.0).contains(&guidance) {
         return (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "detail": "invalid model_id"}))).into_response();
     }
     let (ok, out) = sudo(

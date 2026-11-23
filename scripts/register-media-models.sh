@@ -27,9 +27,11 @@ PORT="${PORTAL_RUST_PORT:-5100}"
 MEDIA_BASE="http://portal-rs:${PORT}/v1"
 
 master=$(grep -E '^LITELLM_MASTER_KEY=' .env | cut -d= -f2-)
-runner=$(grep -E '^RUNNER_TOKEN=' .env | cut -d= -f2-)
+# The media gateway's own secret, NOT RUNNER_TOKEN: the public gateway must not
+# hold the runner's authority (audit 2026-11-23, run 2).
+runner=$(grep -E '^MEDIA_TOKEN=' .env | cut -d= -f2-)
 [ -n "$master" ] || { echo "LITELLM_MASTER_KEY missing from .env" >&2; exit 2; }
-[ -n "$runner" ] || { echo "RUNNER_TOKEN missing from .env" >&2; exit 2; }
+[ -n "$runner" ] || { echo "MEDIA_TOKEN missing from .env" >&2; exit 2; }
 
 api() { # api <path> <json>
   curl -sS -m 20 -X POST "$LITELLM$1" \

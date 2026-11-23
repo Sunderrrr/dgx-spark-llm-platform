@@ -1,6 +1,38 @@
 # Changelog
 
 
+## 2026-11-23 (suite) — les cinq points ouverts du run 2 sont fermés
+
+**Deux secrets, plus un seul.** `MEDIA_TOKEN` est désormais distinct de
+`RUNNER_TOKEN` : le conteneur LiteLLM, qui est la porte publique, ne détient plus
+l'autorité de lancement du runner. Mesuré : `x-media-token: MEDIA_TOKEN` →
+**502** (le sidecar image est arrêté, donc la requête a été acceptée), l'ancien
+`RUNNER_TOKEN` → **401**. Les modèles média ont été ré-enregistrés avec le nouveau
+jeton (`scripts/register-media-models.sh` lit `MEDIA_TOKEN`).
+
+**`/metrics` a son jeton.** `METRICS_TOKEN` est défini dans `.env` ; sans lui
+l'endpoint répond 403 avec un message explicite. Mesuré : **200** avec le jeton,
+**403** sans. Aucun Prometheus n'est installé sur cette machine : si le scrape
+existe ailleurs, il lui faut `authorization: { credentials: <jeton> }`.
+
+**Le `redirect_uri` OAuth n'est plus choisi par l'appelant.** Il est construit
+depuis `DGX_WEB` (l'adresse publique configurée) ; les en-têtes ne servent plus
+que de dernier recours pour une installation non configurée. Même correction
+pour Discord, qui recalculait en plus l'URI au retour. Test unitaire ajouté.
+
+**Le contrôle d'URL finale de la recherche web est obligatoire.** Le crawler
+épinglé renvoie `redirected_url` même sans redirection (mesuré sur deux pages) :
+une page sans adresse finale vérifiable est maintenant refusée, au lieu d'être
+acceptée par absence.
+
+**`local:` ne remonte plus.** `launch_plan` confinait un slug `local:../../` à
+rien : la fonction `local_slug` refuse tout segment `..` et tout chemin absolu.
+
+Et deux unités laissées « différées » par le run 2 sont maintenant **couvertes** :
+le jeton OIDC (signature, alg borné, aud/exp/nonce, état lié à la session) et
+WebAuthn (origin, rpIdHash, challenge, compteur, compte tiré du défi) — les deux
+sont propres.
+
 ## 2026-11-23 — correctifs de l'audit de sécurité
 
 Quatre constats de l'audit `portal-rs/src` (run `dgx-2026-11-23-r1`) sont corrigés.

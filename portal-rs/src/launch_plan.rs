@@ -45,11 +45,19 @@ pub fn dir_bytes(path: &Path) -> u64 {
 
 /// The weights of a catalog entry, in GiB.
 ///
+/// A `local:` slug must stay INSIDE the models directory: `launch_plan` only
+/// reads sizes and GGUF headers, but `../..` reached any path the portal can read
+/// (audit 2026-11-23, run 2).
+pub fn local_slug(hf_id: &str) -> Option<&str> {
+    let slug = hf_id.strip_prefix("local:")?;
+    let climbing = slug.split(['/', '\\']).any(|part| part == "..");
+    (!slug.is_empty() && !climbing && !slug.starts_with('/')).then_some(slug)
+}
+
 /// `local:<slug>` resolves under the mounted `/models`; anything else is an HF
 /// cache repository, whose snapshots live under `HF_HOME` when it is mounted.
 pub fn weights_gib(models_dir: &Path, hf_id: &str) -> Option<f64> {
-    let slug = hf_id.strip_prefix("local:");
-    if let Some(slug) = slug {
+    if let Some(slug) = local_slug(hf_id) {
         let dir = models_dir.join(slug);
         if !dir.is_dir() {
             return None;
@@ -126,7 +134,7 @@ pub fn plan(name: &str, engine: &str, hf_id: &str, args: &str, models_dir: &Path
     let mut kv = None;
     let mut meta = None;
     if engine == "llamacpp" || engine == "edge0" {
-        let slug = hf_id.strip_prefix("local:").unwrap_or("");
+        let slug = local_slug(hf_id).unwrap_or("");
         if let Some((per_token, m)) = kv_bytes_per_token(&models_dir.join(slug)) {
             // Partitioned: `--ctx-size` is the TOTAL. Unified: the pool is
             // `per-slot x slots`, which is what `--ctx-size` already means.

@@ -19,7 +19,13 @@ async fn link_config(state: &AppState) -> Option<(String, String, String)> {
 }
 
 /// `url_for('discord.discord_callback', _external=True)` behind ProxyFix.
+///
+/// `DGX_WEB` wins over the headers, for the same reason as the SSO callback: the
+/// redirect_uri must not be selectable by the caller (audit 2026-11-23, run 2).
 fn callback_url(headers: &HeaderMap) -> String {
+    if let Some(base) = std::env::var("DGX_WEB").ok().filter(|v| !v.trim().is_empty()) {
+        return format!("{}/discord/callback", base.trim().trim_end_matches('/'));
+    }
     let h = |n: &str| headers.get(n).and_then(|v| v.to_str().ok()).map(|v| v.split(',').next().unwrap_or("").trim().to_string()).filter(|v| !v.is_empty());
     let scheme = h("x-forwarded-proto").unwrap_or_else(|| "http".into());
     let host = h("x-forwarded-host").or_else(|| h("host")).unwrap_or_else(|| "localhost".into());

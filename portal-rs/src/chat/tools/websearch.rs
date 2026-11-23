@@ -223,9 +223,19 @@ pub async fn read(urls: &[String]) -> (Vec<Value>, Option<String>) {
                 Some(Value::String(s)) => s.clone(),
                 _ => String::new(),
             };
-            if let Some(final_url) = item.get("redirected_url").and_then(Value::as_str) {
-                if internal_target(final_url).await {
+            // The final URL is MANDATORY now: the pinned crawler reports it even
+            // when nothing redirected (measured 2026-11-23), and a result without
+            // one cannot be verified — absence used to mean "accept"
+            // (audit 2026-11-23, run 2).
+            let final_url = item.get("redirected_url").and_then(Value::as_str);
+            match final_url {
+                Some(final_url) if !internal_target(final_url).await => {}
+                Some(_) => {
                     results.push((key, json!({"ok": false, "error": "Redirection vers une adresse interne, page refusée."})));
+                    continue;
+                }
+                None => {
+                    results.push((key, json!({"ok": false, "error": "Adresse finale inconnue, page refusée."})));
                     continue;
                 }
             }

@@ -132,6 +132,7 @@ services:
       # and the billing are LiteLLM's own job, this token only proves the call
       # comes from this gateway. It never leaves the docker network.
       RUNNER_TOKEN: ${RUNNER_TOKEN:?RUNNER_TOKEN must be set in .env (run setup.sh)}
+      MEDIA_TOKEN: ${MEDIA_TOKEN:-}
       # Turns off the admin UI (/ui, /sso): it was publicly reachable via
       # the public API domain and concentrated the whole master key on an exposed
       # login form. Admin goes through the portal (portal-rs), not this UI.
@@ -289,6 +290,9 @@ services:
       # Scrape secret for GET /metrics. Unset leaves it at 403: an address
       # test cannot tell the host from a container (Docker SNAT, measured 2026-11-23).
       METRICS_TOKEN: ${METRICS_TOKEN:-}
+      # The media gateway's own secret. It used to be RUNNER_TOKEN: the gateway
+      # then held runner authority (audit 2026-11-23, run 2).
+      MEDIA_TOKEN: ${MEDIA_TOKEN:-}
       VLLM_API_URL: http://172.19.0.1:8000/v1
       # LiteLLM reaches the engine through the same gateway: its routes are written
       # with this address (host.docker.internal resolves to docker0, not to the publish).

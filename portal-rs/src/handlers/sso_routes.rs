@@ -13,7 +13,21 @@ fn to(location: &str) -> Response {
 }
 
 /// `url_for('oauth_callback', _external=True)` behind ProxyFix.
+///
+/// The PUBLIC base (`DGX_WEB`) wins over the request's headers. Building it from
+/// `X-Forwarded-Host`/`Host` let any caller choose the redirect_uri sent to the
+/// provider: if that URI is registered there, the authorization code lands on the
+/// attacker's host (audit 2026-11-23, run 2). The header is only a fallback for an
+/// install that has not configured its public address yet.
 fn callback_url(headers: &HeaderMap) -> String {
+    callback_url_for(std::env::var("DGX_WEB").ok().as_deref(), headers)
+}
+
+/// The rule, alone so a test can pin it: a configured public base always wins.
+fn callback_url_for(public_base: Option<&str>, headers: &HeaderMap) -> String {
+    if let Some(base) = public_base.filter(|v| !v.trim().is_empty()) {
+        return format!("{}/api/oauth2-redirect", base.trim().trim_end_matches('/'));
+    }
     let h = |n: &str| headers.get(n).and_then(|v| v.to_str().ok()).map(|v| v.split(',').next().unwrap_or("").trim().to_string()).filter(|v| !v.is_empty());
     let scheme = h("x-forwarded-proto").unwrap_or_else(|| "http".into());
     let host = h("x-forwarded-host").or_else(|| h("host")).unwrap_or_else(|| "localhost".into());
@@ -139,4 +153,44 @@ pub async fn oauth_callback(State(state): State<AppState>, connect: Option<axum:
         r.headers_mut().insert(axum::http::header::SET_COOKIE, v);
     }
     r
+}
+
+#[cfg(test)]
+mod callback_url_tests {
+    use super::callback_url_for;
+    use axum::http::{HeaderMap, HeaderValue};
+
+    fn headers(host: &str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert("x-forwarded-host", HeaderValue::from_str(host).unwrap());
+        h.insert("x-forwarded-proto", HeaderValue::from_static("https"));
+        h
+    }
+
+    #[test]
+    fn a_configured_public_base_wins() {
+        // Audit 2026-11-23, run 2: the caller must not choose the redirect_uri.
+        let h = headers("attacker.example");
+        assert_eq!(
+            callback_url_for(Some("https://dgx.example"), &h),
+            "https://dgx.example/api/oauth2-redirect"
+        );
+        assert_eq!(
+            callback_url_for(Some("https://dgx.example/"), &h),
+            "https://dgx.example/api/oauth2-redirect"
+        );
+    }
+
+    #[test]
+    fn without_a_base_the_headers_are_still_a_fallback() {
+        let h = headers("localhost:5000");
+        assert_eq!(
+            callback_url_for(None, &h),
+            "https://localhost:5000/api/oauth2-redirect"
+        );
+        assert_eq!(
+            callback_url_for(Some("   "), &h),
+            "https://localhost:5000/api/oauth2-redirect"
+        );
+    }
 }

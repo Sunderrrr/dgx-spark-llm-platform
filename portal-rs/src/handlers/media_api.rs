@@ -26,8 +26,13 @@ use crate::handlers::AppState;
 use crate::sidecars;
 
 /// The internal token, compared in constant time by `token_ok`.
+///
+/// It used to be `RUNNER_TOKEN` itself, so the public LiteLLM container — which
+/// stores this value as the media models' key — held the runner's launch and
+/// scoped-sudo authority (audit 2026-11-23, run 2). `MEDIA_TOKEN` is now its own
+/// secret; an empty one refuses every media call rather than falling back.
 fn gateway_token() -> String {
-    std::env::var("RUNNER_TOKEN").unwrap_or_default()
+    std::env::var("MEDIA_TOKEN").unwrap_or_default()
 }
 
 /// Constant-time comparison: a length difference is answered without early

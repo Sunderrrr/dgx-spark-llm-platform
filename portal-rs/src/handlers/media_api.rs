@@ -75,6 +75,11 @@ fn path_allowed(kind: &str, rest: &str) -> bool {
         || rest.contains('?')
         || rest.contains('#')
         || rest.starts_with('/')
+        // A surviving '%' means the caller encoded TWICE: `%252e%252e` decodes to
+        // `%2e%2e`, which this filter would not see as a dot segment but the URL
+        // parser normalises to `..`. Refuse the ambiguity instead of chasing it.
+        || rest.contains('%')
+        || rest.chars().any(char::is_control)
     {
         return false;
     }

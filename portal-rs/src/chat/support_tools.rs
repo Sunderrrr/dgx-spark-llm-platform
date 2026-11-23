@@ -40,9 +40,11 @@ pub const SERVICE_KINDS: [&str; 5] = ["ocr", "video", "voice", "asr", "image"];
 const PENDING_TTL: f64 = 600.0;
 const PENDING_MAX: i64 = 5;
 
-/// `TOOLS_REFUSED_IF_EXTERNAL`: the guarded tools, and the one that delivers a secret.
+/// `TOOLS_REFUSED_IF_EXTERNAL`: the guarded tools, the one that delivers a secret,
+/// and the one that reads service logs — an admin session's logs are as sensitive
+/// as a key (audit 2026-11-23, finding 6).
 pub fn refused_if_external(name: &str) -> bool {
-    GUARDED_TOOLS.contains(&name) || name == "create_api_key"
+    GUARDED_TOOLS.contains(&name) || name == "create_api_key" || name == "read_logs"
 }
 
 pub async fn platform_name(pool: &SqlitePool) -> String {

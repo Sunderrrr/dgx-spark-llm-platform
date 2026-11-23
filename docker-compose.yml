@@ -286,6 +286,9 @@ services:
       # 172.19.x gateway the firewall allows, not host-gateway.
       VLLM_RUNNER_URL: http://172.19.0.1:8001
       RUNNER_TOKEN: ${RUNNER_TOKEN:?RUNNER_TOKEN must be set in .env (run setup.sh)}
+      # Scrape secret for GET /metrics. Unset leaves it at 403: an address
+      # test cannot tell the host from a container (Docker SNAT, measured 2026-11-23).
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
       VLLM_API_URL: http://172.19.0.1:8000/v1
       # LiteLLM reaches the engine through the same gateway: its routes are written
       # with this address (host.docker.internal resolves to docker0, not to the publish).

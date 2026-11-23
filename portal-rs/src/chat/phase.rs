@@ -114,6 +114,19 @@ async fn web_step(out: &Out, step: Value) {
 
 /// `_tools_phase`.
 #[allow(clippy::too_many_arguments)]
+/// Was this tool name part of what the turn offered the model?
+///
+/// `files` is checked by its own branch (`edit_ok`); the media and web names are
+/// the ones a page could smuggle in, so they answer to their armed flag.
+fn offered(armed: &Armed, name: &str) -> bool {
+    match name {
+        "generate_image" => armed.image,
+        "generate_video" => armed.video,
+        "lire_document" => armed.document,
+        _ => armed.web,
+    }
+}
+
 pub async fn run(state: &AppState, model: &str, msgs: &[Msg], user_key: &str, username: &str, attachments: &[String], mut armed: Armed<'_>, out: &Out) -> Outcome {
     let mut o = Outcome::default();
     let mut short = tools_context(msgs);
@@ -307,6 +320,14 @@ pub async fn run(state: &AppState, model: &str, msgs: &[Msg], user_key: &str, us
                 web_step(out, step).await;
                 short.push(tool_msg(take(&result, FILE_TOOL_RESULT_MAX)));
                 bound_tools_prompt(&mut short);
+                continue;
+            }
+            // Only a tool that was OFFERED may run. The dispatcher used to match
+            // whatever name the model emitted, so a page read during a web-armed
+            // turn could start the video (or OCR) sidecar — an infrastructure
+            // action the user was never offered (audit 2026-11-23, finding 7).
+            if !offered(&armed, &name) {
+                short.push(tool_msg(format!("Outil « {name} » non disponible dans ce tour.")));
                 continue;
             }
             let result = match name.as_str() {

@@ -299,6 +299,9 @@ pub const MAX_ARCHIVE_BYTES: usize = 25 * 1024 * 1024;
 pub const MAX_ENTRIES: usize = 3000;
 pub const MAX_UNCOMPRESSED: u64 = 60 * 1024 * 1024;
 pub const MAX_FILES_PER_SKILL: usize = 200;
+/// Total bytes this import may actually inflate, declared sizes ignored.
+pub const MAX_EXPANDED_BYTES: usize = 96 * 1024 * 1024;
+
 pub const MAX_FILE_BYTES: u64 = 1024 * 1024;
 pub const MAX_SKILL_BYTES: usize = 5 * 1024 * 1024;
 pub const MAX_SKILLS_PER_IMPORT: usize = 50;
@@ -429,7 +432,14 @@ pub fn skills_from_zip(data: &[u8], subpath: &str) -> Result<(Vec<Skill>, Vec<(S
     }
     let mut skills = Vec::new();
     let mut skipped = Vec::new();
+    // One budget for the whole archive: a per-skill cap multiplied by 50 skills
+    // still let a 3 MB upload inflate to gigabytes.
+    let mut inflated = 0usize;
     for root in roots.iter().take(MAX_SKILLS_PER_IMPORT) {
+        if inflated > MAX_EXPANDED_BYTES {
+            skipped.push((basename(root).to_string(), "Budget de décompression de l'archive épuisé.".into()));
+            continue;
+        }
         let folder = if basename(root).is_empty() { "skill".to_string() } else { basename(root).to_string() };
         let mut files: Vec<(String, String)> = Vec::new();
         let mut total = 0usize;
@@ -442,8 +452,16 @@ pub fn skills_from_zip(data: &[u8], subpath: &str) -> Result<(Vec<Skill>, Vec<(S
                 continue;
             }
             let mut buf = Vec::new();
+            // The DECLARED size is attacker-controlled (the central directory can say
+            // 0 for a 1 GiB entry), so the budget must count what was actually
+            // inflated: a tiny archive used to cost gigabytes of synchronous zlib
+            // work per request (audit 2026-11-23, finding 8).
+            if inflated > MAX_EXPANDED_BYTES {
+                break;
+            }
             let read_ok = zf.by_index(*idx).ok().is_some_and(|f| f.take(MAX_FILE_BYTES + 1).read_to_end(&mut buf).is_ok());
             let Some(text) = read_ok.then(|| decode(&buf)).flatten() else { continue };
+            inflated += buf.len();
             total += text.len();
             if total > MAX_SKILL_BYTES || files.len() >= MAX_FILES_PER_SKILL {
                 break;

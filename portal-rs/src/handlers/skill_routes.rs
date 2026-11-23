@@ -176,6 +176,16 @@ pub async fn api_skill_import_zip(State(state): State<AppState>, headers: Header
         Err(r) => return r,
         Ok(s) => s,
     };
+    // A zip import costs CPU and memory: bound how often one account may ask.
+    match crate::guards::rate_limited(state.db.pool(), &session.username, "rl-skills", crate::guards::SKILLS_RATE_MAX, 60.0).await {
+        Ok(0) => {}
+        Ok(wait) => {
+            return (StatusCode::TOO_MANY_REQUESTS,
+                    Json(json!({"ok": false, "error": format!("Trop d'imports. Réessaie dans {wait} s.")})))
+                .into_response()
+        }
+        Err(_) => return auth::html_status(StatusCode::INTERNAL_SERVER_ERROR),
+    }
     let Some(data) = file else {
         return (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "error": "Fichier .zip requis."}))).into_response();
     };

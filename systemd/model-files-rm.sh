@@ -36,7 +36,9 @@ case "$KIND" in
       echo "invalid id: $ID" >&2; exit 2
     fi
     case "$ID" in
-      templates|esrgan|flux2-klein-4b) echo "protected folder: $ID" >&2; exit 4 ;;
+      # clef-q4km is the DECISION model (decisions_configs): deleting it through
+      # the chat catalog removed another service's weights.
+      templates|esrgan|flux2-klein-4b|clef-q4km|clef*) echo "protected folder: $ID" >&2; exit 4 ;;
     esac
     T="${HOME}/models/$ID"
     if [ -L "$T" ] || [ ! -d "$T" ]; then
@@ -49,7 +51,9 @@ case "$KIND" in
       echo "invalid id: $ID" >&2; exit 2
     fi
     case "$ID" in
-      openai/whisper-*|ResembleAI/*|Qwen/Qwen3-TTS-*|black-forest-labs/*)
+      # kyutai is the Kyutai voice engine's repo (voice-kyutai): it downloads into
+      # the same hub cache, so the chat catalog could delete it too.
+      openai/whisper-*|ResembleAI/*|Qwen/Qwen3-TTS-*|black-forest-labs/*|kyutai/*)
         echo "protected repo (another service): $ID" >&2; exit 4 ;;
     esac
     D="models--${ID/\//--}"

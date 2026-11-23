@@ -62,6 +62,33 @@ function withIdleTimeout(body: ReadableStream<Uint8Array>): ReadableStream<Uint8
 const MAX_BODY_BYTES = 20 * 1024 * 1024;
 const WHOAMI_TIMEOUT_MS = 3000;
 
+/// Read the request body up to `cap` bytes. Returns null the moment the cap is
+/// crossed, after cancelling the stream: nothing larger is ever held in memory.
+async function readCapped(request: Request, cap: number): Promise<ArrayBuffer | null> {
+  const stream = request.body;
+  if (!stream) return new ArrayBuffer(0);
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > cap) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out.buffer;
+}
+
 export async function proxySSE(request: Request, path: string): Promise<Response> {
   // 1) Buffer NOTHING before knowing the body is bounded and the session
   // valid (audit of 2026-10-02): it is the only published frontend route that
@@ -93,10 +120,12 @@ export async function proxySSE(request: Request, path: string): Promise<Response
   // multipart/form-data (the image) — .text() would decode those bytes as UTF-8
   // and corrupt the upload. An ArrayBuffer passes through intact whatever the
   // content (text JSON as for playground/support, or binary here).
-  const body = await request.arrayBuffer();
-  // A missing (chunked transfer) or lying `content-length` remains possible:
-  // we re-check on the REAL size, before any upstream call.
-  if (body.byteLength > MAX_BODY_BYTES) {
+  // A missing (chunked transfer) or lying `content-length` remains possible, so the
+  // REAL size is enforced WHILE reading: `arrayBuffer()` buffered the whole body
+  // first, which let one request allocate gigabytes in this shared process
+  // (audit 2026-11-23, finding 9).
+  const body = await readCapped(request, MAX_BODY_BYTES);
+  if (body === null) {
     return new Response(sseErrorFrame("Requête trop volumineuse (20 Mo maximum)."), {
       status: 413,
       headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },

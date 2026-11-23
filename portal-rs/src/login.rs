@@ -205,7 +205,13 @@ pub async fn login(state: AppState, headers: HeaderMap, connect: Option<std::net
             }
         }
         None => match crate::ldap::authenticate(pool, &username, &password).await {
-            Some((admin, name, groups)) => ("ldap", Some(name), admin, Some(groups)),
+            Some((admin, name, groups)) => {
+                // The directory is the authority for this login: the groups an SSO
+                // claim left behind are stale by construction and must not keep
+                // granting a right the directory no longer gives (red-team, 2026-11-23).
+                crate::handlers::admin_groups::clear_source(pool, &username, "sso").await;
+                ("ldap", Some(name), admin, Some(groups))
+            }
             None => {
                 fail(pool, &key).await;
                 fail(pool, &ukey).await;

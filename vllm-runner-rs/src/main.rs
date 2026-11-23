@@ -495,8 +495,21 @@ async fn decisions_start(Extension(d): Extension<Arc<Decisions>>, body: Option<B
         d.start()
     } else {
         let args = runner_rs::decisions::shell_words(&args_raw);
-        let cfg = d.cfg_for(&model, &name, &args);
-        d.start_with(&cfg)
+        // The SAME allowlist the chat launches go through. The decisions path used
+        // to hand the caller's argv straight to the engine: a catalog row could
+        // pass --port, --chat-template-file or --api-key-file and move the engine
+        // outside the host perimeter (audit 2026-11-23, finding 3). The model id is
+        // passed as the repo for the trust-remote-code exception, which a decision
+        // model never needs.
+        match runner_rs::validate::validate_args(&args.join(" "), "llamacpp", &model) {
+            Ok(checked) => {
+                let cfg = d.cfg_for(&model, &name, &checked);
+                d.start_with(&cfg)
+            }
+            Err(why) => {
+                return (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "error": why}))).into_response()
+            }
+        }
     };
     match started {
         Ok(v) => (StatusCode::OK, Json(v)).into_response(),

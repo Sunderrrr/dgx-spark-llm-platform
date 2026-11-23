@@ -216,7 +216,10 @@ async fn sso_cache_put(pool: &SqlitePool, sub: &str, v: &(String, bool, String, 
          fullname=excluded.fullname, groups=excluded.groups, checked_at=excluded.checked_at",
     )
     .bind(sub)
-    .bind(&v.0)
+    // Lowercased at WRITE: `sso_cache_forget` lowercases too, and SQLite TEXT
+    // equality is case-sensitive — a capitalised directory cn made the forget a
+    // no-op and the stale admin lived on (red-team, 2026-11-23).
+    .bind(v.0.to_lowercase())
     .bind(i64::from(v.1))
     .bind(&v.2)
     .bind(&groups)

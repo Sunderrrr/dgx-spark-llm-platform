@@ -1,32 +1,53 @@
 #!/bin/bash
 # Recreate the image generation container (diffusers). Same guarantees as
 # ocr-recreate.sh / voice-recreate.sh / asr-recreate.sh: called by vllm-runner
-# via scoped sudo, single argument validated against a closed allowlist, never
-# interpreted by a shell. No published port — only dgx-portal reaches it, via
-# image_net (IMAGE_URL=http://image:8007).
+# via scoped sudo; every argument is validated by SHAPE, never interpreted by a
+# shell. No published port — only dgx-portal reaches it, via image_net
+# (IMAGE_URL=http://image:8007).
 #
-# $1 = model id (allowlist below). Each model maps to a diffusers folder
-#      already present on the host under ${HOME}/models/<slug>: cold download is
-#      a separate provisioning step, never triggered from the web.
+# $1 = Hugging Face model id, $2 = local slug (${HOME}/models/<slug>), $3 = label,
+# $4 = inference steps, $5 = guidance. The catalog (image_configs) carries all
+# five: a distilled few-step model needs ~4 steps at guidance 1.0, a full one 28
+# to 50 at guidance 4 to 6, and no default suits both. Weights are provisioned on
+# the host separately, never downloaded from the web.
 set -euo pipefail
 
-if [ $# -ne 1 ]; then
-  echo "usage: image-recreate.sh <model_id>" >&2
+if [ $# -ne 5 ]; then
+  echo "usage: image-recreate.sh <model_id> <slug> <name> <steps> <guidance>" >&2
   exit 2
 fi
 
 MODEL="$1"
-# slug = local folder; NAME = label shown in the UI; STEPS/GUIDANCE =
-# inference settings specific to the model. A DISTILLED (few-step) model is
-# happy with ~8 steps at guidance 1.0 — pushing it higher oversaturates. A FULL
-# model needs 35 to 50 with guidance 4 to 6. No default suits both, hence this
-# per-entry setting.
+SLUG="$2"
+NAME="$3"
+STEPS="$4"
+GUIDANCE="$5"
+
+# Every argument is validated by SHAPE, not against a closed list: the models
+# live in image_configs (the admin catalog), and the operator adds one at a time.
+# The folder must already hold a diffusers checkpoint — the download is a separate
+# provisioning step, never triggered from the web.
 case "$MODEL" in
-  black-forest-labs/FLUX.2-klein-4B)
-    SLUG="flux2-klein-4b"; NAME="FLUX.2 Klein 4B"
-    STEPS=4; GUIDANCE=1.0 ;;
-  *) echo "model id invalide : $MODEL" >&2; exit 2 ;;
+  */*) ;;
+  *) echo "invalid model id: $MODEL" >&2; exit 2 ;;
 esac
+case "$MODEL" in
+  *[!A-Za-z0-9._/-]*) echo "invalid model id: $MODEL" >&2; exit 2 ;;
+esac
+case "$SLUG" in
+  [a-z0-9]*) ;;
+  *) echo "invalid slug: $SLUG" >&2; exit 2 ;;
+esac
+case "$SLUG" in
+  *[!a-z0-9-]*) echo "invalid slug: $SLUG" >&2; exit 2 ;;
+esac
+[ ${#SLUG} -le 60 ] || { echo "slug too long" >&2; exit 2; }
+case "$STEPS" in
+  ''|*[!0-9]*) echo "invalid steps: $STEPS" >&2; exit 2 ;;
+esac
+[ "$STEPS" -ge 1 ] && [ "$STEPS" -le 200 ] || { echo "steps out of range: $STEPS" >&2; exit 2; }
+LC_ALL=C printf '%s' "$GUIDANCE" | grep -qE '^[0-9]+([.][0-9]+)?$' || { echo "invalid guidance: $GUIDANCE" >&2; exit 2; }
+awk -v g="$GUIDANCE" 'BEGIN { exit !(g >= 0 && g <= 30) }' || { echo "guidance out of range: $GUIDANCE" >&2; exit 2; }
 
 MODEL_DIR="${HOME}/models/$SLUG"
 if [ ! -f "$MODEL_DIR/model_index.json" ]; then

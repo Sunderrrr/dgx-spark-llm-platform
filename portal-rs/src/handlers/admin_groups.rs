@@ -303,6 +303,16 @@ pub async fn admin_groups_delete(State(state): State<AppState>, Path(name): Path
 
 /// `import_groups(username, {source: values})`: this account's groups from
 /// one source, created or merged by name whatever the case.
+/// Drop the groups a source contributed. A password login is authoritative for
+/// the directory, so an SSO claim imported earlier must not survive it.
+pub(crate) async fn clear_source(pool: &SqlitePool, username: &str, source: &str) {
+    let _ = sqlx::query("DELETE FROM user_directory_groups WHERE username=? AND source=?")
+        .bind(username)
+        .bind(source)
+        .execute(pool)
+        .await;
+}
+
 pub(crate) async fn import_groups(pool: &SqlitePool, username: &str, source: &str, values: &[String]) {
     let now = keys::iso(&chrono::Local::now().naive_local());
     let _ = sqlx::query("DELETE FROM user_directory_groups WHERE username=? AND source=?").bind(username).bind(source).execute(pool).await;
@@ -353,15 +363,16 @@ pub async fn sync_ldap_groups(state: &AppState, groups_by_login: &std::collectio
     for u in accounts {
         let Some(names) = groups_by_login.get(&u.to_lowercase()) else { continue };
         let before: Vec<String> = sqlx::query_scalar("SELECT group_name FROM user_directory_groups WHERE username=? AND source='ldap'").bind(&u).fetch_all(pool).await.unwrap_or_default();
+        // Forget BEFORE the "unchanged" shortcut: the cache is not derived from
+        // the stored rows, and a password login rewrites those rows, which made the
+        // shortcut skip the invalidation (red-team, 2026-11-23).
+        crate::ldap::sso_cache_forget(pool, &u).await;
         let a: std::collections::BTreeSet<String> = before.iter().map(|n| n.to_lowercase()).collect();
         let b: std::collections::BTreeSet<String> = names.iter().map(|n| n.to_lowercase()).collect();
         if a == b {
             continue;
         }
         import_groups(pool, &u, "ldap", names).await;
-        // The SSO identity cache holds the OLD groups: drop it, or the next login
-        // re-imports them and re-grants the right this sync just removed.
-        crate::ldap::sso_cache_forget(pool, &u).await;
         let (is_admin, _) = rights_from_groups(state, &u).await;
         let _ = sqlx::query("UPDATE user_sources SET last_is_admin=? WHERE username=?").bind(i64::from(is_admin)).bind(&u).execute(pool).await;
         apply_group_quota(state, &u).await;

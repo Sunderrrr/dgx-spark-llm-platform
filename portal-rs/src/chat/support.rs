@@ -100,6 +100,10 @@ struct Turn {
     think: bool,
     mem_on: bool,
     ldap: String,
+    /// Third-party MCP tools are in `tools`: their name, description and schema are
+    /// attacker-writable text, so the turn starts as "untrusted content seen" and the
+    /// secret-bearing tools stay refused (audit 2026-11-23, finding 6).
+    external_tools: bool,
 }
 
 /// POST /support/chat
@@ -159,12 +163,13 @@ pub async fn support_chat(state: AppState, headers: HeaderMap, body: axum::body:
     msgs.extend(hist.iter().map(ThreadMsg::api));
     let ldap = crate::handlers::ldap_host(&state).await;
     let (extra, routing) = st::extra_tools(&state, &user, &ldap).await;
+    let external_tools = !extra.is_empty();
     let mut tools = st::tools(session.is_admin);
     tools.extend(extra);
     let last_user = hist.iter().rev().find(|m| m.role == "user").map(|m| m.content.clone()).unwrap_or_default();
     let turn = Turn {
         username: user, fullname: session.fullname.clone(), is_admin: session.is_admin, model, user_key, history: hist, msgs, tools, routing,
-        think: reasoning::reasonably_complex(&last_user), mem_on, ldap,
+        think: reasoning::reasonably_complex(&last_user), mem_on, ldap, external_tools,
     };
     let (tx, rx) = tokio::sync::mpsc::channel(256);
     let out = Out(tx);
@@ -380,7 +385,7 @@ async fn run(state: &AppState, mut t: Turn, out: &Out) {
 async fn turns(state: &AppState, t: &mut Turn, out: &Out, response: &mut Vec<String>, thought: &mut Thought) -> bool {
     let mut use_tools = true;
     let mut streamed_any = false;
-    let mut untrusted_seen = false;
+    let mut untrusted_seen = t.external_tools;
     for _ in 0..4 {
         let Ok((content, calls, status)) = run_turn(t, use_tools, out, thought).await else { return false };
         if !content.is_empty() {

@@ -7,6 +7,10 @@ use std::sync::Mutex;
 use sqlx::SqlitePool;
 
 /// Media calls allowed per window and account (`CHAT_RATE_MAX` / `_WINDOW`).
+/// Zip/skill imports per minute, per account: a decompression budget alone still
+/// lets an account pin a worker repeatedly (audit 2026-11-23).
+pub const SKILLS_RATE_MAX: i64 = 5;
+
 pub const MEDIA_RATE_MAX: i64 = 20;
 pub const MEDIA_RATE_WINDOW_S: f64 = 60.0;
 /// In-flight async jobs per account (`MEDIA_MAX_CONCURRENT`).

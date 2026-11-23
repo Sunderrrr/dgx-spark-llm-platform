@@ -99,6 +99,20 @@ pub async fn oauth_callback(State(state): State<AppState>, connect: Option<axum:
     if let Some(gs) = &groups {
         is_admin = is_admin || gs.iter().any(|g| *g == c.admin_group || crate::ldap::is_admin_group(g, &c.admin_group));
     }
+    // A name the portal manages locally is NOT entered through the directory, by
+    // either door: the password form already refuses it, and this callback used to
+    // open the same account and inherit its local role (red-team of the 2026-11-23
+    // fix). Same rule, same place: the local row is authoritative.
+    let managed: Option<i64> = sqlx::query_scalar("SELECT 1 FROM local_users WHERE username=?")
+        .bind(&username)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+    if managed.is_some() {
+        crate::sessions::log_audit(pool, &username, "login.refuse", "nom géré localement : connexion SSO refusée").await;
+        return to("/login?refused=managed");
+    }
     if sqlx::query_scalar::<_, i64>("SELECT 1 FROM blocked_users WHERE username=?").bind(&username).fetch_optional(pool).await.ok().flatten().is_some() {
         crate::sessions::log_audit(pool, &username, "login.refuse", "compte bloqué par un administrateur").await;
         return to("/login?refused=blocked");

@@ -184,7 +184,7 @@ impl Decisions {
     /// overrides the model and its arguments without touching the environment.
     pub fn start_with(&self, cfg: &DecisionsCfg) -> Result<Value, (u16, Value)> {
         if cfg.hf_id.is_empty() {
-            return Err((400, json!({"error": "Service de décision non configuré (aucun modèle choisi)."})));
+            return Err((400, json!({"error": "Service de décision non configuré (aucun modèle : DECISIONS_MODEL vide ou catalogue sans entrée)."})));
         }
         let _ops = self.ops.lock().unwrap_or_else(|e| e.into_inner());
         {

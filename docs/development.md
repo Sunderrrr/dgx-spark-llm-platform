@@ -222,7 +222,7 @@ Shell traps that cost real time:
 > **Refreshing these screenshots** — nothing here is hand-made: the whole set is
 > captured by `scripts/screenshots.py`, in **English** and in the **dark theme**,
 > with the dedicated **`demo`** account (a plain, non-admin account created by
-> `docker exec -u 10001 -e DEMO_PW="$(cat /root/shots/demo-credentials)" portal-rs portal create-demo-account`
+> `docker exec -u 10001 -e DEMO_PW="$(cat "$DEMO_CREDENTIALS_FILE")" portal-rs portal create-demo-account`
 > — a screenshot must never expose a real person's dashboard). One command per step:
 >
 > ```bash

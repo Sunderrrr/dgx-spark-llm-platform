@@ -339,9 +339,6 @@ services:
       # Hugging Face token for the model search, read-only; same rule as
       # portal-rs: missing file = anonymous search, no error.
       - ./secrets/hf_token:/run/secrets/hf_token:ro
-      # Edge0 refuses to listen beyond loopback without a token: the portal needs
-      # the same one to register the route in LiteLLM.
-      - /etc/edge0/api-key:/etc/edge0/api-key:ro
       # Weights, read-only: the launch plan needs their size, and the catalog
       # otherwise cannot say what a model will cost. Never written.
       - ${MODELS_DIR:-/root/models}:/models:ro

@@ -152,22 +152,24 @@ export function SettingsPanel({
             <SegmentedControlItem value="on" label={t("Toujours")} />
             <SegmentedControlItem value="off" label={t("Jamais")} />
           </SegmentedControl>
-        {/* Thinking depth (reasoning_effort, sent through the chat
-            template). Each model validates its own values — the current
-            Qwen3.8 accepts xhigh (its default), medium and low; if the
-            template rejects it, the backend retries without. '' = « Par
-            défaut », which the backend turns into medium for a thinking
-            turn: the template's own default (xhigh) thought for 13 min
-            before a docker compose. */}
+        {/* Thinking depth (reasoning_effort, sent through the chat template).
+            The CLIENT owns this choice: nothing is predefined, and « Par défaut »
+            sends NO value at all, so the model's own template decides. The list
+            covers every level the templates understand; a model that rejects one
+            simply never sees it (the backend forwards only known values). */}
         <SegmentedControl
           label={t("Effort de raisonnement")}
           value={settings.reasoningEffort || "default"}
           onChange={(v) => onChange({ ...settings, reasoningEffort: v === "default" ? "" : String(v) })}
         >
-          <SegmentedControlItem value="default" label={t("Par défaut (moyenne)")} />
+          <SegmentedControlItem value="default" label={t("Par défaut (le modèle)")} />
+          <SegmentedControlItem value="none" label={t("Aucun")} />
+          <SegmentedControlItem value="minimal" label={t("Minime")} />
           <SegmentedControlItem value="low" label={t("Basse")} />
           <SegmentedControlItem value="medium" label={t("Moyenne")} />
-          <SegmentedControlItem value="xhigh" label={t("Maximale")} />
+          <SegmentedControlItem value="high" label={t("Haute")} />
+          <SegmentedControlItem value="xhigh" label={t("Très haute")} />
+          <SegmentedControlItem value="max" label={t("Maximale")} />
         </SegmentedControl>
       </VStack>
     </VStack>

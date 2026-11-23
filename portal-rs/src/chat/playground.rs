@@ -14,7 +14,6 @@ use crate::chat::history::{self, Msg};
 use crate::chat::{data_frame, gauges, memory_turn, phase, reasoning, tools, triggers, Out};
 use crate::AppState;
 
-const DEFAULT_REASONING_EFFORT: &str = "medium";
 const SYSTEM_MAX: usize = 16000;
 const READ_TIMEOUT: Duration = Duration::from_secs(300);
 
@@ -174,10 +173,13 @@ pub async fn playground_chat(state: AppState, headers: HeaderMap, body: axum::bo
     };
     let think = if mode == "auto" { reasoning::reasonably_complex(&history::last_user_message(&hist)) } else { !matches!(mode.as_str(), "off" | "false" | "0" | "non") };
     let raw_effort = data.get("reasoning_effort").filter(|v| crate::keys::truthy(v));
-    let mut effort = raw_effort.map(|v| crate::memory::py_strip(&history::py_str(v)).to_lowercase()).filter(|e| matches!(e.as_str(), "low" | "medium" | "xhigh"));
-    if effort.is_none() && raw_effort.is_none() && think {
-        effort = Some(DEFAULT_REASONING_EFFORT.into());
-    }
+    // The CLIENT picks the level; the platform predefines none. Whatever it sends is
+    // forwarded as-is, provided it is one of the template's own values — an unknown
+    // one is dropped rather than injected into the template. Nothing sent, nothing
+    // forwarded: the model's template default applies (operator, 2026-11-24).
+    let effort = raw_effort
+        .map(|v| crate::memory::py_strip(&history::py_str(v)).to_lowercase())
+        .filter(|e| matches!(e.as_str(), "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"));
     let key: Option<String> = sqlx::query_scalar("SELECT key_value FROM api_keys WHERE username = ? ORDER BY created_at DESC LIMIT 1").bind(&user).fetch_optional(state.db.pool()).await.ok().flatten();
     let Some(user_key) = key else { return sse(notice("no_api_key", json!({}), true)) };
     if let Some(reset) = gauges::quota_exceeded_reset(&state.db, state.spend.as_ref(), &user).await {
@@ -348,12 +350,6 @@ async fn run(state: &AppState, mut t: Turn, out: &Out, rid: &str) {
             let mut ctk = json!({"enable_thinking": think});
             if let Some(e) = &effort {
                 ctk["reasoning_effort"] = json!(e);
-            } else if !think {
-                // "Jamais" has to mean something even for a template that ignores
-                // `enable_thinking`: Inkling-2-Mini always emits a reasoning block,
-                // and `low` is its shortest (measured: 135 chars against 165 at the
-                // template default). The choice stays per-request, made by the app.
-                ctk["reasoning_effort"] = json!("low");
             }
             let mut r = match open(ctk).await {
                 Ok(r) => r,

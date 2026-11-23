@@ -468,7 +468,7 @@ mod tests {
     async fn a_fresh_cached_identity_answers_without_the_directory() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         sso_cache_init(&pool).await;
-        let value = ("cestienne".to_string(), true, "C. Estienne".to_string(), vec!["cn=admins,dc=example,dc=org".to_string()]);
+        let value = ("dirname".to_string(), true, "D. Rameau".to_string(), vec!["cn=admins,dc=example,dc=org".to_string()]);
         sso_cache_put(&pool, "sub-123", &value).await;
         sqlx::query("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)").execute(&pool).await.unwrap();
         // configuration pointing at a black hole
@@ -481,9 +481,9 @@ mod tests {
             sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?)").bind(k).bind(v).execute(&pool).await.unwrap();
         }
         let got = resolve_sso_identity(&pool, "sub-123", "c@example.org").await.expect("cached identity");
-        assert_eq!(got.0, "cestienne");
+        assert_eq!(got.0, "dirname");
         assert!(got.1);
-        assert_eq!(got.2, "C. Estienne");
+        assert_eq!(got.2, "D. Rameau");
         assert_eq!(got.3.len(), 1);
     }
 

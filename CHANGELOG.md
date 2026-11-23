@@ -47,7 +47,7 @@ complète du chemin des outils — la panne était **une seule**, mais elle suff
 
 **Ce qui marchait** : les outils sont bien offerts au modèle (`websearch::tools`),
 Inkling **appelle** `recherche_web` avec une bonne requête quand on les lui donne
-(vérifié : `finish_reason: tool_calls`, `{"question":"météo Blagnac demain"}`), la
+(vérifié : `finish_reason: tool_calls`, `{"question":"météo Nantes demain"}`), la
 prélecture déterministe injecte les résultats, et l'interface envoie bien
 `web: true` par défaut.
 
@@ -65,7 +65,7 @@ regarder|aller|voir`). Une **table de 18 phrases positives et 8 négatives** ver
 le comportement, avec la phrase de l'opérateur en dur.
 
 **Vérifié en vrai** dans l'interface, avec la phrase exacte : l'étape
-`searxng · searching for “utilise internet pour regarder la météo à Blagnac demain”`
+`searxng · searching for “utilise internet pour regarder la météo à Nantes demain”`
 apparaît, et la réponse cite les adresses réelles (eociel, Météo-France, allosurf).
 
 ## 2026-11-24 — Inkling à 512 k par session (2 M au total)

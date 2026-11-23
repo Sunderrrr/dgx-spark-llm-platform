@@ -56,13 +56,21 @@ The runner serves one chat model at a time on one of the engines `vllm`,
 bare repo id uses `-hf` (which can pick the wrong shard).
 
 - **Engine versions are opt-in pseudo-flags**, never a default swap:
-  `--llama-v080` and `--vllm-032` pick a specific binary for THAT launch
+  `--llama-v080`, `--llama-v100`, **`--llama-master`**, `--vllm-032` and
+  **`--vllm-034`** pick a specific binary for THAT launch
   (flag table in [`vllm-runner-rs/src/flags.rs`](../vllm-runner-rs/src/flags.rs),
   split per engine into `LLAMA_BIN_FLAGS` / `VLLM_BIN_FLAGS`, so a llama.cpp
   launch cannot be pointed at a vLLM binary).
   The **superseded builds were deleted on 2026-10-29** (37 GB back):
   `atomic-llama`, `llama-cpp-upstream`, `llama-cpp-k2horizon`, `llama-prism`,
   `venvs/vllm025`, `venvs/vllm-028`, `venvs/vllm-next`, `venvs/vllm-nightly`.
+  **Since 2026-11-23 the default `LLAMA_BIN` is
+  `/root/llama-cpp-master/build/bin/llama-server`** (upstream `87f816e`), the only
+  build that knows `inkling2_loop` — required by Inkling-2-Mini. vLLM **0.34.0**
+  is installed in `/root/venvs/vllm-034` and opted into with `--vllm-034`; 0.32
+  stays the default. The older `llama-cpp-v100` remains reachable via
+  `--llama-v100`.
+
   Their pseudo-flags (`--llama-k2`, `--llama-next`, `--llama-prism`,
   `--llama-atomic`, `--vllm-025/027/028/nightly`) were removed **from the runner
   and from the parity fixture**: a flag whose binary is gone fails a launch with
@@ -552,73 +560,29 @@ image, and the version check (`docker exec asr python3 -c
 new image (2.14.1) sat unused, because the container had not been recreated.
 After building, recreate with the script (`HOME=/root bash
 asr/asr-recreate.sh openai/whisper-large-v3-turbo`,
-`sudo /usr/local/sbin/image-recreate.sh black-forest-labs/FLUX.2-klein-4B`).
+`sudo /usr/local/sbin/image-recreate.sh black-forest-labs/FLUX.2-klein-4B flux2-klein-4b 'FLUX.2 Klein 4B' 4 1.0`). The five arguments are
+model id, local slug, display name, steps and guidance — the image catalog
+(`image_configs`) carries them, and launching from Admin sends the same.
 
-## Edge0 145B (NVFP4) — the model that is not a GGUF
+## Edge0 145B — removed on 2026-11-23
 
-`/root/models/Edge0-145B-NVFP4` (106 GB) is a **latent sparse MoE with its own
-runtime**, not a llama.cpp model: the weights are `experts.bin` (47.6 GB),
-`model-skeleton.gguf`, `ple-fp8.gguf` (51.2 GB), `mtp/` plus a `model.json`, and
-the model folder's `start.sh` launches **`strata`**. llama.cpp cannot read that
-layout.
-
-Built here (aarch64 + CUDA 13 + sm_121; the engine's CMakeLists names the GB10 on
-purpose):
-
-```sh
-git clone https://github.com/Edge0-AI/Edge0.git /root/Edge0
-# engine, against the pinned llama.cpp ggml it requires
-cd /root/Edge0/edge0-strata && mkdir -p third_party/llama.cpp
-curl -sL https://github.com/ggml-org/llama.cpp/archive/3cf03257f219afbe7334045ff7c6a06ac68c627d.tar.gz \
-  | tar -xz --strip-components=1 -C third_party/llama.cpp
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc -DCMAKE_CUDA_ARCHITECTURES=121 \
-  -DSTRATA_ENABLE_CUDA=ON -DSTRATA_GGML_DIR="$PWD/third_party/llama.cpp"
-cmake --build build --target strata -j 8
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-# front end
-cd /root/Edge0/edge0-infer && cmake --preset cpu && cmake --build --preset cpu -j 8
-```
-
-Serving is `edge0-serve.service` (port 8095, OpenAI-compatible), whose flags are
-the whole memory story:
+The model (106 GB under `/root/models/Edge0-145B-NVFP4`), its `strata` engine
+(`/root/Edge0`, 1.1 GB) and its catalog entry were **deleted** on 2026-11-23 to
+make room for Inkling-2-Mini. Its place is taken by:
 
 ```
---context 262144 --kv-resident 32768 --vram-reserve-mib 20480
+inkling-2-mini-abliterated   local:inkling-2-mini-abliterated   llamacpp
+  --ctx-size 2097152 --parallel 4 --n-predict 393216 --n-gpu-layers 999
+  --flash-attn on --jinja --rope-scaling none
+  --cache-type-k q4_0 --cache-type-v q4_0
 ```
 
-**`--vram-reserve-mib` is not a micro-optimisation, it is the only knob that
-keeps the promise.** Measured: `--context 131072` left **5 GiB** free while
-`--context 262144` left **8 GiB**, because the engine fills whatever memory it
-finds with expert blobs — a smaller context just buys more experts. Reserving
-20 GiB explicitly gave **23-24 GiB free during generation**, with three
-concurrent requests working and ~50 tok/s combined (21-31 tok/s alone).
+4 sessions of 512k (advertised 128k in / 384k out), q4 KV cache, ~19-21 GiB free.
+Measured: 19.4 tok/s at 512k/session, 29.3 tok/s at 384k/session.
 
-Two details that cost time: the server refuses `--host 0.0.0.0` without
-`--api-key-file` (a token lives in `/etc/edge0/api-key`, 0600, and LiteLLM sends
-it), and `--thinking` is rejected for a delegated model — thinking is switched
-per request with `chat_template_kwargs {"enable_thinking": false}`, verified
-through LiteLLM ("Victor Hugo a écrit Les Misérables.").
-
-Port 8095 is admitted for `172.19.0.0/16` and loopback in
-`vllm-restrict.service`, like 8000/8001/8188.
-
-**It is a runner engine** (`edge0`), so Admin → Launch drives it like the others:
-
-- the catalog row is `local:Edge0-145B-NVFP4`, engine `edge0`, arguments
-  `--context 262144 --kv-resident 32768 --vram-reserve-mib 20480`;
-- those last two are FIRST-CLASS flags translated to the engine's
-  `--strata-arg --kv-resident …` form, because the argument parser refuses a
-  value that starts with `--`;
-- the readiness probe and the portal's `/v1/models` probe both carry the token —
-  the engine answers 401 without it, and a bare probe made `/api/modelhealth`
-  keep the PREVIOUS model for ten minutes (the playground then sent the old name
-  to the new engine and got a 401 of its own);
-- LiteLLM's route for an `edge0` model uses that token instead of the `dummy`
-  placeholder the other engines accept.
-
-**Licence**: `edge0-community-model-1.0` (commercial licensing on request,
-`info@edge0.ai`), base model Qwen3.8-Flash-Next. Not an open licence.
+Nothing to rebuild: the engine is gone with it. `edge0` remains a recognised
+engine name in the runner's allow-list so an old catalog row cannot crash it, but
+it answers "engine not installed".
 
 ## Web search as an MCP server (for agents outside the portal)
 

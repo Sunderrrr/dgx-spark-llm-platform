@@ -229,7 +229,7 @@ mod tests {
             // Verbatim from the playground on 2026-11-23: neither matched, so the
             // model answered « je n'ai pas d'outil de navigation internet ».
             "utilise internet pour regarder",
-            "utilise internet pour regarder la météo à Blagnac demain",
+            "utilise internet pour regarder la météo à Nantes demain",
             "tu peux regarder sur internet stp",
         ] {
             assert!(search_relevant(&m(s)), "devrait déclencher la recherche : {s}");
@@ -244,7 +244,7 @@ mod tests {
         let m = |t: &str| vec![crate::chat::history::Msg {
             role: "user".into(), content: t.into(), images: Vec::new() }];
         for s in [
-            "utilise internet pour regarder la météo à Blagnac demain",
+            "utilise internet pour regarder la météo à Nantes demain",
             "utilise internet",
             "tu peux regarder sur internet stp",
             "tu peux chercher sur le web",
@@ -255,12 +255,12 @@ mod tests {
             "vas sur le net voir les résultats",
             "cherche sur internet la météo de demain",
             "regarde sur le web les résultats du match",
-            "fais une recherche sur la météo à Blagnac",
-            "lance une recherche web sur Blagnac",
-            "trouve-moi des infos sur Blagnac",
+            "fais une recherche sur la météo à Nantes",
+            "lance une recherche web sur Nantes",
+            "trouve-moi des infos sur Nantes",
             "des infos sur la météo de demain",
             "peux-tu chercher la météo de demain",
-            "recherche internet météo Blagnac",
+            "recherche internet météo Nantes",
             "google-le",
         ] {
             assert!(search_relevant(&m(s)), "devrait déclencher la recherche : {s}");

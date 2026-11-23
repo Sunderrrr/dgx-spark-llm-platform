@@ -13,6 +13,11 @@ export type Lang = "fr" | "en";
  * dictionary; a missing entry falls back to French rather than
  * showing a key name. */
 const EN: Record<string, string> = {
+  "Très haute": "Very high",
+  "Haute": "High",
+  "Minime": "Minimal",
+  "Aucun": "None",
+  "Par défaut (le modèle)": "Model default",
   "Ce nom est géré par la plateforme : connecte-toi avec son mot de passe, pas par le SSO.": "This name is managed by the platform: sign in with its password, not through SSO.",
   "Le moteur de décision évalue le prompt en un lot : un grand contexte ne sert à rien.": "The decision engine evaluates the prompt in one batch: a large context buys nothing.",
   "Arguments du moteur": "Engine arguments",

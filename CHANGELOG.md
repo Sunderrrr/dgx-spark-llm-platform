@@ -1,6 +1,35 @@
 # Changelog
 
 
+## 2026-11-24 — Inkling à 512 k par session (2 M au total)
+
+Quatre sessions de **524 288 tokens**, cache **q4_0**, `--n-predict 65536` :
+l'API annonce **458 752 entrées / 65 536 sorties** par session (30k de plus que
+demandé en entrée). Catalogue et LiteLLM à jour.
+
+Prix mesuré, à comparer au réglage précédent :
+
+| configuration | RAM libre | vitesse |
+|---|---:|---:|
+| 4 × 393 216, q4 (avant) | 35 Go | 29,3 tok/s |
+| **4 × 524 288, q4 (servi)** | **19 Go** | **19,4 tok/s** |
+
+Deux conséquences, mesurées et non supposées :
+- **le sidecar image ne peut plus démarrer** à côté du modèle (~19 Go libres) :
+  c'est le journey « image » qui a été refusé par la garde mémoire de la
+  validation, pas un échec ;
+- la **recherche web fonctionne** quand même à cette marge (journey vert, 4 étapes).
+
+Validation : **114 contrôles verts, 0 échec**, 2 journeys lourds **refusés pour
+mémoire** (web search, image) — la garde `VALIDATE_HEAVY_MEM_MIN_GIB` fait
+exactement son travail. Après vérification, la recherche web a été rejouée seule
+et passe ; l'image ne peut pas, par construction, à 19 Go.
+
+Rappel du compromis : 384k/session donnait 29,3 tok/s et 35 Go libres ;
+512k/session donne 19,4 tok/s et 19 Go. Le cran au-dessus (4 × 640k) n'est pas
+raisonnable. Trois sessions de 512k laisseraient 27 Go et la marge pour l'image —
+à choisir si le sidecar image compte plus que la quatrième session.
+
 ## 2026-11-23 (nuit) — Inkling : 4 × 384 k de contexte, cache q4 mesuré
 
 Le contexte d'Inkling passe de 131 072 à **393 216 tokens par session** (4 sessions,

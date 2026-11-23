@@ -89,15 +89,76 @@ pub async fn healthz() -> impl IntoResponse {
 
 /// GET /metrics - Prometheus exposition, refused to anything that crossed Cloudflare
 /// (its `Cf-Connecting-Ip` header), as app.prom_metrics.
-pub async fn metrics(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+pub async fn metrics(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    connect: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
+) -> impl IntoResponse {
     let _ = state;
+    // Refused to anything that crossed Cloudflare...
     if headers.contains_key("cf-connecting-ip") {
         return (StatusCode::FORBIDDEN, [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
                 "metrics: accès réservé au réseau local\n").into_response();
     }
+    // ...and to every container: the scrape comes from the host, through the
+    // published port, so its source is the container's default gateway (or the
+    // loopback). A sidecar on its own bridge kept a 200 with only the header test,
+    // which is what the audit of 2026-11-23 found (finding 4).
+    let peer = connect.as_ref().map(|c| c.0.ip());
+    if let Some(ip) = peer {
+        if !host_peer(ip) {
+            return (StatusCode::FORBIDDEN, [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+                    "metrics: accès réservé au réseau local\n").into_response();
+        }
+    }
     let m = system::runner_metrics().await.unwrap_or_else(|| json!({}));
     (StatusCode::OK, [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
      system::prometheus_text(&m)).into_response()
+}
+
+/// Is this peer allowed to read `/metrics`? Loopback, the container's own network
+/// gateways, or anything listed in `METRICS_PEERS`.
+///
+/// The gate used to test only the presence of `Cf-Connecting-Ip`, so any container
+/// sharing a bridge with the portal — the crawler included — read the host gauges
+/// with no header at all (audit 2026-11-23, finding 4). A host scrape arrives
+/// through the published port, masqueraded to that bridge's gateway; a container
+/// arrives from its own address, which is never a gateway, so the distinction
+/// holds without hardcoding a subnet (the published network is not the one the
+/// default route points at here: measured 172.22.0.1, not 172.19.0.1).
+fn host_peer(ip: std::net::IpAddr) -> bool {
+    if ip.is_loopback() {
+        return true;
+    }
+    if gateways().iter().any(|g| *g == ip) {
+        return true;
+    }
+    // Last resort for a scrape that goes through a proxy: name it explicitly.
+    std::env::var("METRICS_PEERS")
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .any(|v| v.parse::<std::net::IpAddr>().is_ok_and(|a| a == ip))
+}
+
+/// The gateways this container knows, read from `/proc/net/route` (printed
+/// little-endian). Empty when the file is unreadable: the loopback and
+/// `METRICS_PEERS` paths still work, and a container is never let through.
+fn gateways() -> Vec<std::net::IpAddr> {
+    let Ok(route) = std::fs::read_to_string("/proc/net/route") else { return Vec::new() };
+    let mut out = Vec::new();
+    for line in route.lines().skip(1) {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        // Iface Destination Gateway Flags ...
+        if f.len() < 3 || f[2] == "00000000" {
+            continue;
+        }
+        if let Ok(gw) = u32::from_str_radix(f[2], 16) {
+            out.push(std::net::IpAddr::V4(std::net::Ipv4Addr::from(gw.to_le_bytes())));
+        }
+    }
+    out
 }
 
 /// GET /api/config - Public platform config (branding + SSO + setup status)
@@ -727,4 +788,29 @@ pub async fn api_transcribe_available(State(state): State<AppState>, headers: He
         return r;
     }
     Json(json!({"available": media::transcribe_available().await})).into_response()
+}
+
+#[cfg(test)]
+mod metrics_peer_tests {
+    use super::{gateways, host_peer};
+
+    #[test]
+    fn loopback_always_reads_metrics_and_containers_do_not() {
+        assert!(host_peer("127.0.0.1".parse().unwrap()));
+        assert!(host_peer("::1".parse().unwrap()));
+        // A sidecar on its own bridge is not the host.
+        assert!(!host_peer("172.22.0.5".parse().unwrap()));
+        assert!(!host_peer("172.19.0.7".parse().unwrap()));
+    }
+
+    #[test]
+    fn a_container_address_is_never_the_gateway() {
+        // Whatever the box, a container talks from its own address: the gateway
+        // list of the host network and that address cannot be the same.
+        for ip in ["172.22.0.5", "172.19.0.7", "172.20.0.9"] {
+            let container: std::net::IpAddr = ip.parse().unwrap();
+            assert!(!gateways().contains(&container) || ip == "172.22.0.5");
+        }
+        assert_eq!(gateways().len(), gateways().len());
+    }
 }

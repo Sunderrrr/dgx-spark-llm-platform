@@ -1,6 +1,43 @@
 # Changelog
 
 
+## 2026-11-23 — correctifs de l'audit de sécurité
+
+Quatre constats de l'audit `portal-rs/src` (run `dgx-2026-11-23-r1`) sont corrigés.
+
+**1. Cache SSO : une rétrogradation n'est plus annulée.** Une entrée périmée ne
+sert plus de rôle : `resolve_sso_identity` interroge l'annuaire **maintenant** et
+**refuse la connexion** si la résolution échoue, au lieu de servir le tuple
+d'avant la rétrogradation. Un échec de rafraîchissement ne laisse donc plus un
+admin périmé vivre indéfiniment. En plus, `sso_cache_forget` vide ce que le
+cache croit d'un compte dès qu'une synchronisation de groupes le changeait —
+sans quoi la connexion suivante réimportait l'ancien `memberOf`.
+
+**2. Un nom géré par le portail n'a plus de seconde porte.** Un échec du mot de
+passe **local** rebondissait sur un bind annuaire avec le même identifiant : une
+entrée annuaire homonyme ouvrait le compte local et héritait de son rôle. La
+règle est désormais explicite (`credential_source`) et testée : ligne locale =
+source autoritaire ; l'annuaire ne sert que les noms que la plateforme ne gère pas.
+
+**3. `/metrics` n'est plus lisible depuis un conteneur.** Le garde testait la
+**présence** de `cf-connecting-ip`, donc un conteneur qui l'omettait lisait la
+télémétrie hôte. Il vérifie maintenant le **pair** : boucle locale ou passerelle
+réseau du conteneur (l'hôte, qui arrive masqué par le port publié), ou une
+adresse listée dans `METRICS_PEERS`. Mesuré après déploiement : hôte **200**,
+crawl4ai **403**, hôte avec en-tête Cloudflare **403**.
+
+**4. La garde d'URL de la recherche web échoue fermée.** Un nom non résolu était
+traité comme public (`unwrap_or(false)`) ; il est désormais refusé. La portée
+résiduelle du rebinding DNS est mesurée et documentée (services internes
+**publics** seulement — la télémétrie ne fuit plus).
+
+**5. Durcissement latent.** La liste blanche du média-gateway acceptait un
+préfixe : `view%2f..%2f..%2fapi%2fqueue` passait et devenait `/api/queue`.
+Liste stricte (pas de `..`, de barre inversée, de `?`, de `#`), un seul segment
+après `history/`.
+
+Tests : 192 tests unitaires verts, dont quatre nouveaux qui pincent ces règles.
+
 ## 2026-11-17 (suite 4) — le moteur de décision aussi a son catalogue
 
 Le modèle de décision (System One, `/v1/systemone`) était choisi par

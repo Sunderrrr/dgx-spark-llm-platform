@@ -89,7 +89,10 @@ pub async fn internal_target(url: &str) -> bool {
     if bare.parse::<std::net::IpAddr>().is_ok() {
         return is_blocked_ip(bare);
     }
-    resolved_blocked(&host).await.unwrap_or(false)
+    // Fails CLOSED: a name we cannot resolve is not fetched. `unwrap_or(false)` made
+    // a resolution failure look public, which is the opposite of what the guard is
+    // for (audit 2026-11-23, finding 3).
+    resolved_blocked(&host).await.unwrap_or(true)
 }
 
 /// `clean`: banner lines out, noise prefixes cut, blank runs folded.

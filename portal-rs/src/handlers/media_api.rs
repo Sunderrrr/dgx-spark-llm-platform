@@ -63,12 +63,32 @@ fn upstream(kind: &str) -> Option<String> {
 /// The paths each family accepts, so a stray path cannot reach an admin route
 /// of the same server.
 fn path_allowed(kind: &str, rest: &str) -> bool {
+    // A segment that can climb, escape, or turn the path into a query. The caller
+    // holds the gateway token, but this list is the whole isolation of a ComfyUI
+    // that also serves its own admin routes: a prefix test let
+    // `view%2f..%2f..%2fapi%2fqueue` through (it decodes to `view/../../api/queue`
+    // and the URL parser then pops the segments). Audit 2026-11-23, rejected
+    // candidate kept as a latent defect.
+    if rest.is_empty()
+        || rest.contains("..")
+        || rest.contains('\\')
+        || rest.contains('?')
+        || rest.contains('#')
+        || rest.starts_with('/')
+    {
+        return false;
+    }
     match kind {
         "image" => matches!(rest, "generate" | "health" | "model-info"),
         "asr" => matches!(rest, "transcribe" | "api/model-info"),
         "tts" => matches!(rest, "tts" | "clone" | "upload_reference" | "api/model-info"),
         "video" => {
-            rest == "prompt" || rest.starts_with("history/") || rest.starts_with("view")
+            // `prompt`, `history/<id>` (one segment), or `view` exactly.
+            rest == "prompt"
+                || rest == "view"
+                || rest
+                    .strip_prefix("history/")
+                    .is_some_and(|id| !id.is_empty() && !id.contains('/'))
         }
         _ => false,
     }
@@ -551,6 +571,13 @@ mod tests {
         assert!(path_allowed("video", "history/abc"));
         assert!(!path_allowed("image", "admin/stop"));
         assert!(!path_allowed("tts", "../image/generate"));
+        // `view%2f..%2f..%2fapi%2fqueue` decodes to this before reaching the check.
+        assert!(!path_allowed("video", "view/../../api/queue"));
+        assert!(!path_allowed("video", "view?filename=x"));
+        assert!(!path_allowed("video", "history/../../../etc"));
+        assert!(!path_allowed("video", "history/a/b"));
+        assert!(path_allowed("video", "view"));
+        assert!(path_allowed("video", "history/abc"));
         assert!(!path_allowed("nope", "generate"));
         assert!(upstream("nope").is_none());
     }

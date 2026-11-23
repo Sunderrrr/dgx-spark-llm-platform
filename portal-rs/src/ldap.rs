@@ -233,25 +233,35 @@ async fn sso_cache_put(pool: &SqlitePool, sub: &str, v: &(String, bool, String, 
 /// directory from turning every sign-in into a wait.
 pub async fn resolve_sso_identity(pool: &SqlitePool, sub: &str, email: &str) -> Option<(String, bool, String, Vec<String>)> {
     sso_cache_init(pool).await;
-    let cached = sso_cache_get(pool, sub).await;
-    if let Some((value, fresh)) = cached.clone() {
-        if !fresh {
-            let pool = pool.clone();
-            let sub = sub.to_string();
-            let email = email.to_string();
-            tokio::spawn(async move {
-                if let Some(v) = lookup_sso_identity(&pool, &sub, &email).await {
-                    sso_cache_put(&pool, &sub, &v).await;
-                }
-            });
+    if let Some((value, fresh)) = sso_cache_get(pool, sub).await {
+        if fresh {
+            return Some(value);
         }
-        return Some(value);
+        // Stale entry: the directory is the authority, NOW. Serving the cached tuple
+        // returned pre-demotion rights and re-wrote them through the callback, so a
+        // demotion was undone by the next SSO login (audit 2026-11-23, finding 1).
+        // A failed lookup refuses the login instead: failing closed costs one LDAP
+        // round-trip per hour per user, failing open costs the admin role.
+        let refreshed = lookup_sso_identity(pool, sub, email).await?;
+        sso_cache_put(pool, sub, &refreshed).await;
+        return Some(refreshed);
     }
     let fresh = lookup_sso_identity(pool, sub, email).await;
     if let Some(v) = &fresh {
         sso_cache_put(pool, sub, v).await;
     }
     fresh
+}
+
+/// Drop what the cache believes about a username. Called when a directory sync
+/// changes an account's groups: without this, the next SSO login re-imported the
+/// old memberOf and re-granted a right the directory had just removed.
+pub async fn sso_cache_forget(pool: &SqlitePool, username: &str) {
+    sso_cache_init(pool).await;
+    let _ = sqlx::query("DELETE FROM sso_identities WHERE username=?")
+        .bind(username.to_lowercase())
+        .execute(pool)
+        .await;
 }
 
 async fn lookup_sso_identity(pool: &SqlitePool, sub: &str, email: &str) -> Option<(String, bool, String, Vec<String>)> {
@@ -426,6 +436,18 @@ pub fn states_for(state: &crate::AppState, names: &[String]) -> Option<HashMap<S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn the_sso_cache_can_forget_a_username() {
+        // Audit 2026-11-23, finding 1: a group change must drop what the cache
+        // believes, otherwise the next login re-imports the old memberOf.
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.expect("pool");
+        sso_cache_init(&pool).await;
+        sso_cache_put(&pool, "sub-1", &("alice".to_string(), true, "Alice".to_string(), vec!["cn=admins".to_string()])).await;
+        assert!(sso_cache_get(&pool, "sub-1").await.is_some());
+        sso_cache_forget(&pool, "Alice").await;
+        assert!(sso_cache_get(&pool, "sub-1").await.is_none());
+    }
 
     #[test]
     fn groups_and_admin_dns() {

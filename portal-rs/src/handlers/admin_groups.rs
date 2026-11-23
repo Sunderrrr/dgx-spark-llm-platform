@@ -359,6 +359,9 @@ pub async fn sync_ldap_groups(state: &AppState, groups_by_login: &std::collectio
             continue;
         }
         import_groups(pool, &u, "ldap", names).await;
+        // The SSO identity cache holds the OLD groups: drop it, or the next login
+        // re-imports them and re-grants the right this sync just removed.
+        crate::ldap::sso_cache_forget(pool, &u).await;
         let (is_admin, _) = rights_from_groups(state, &u).await;
         let _ = sqlx::query("UPDATE user_sources SET last_is_admin=? WHERE username=?").bind(i64::from(is_admin)).bind(&u).execute(pool).await;
         apply_group_quota(state, &u).await;

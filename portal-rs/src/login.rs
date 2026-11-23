@@ -60,6 +60,18 @@ mod tests {
 
     /// Hashes made by werkzeug's generate_password_hash for « correct horse ».
     #[test]
+    fn a_managed_name_never_falls_through_to_the_directory() {
+        // Audit 2026-11-23, finding 2: the directory used to get a second chance at
+        // a local username after a failed local hash.
+        assert_eq!(credential_source(true, true, true), CredentialSource::Local);
+        assert_eq!(credential_source(true, true, false), CredentialSource::Refused);
+        assert_eq!(credential_source(true, false, true), CredentialSource::Refused);
+        assert_eq!(credential_source(true, false, false), CredentialSource::Refused);
+        assert_eq!(credential_source(false, true, true), CredentialSource::Directory);
+        assert_eq!(credential_source(false, false, false), CredentialSource::Directory);
+    }
+
+    #[test]
     fn werkzeug_hashes() {
         let fx: serde_json::Value = serde_json::from_str(include_str!("../tests/fixtures/werkzeug_hashes.json")).unwrap();
         for h in fx["hashes"].as_array().unwrap() {
@@ -116,6 +128,26 @@ pub(crate) async fn record_source(pool: &sqlx::SqlitePool, username: &str, sourc
 
 /// POST /login - a local or LDAP account's sign-in; a blocked account and
 /// the passkey second factor are checked here too (webauthn.rs for the latter).
+/// Which credential source may serve a username. A row in `local_users` makes the
+/// name platform-managed: the directory never gets a second chance at it.
+#[derive(Debug, PartialEq, Eq)]
+pub enum CredentialSource {
+    Local,
+    Directory,
+    Refused,
+}
+
+/// The rule, alone so a test can pin it: `local_row` is "a row exists for this
+/// username" (enabled or not), `enabled` its flag, `password_ok` the hash check.
+pub fn credential_source(local_row: bool, enabled: bool, password_ok: bool) -> CredentialSource {
+    match (local_row, enabled, password_ok) {
+        (false, _, _) => CredentialSource::Directory,
+        (true, true, true) => CredentialSource::Local,
+        // Managed, disabled, or wrong password: a failed login, never the directory.
+        (true, _, _) => CredentialSource::Refused,
+    }
+}
+
 pub async fn login(state: AppState, headers: HeaderMap, connect: Option<std::net::SocketAddr>, uri: axum::http::Uri, body: axum::body::Bytes) -> Response {
     let form = crate::handlers::form_of(&headers, &body);
     match crate::auth::csrf_ok(&headers, form.get("csrf_token").map(String::as_str), &state.db).await {
@@ -137,19 +169,52 @@ pub async fn login(state: AppState, headers: HeaderMap, connect: Option<std::net
     if locked(pool, &key).await > 0 || locked(pool, &ukey).await > 0 {
         return (StatusCode::UNAUTHORIZED, [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")], "").into_response();
     }
-    let row: Option<(String, Option<String>)> = sqlx::query_as("SELECT password_hash, fullname FROM local_users WHERE username=? AND enabled=1").bind(&username).fetch_optional(pool).await.ok().flatten();
-    let hash = row.as_ref().map_or(DUMMY_HASH.to_string(), |r| r.0.clone());
+    let row: Option<(String, Option<String>, i64)> = sqlx::query_as("SELECT password_hash, fullname, enabled FROM local_users WHERE username=?").bind(&username).fetch_optional(pool).await.ok().flatten();
+    // A disabled local row is not checked here (its hash is stale by design), but it
+    // still marks the name as PLATFORM-MANAGED: the directory must not enter it.
+    let hash = row
+        .as_ref()
+        .filter(|r| r.2 != 0)
+        .map_or(DUMMY_HASH.to_string(), |r| r.0.clone());
     let pw = password.clone();
     let ok = tokio::task::spawn_blocking(move || check_password_hash(&hash, &pw)).await.unwrap_or(false);
     // Local first (no dependency on the directory), then the directory.
-    let (source, fullname, ldap_admin, ldap_groups) = match row.filter(|_| ok) {
-        Some((_, fullname)) => ("local", fullname, false, None),
+    // A local row is AUTHORITATIVE for its username. Until 2026-11-23 a failed local
+    // hash fell through to the directory bind with the same name, so a same-named
+    // directory entry opened this account and inherited its local role (audit
+    // finding 2). The directory is a fallback for names the platform does not manage,
+    // never a second way into a managed one.
+    // A local row is AUTHORITATIVE for its username. Until 2026-11-23 a failed local
+    // hash fell through to the directory bind with the same name, so a same-named
+    // directory entry opened this account and inherited its local role (audit
+    // finding 2). The directory is a fallback for names the platform does not manage,
+    // never a second way into a managed one.
+    let (source, fullname, ldap_admin, ldap_groups) = match row {
+        Some((_, fullname, enabled)) => {
+            if credential_source(true, enabled != 0, ok) == CredentialSource::Local {
+                ("local", fullname, false, None)
+            } else {
+                fail(pool, &key).await;
+                fail(pool, &ukey).await;
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                    "",
+                )
+                    .into_response();
+            }
+        }
         None => match crate::ldap::authenticate(pool, &username, &password).await {
             Some((admin, name, groups)) => ("ldap", Some(name), admin, Some(groups)),
             None => {
                 fail(pool, &key).await;
                 fail(pool, &ukey).await;
-                return (StatusCode::UNAUTHORIZED, [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")], "").into_response();
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                    "",
+                )
+                    .into_response();
             }
         },
     };

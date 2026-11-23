@@ -1,6 +1,48 @@
 # Changelog
 
 
+## 2026-11-24 (suite) — le partage 128k in / 384k out
+
+Le contexte par session est de 512 k, et l'entrée annoncée est maintenant
+**131 072 tokens** (128 k) comme demandé : la réserve de sortie passe à 393 216
+(`--n-predict 393216`), d'où l'affichage « Input context 128k / Output context
+384k » dans l'interface et dans `/model/info`.
+
+Catalogue et LiteLLM à jour, vérifié après relance : chat → « OK », tool calling →
+`recherche_web` avec une question météo, 4 × 524 288 toujours chargées, 21 Go libres.
+
+L'ancien réglage (n-predict 65536) annonçait 458 752 in / 65 536 out : c'était le
+partage par défaut, pas la demande.
+
+## 2026-11-24 — « utilise internet » n'armait rien : le déclencheur était trop étroit
+
+Rapport de l'opérateur : « plusieurs fois j'ai lancé le playground pour lui demander
+de regarder sur internet une info, et il n'arrive jamais à les utiliser ». Revue
+complète du chemin des outils — la panne était **une seule**, mais elle suffisait.
+
+**Ce qui marchait** : les outils sont bien offerts au modèle (`websearch::tools`),
+Inkling **appelle** `recherche_web` avec une bonne requête quand on les lui donne
+(vérifié : `finish_reason: tool_calls`, `{"question":"météo Blagnac demain"}`), la
+prélecture déterministe injecte les résultats, et l'interface envoie bien
+`web: true` par défaut.
+
+**Ce qui cassait** : la phrase de l'opérateur — « utilise internet pour regarder »
+— ne matchait **aucune** des quatre portes qui arment la recherche
+(préférence utilisateur, drapeau client, **déclencheur**, service). Le déclencheur
+connaissait « cherche sur internet », « fais une recherche », « des infos sur »,
+mais pas « utilise internet », « via le web », « va sur internet », « tu peux
+regarder sur internet ». Sans déclenchement : pas d'outil, et le modèle répond
+honnêtement qu'il n'a pas accès au web.
+
+**Corrigé** : deux familles de formulations ajoutées (`utilise/utiliser/via/avec/
+par/passe par/va(s) sur … internet|le web|le net`, et `peux/tu peux/veux + chercher|
+regarder|aller|voir`). Une **table de 18 phrases positives et 8 négatives** verrouille
+le comportement, avec la phrase de l'opérateur en dur.
+
+**Vérifié en vrai** dans l'interface, avec la phrase exacte : l'étape
+`searxng · searching for “utilise internet pour regarder la météo à Blagnac demain”`
+apparaît, et la réponse cite les adresses réelles (eociel, Météo-France, allosurf).
+
 ## 2026-11-24 — Inkling à 512 k par session (2 M au total)
 
 Quatre sessions de **524 288 tokens**, cache **q4_0**, `--n-predict 65536` :

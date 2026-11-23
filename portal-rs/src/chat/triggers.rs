@@ -81,6 +81,13 @@ fn search_request() -> &'static Regex {
         r"|\b(?:des\s+)?(?:infos?|informations?)\s+(?:sur|à propos de)\b",
         r"|recherche\s+web|web\s*search|search\s+(?:the\s+)?web|search\s+online",
         r"|google[-\s]?(?:le|la|it)\b"
+        // "utilise internet", "avec internet", "via le web", "va sur internet" —
+        // the operator's own phrasing on 2026-11-23, which matched NOTHING: the
+        // model answered « je n'ai pas d'outil de navigation internet ».
+        , r"|\b(?:utilise|utilises|utiliser|usage\s+de|via|avec|par|passe\s+par|"
+        , r"vas?|aller|va|ir)\s+(?:sur\s+|vers\s+)?(?:l'\s*)?(?:internet|le\s+web|le\s+net|des\s+recherches?)\b"
+        // "tu peux regarder sur internet", "peux-tu chercher" (space or hyphen)
+        , r"|(?:peux|pourrais|peut|pourrait|veux|voudrais)[-\s](?:tu|vous)?[^.!?\n]{0,24}?\b(?:chercher|rechercher|regarder|aller|voir)\b"
     ))
 }
 
@@ -219,6 +226,42 @@ mod tests {
             "faire une recherche sur les mesures de LFI",
             "peux-tu chercher les mesures phares de LFI",
             "cherche-moi des infos sur le programme de LFI",
+            // Verbatim from the playground on 2026-11-23: neither matched, so the
+            // model answered « je n'ai pas d'outil de navigation internet ».
+            "utilise internet pour regarder",
+            "utilise internet pour regarder la météo à Blagnac demain",
+            "tu peux regarder sur internet stp",
+        ] {
+            assert!(search_relevant(&m(s)), "devrait déclencher la recherche : {s}");
+        }
+    }
+
+    #[test]
+    fn every_natural_way_of_asking_for_the_web_arms_the_tools() {
+        // The single point of failure found on 2026-11-23: the tools worked, the
+        // model called them, but the REQUEST was not recognised as a search, so
+        // nothing was offered. This table is the guard against the next phrasing.
+        let m = |t: &str| vec![crate::chat::history::Msg {
+            role: "user".into(), content: t.into(), images: Vec::new() }];
+        for s in [
+            "utilise internet pour regarder la météo à Blagnac demain",
+            "utilise internet",
+            "tu peux regarder sur internet stp",
+            "tu peux chercher sur le web",
+            "via internet, trouve la date des élections",
+            "avec internet, dis-moi la météo",
+            "passe par le web pour vérifier",
+            "va sur internet et cherche la météo",
+            "vas sur le net voir les résultats",
+            "cherche sur internet la météo de demain",
+            "regarde sur le web les résultats du match",
+            "fais une recherche sur la météo à Blagnac",
+            "lance une recherche web sur Blagnac",
+            "trouve-moi des infos sur Blagnac",
+            "des infos sur la météo de demain",
+            "peux-tu chercher la météo de demain",
+            "recherche internet météo Blagnac",
+            "google-le",
         ] {
             assert!(search_relevant(&m(s)), "devrait déclencher la recherche : {s}");
         }
@@ -228,7 +271,16 @@ mod tests {
     fn a_plain_question_does_not_trigger_a_search() {
         let m = |t: &str| vec![crate::chat::history::Msg {
             role: "user".into(), content: t.into(), images: Vec::new() }];
-        for s in ["bonjour, comment vas-tu ?", "explique-moi les élections", "rerédige ce texte"] {
+        for s in [
+            "bonjour, comment vas-tu ?",
+            "explique-moi les élections",
+            "rerédige ce texte",
+            "corrige ce code python",
+            "traduis ce paragraphe en anglais",
+            "quelle heure est-il ?",
+            "utilise un format court",
+            "avec un ton plus direct",
+        ] {
             assert!(!search_relevant(&m(s)), "ne devrait pas déclencher : {s}");
         }
     }

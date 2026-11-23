@@ -1,6 +1,27 @@
 # Changelog
 
 
+## 2026-11-23 (nuit) — Inkling : 4 × 384 k de contexte, cache q4 mesuré
+
+Le contexte d'Inkling passe de 131 072 à **393 216 tokens par session** (4 sessions,
+1,5 M au total), et **le cache KV est en q4_0** — sur ce modèle le compromis est
+excellent, contrairement à Flash-Next.
+
+| configuration | RAM libre | vitesse |
+|---|---:|---:|
+| 4 × 262 144, cache f16 | 31 Go | 30,4 tok/s |
+| 4 × 262 144, cache **q4_0** | **53 Go** | 29,1 tok/s (−4 %) |
+| **4 × 393 216, cache q4_0** (retenu) | **35 Go** | **29,3 tok/s** |
+
+Sur Flash-Next, le q4_0 avait fait tomber le débit à 0,2 tok/s ; ici il coûte 4 %
+pour 22 Go rendus — d'où le passage à 1,5 M au total. Au-delà (4 × 524 288), il ne
+resterait qu'une quinzaine de Go : refusé, c'est ce manque de marge qui a tué le
+bureau le 23 au soir.
+
+Limites annoncées par l'API : **327 680 entrées / 65 536 sorties** par session.
+Vérifié après chargement : 29,3 tok/s, tool calling (`{"city":"Nice"}`,
+`finish_reason: tool_calls`), 35 Go libres.
+
 ## 2026-11-23 (nuit) — un modèle ajouté doit marcher au chat ET à l'API
 
 Trois défauts trouvés en ajoutant Inkling, tous corrigés.

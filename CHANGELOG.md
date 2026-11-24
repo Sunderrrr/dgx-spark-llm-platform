@@ -1,6 +1,43 @@
 # Changelog
 
 
+## 2026-11-24 — vitesse réelle d'Inkling, et l'incident que j'ai provoqué
+
+Demande : « on est à 20 tok/s, peut-on aller plus vite ». Réponse mesurée, banc
+reproductible (`scripts/bench-llamacpp.py`, même prompt, même budget, 3 passes,
+`timings.predicted_per_second` du moteur et non l'affichage du portail) :
+
+| configuration | décodage | préremplissage | RAM libre |
+|---|---:|---:|---:|
+| **4 × 512k, q4, fa on (servi)** | **29,7 / 29,4 / 29,8 / 33,3 tok/s** | 252–274 tok/s | 18–24 Go |
+
+Les 19,4 tok/s du 23 étaient une mesure du PORTAIL (elle inclut son propre
+chronométrage sur une réponse longue), pas le moteur. La vitesse ne dépend pas de la
+taille du contexte : 1,5M donnait 29,3, 2M donne 29,7–33,3 — l'écart entre passes est
+de ±10 %, donc toute comparaison sous 10 % est du bruit.
+
+**Ce que la doc officielle propose, et pourquoi rien ne s'applique ici** :
+`docs/speculative.md` (le seul levier vraiment gros) exige un modèle brouillon ou un
+checkpoint EAGLE-3 entraîné pour la cible — il n'en existe pas pour `inkling2_loop`.
+`docs/moe-cache.md` ne sert que si les experts restent en RAM hôte (`-cmoe`/`-ncmoe`) ;
+ici tout est sur le GPU. `--flash-attn on` et le cache q4 sont déjà en place.
+
+**L'incident (16:19)** : j'ai testé `--batch-size 4096 --ubatch-size 2048` sur le pool
+de 2M tokens. En deux minutes `MemAvailable` est tombé à zéro, OOM global, `netbird`
+tué, le bureau avec, et le pilote a répondu `NV_ERR_NO_MEMORY`. La ligne qui explique
+tout est en tête du log : `common_fit_params: failed to fit params to free device
+memory: n_gpu_layers already set by user to 999, abort` — puis il a alloué quand même.
+Le plancher mémoire du runner ne pouvait pas l'attraper : il est vérifié AVANT le
+lancement (la machine était vide), c'est le buffer de calcul du lancement lui-même qui
+a grossi.
+
+**Ce qui protège maintenant** : `scripts/bench-llamacpp.py` a un chien de garde qui tue
+`llama-server` sous 12 Go libres, attend **≥ 100 Go disponibles** avant chaque
+lancement (le pilote rend la mémoire du modèle précédent avec un retard : trois
+lancements de suite sont morts sur `failed to fit params` alors que `MemAvailable`
+affichait 110 Go), et **plafonne l'ubatch à 1024**. Le service a été relancé sur la
+configuration connue bonne : 4 × 524 288, chat vérifié.
+
 ## 2026-11-24 (soir) — le raisonnement est choisi par l'app, plus par le serveur
 
 Le lancement d'Inkling portait `--chat-template-kwargs {"reasoning_effort":"low"}` :

@@ -4,7 +4,8 @@
 //
 // You speak — the mic finds where your sentence ends, Whisper writes it (live,
 // in your bubble), it goes out as an ordinary turn of THIS conversation. The
-// answer is read sentence by sentence by Kyutai TTS while the model is still
+// answer is read sentence by sentence by the voice engine (Kyutai TTS, or the
+// personal voice of voice-custom/) while the model is still
 // writing; on screen the whole answer is shown in grey and turns white as it
 // is said. Speak over it and it pauses; once your words are recognised it
 // stops and your turn goes out (barge-in) — a sound that was not speech lets
@@ -280,7 +281,7 @@ export function VoiceMode({ messages, streaming, model, csrf, onSend, onInterrup
         setVoiceAvailable(false);
         setSpeakerOn(false);
         setNotice(data?.code === "voice_engine"
-          ? t("La voix n'est pas disponible : le moteur vocal chargé n'est pas Kyutai TTS. Un admin peut le lancer depuis Admin → Modèles. Les réponses s'affichent en texte.")
+          ? t("La voix n'est pas disponible : le moteur vocal chargé ne sait pas tenir une conversation (Kyutai TTS ou voix personnalisée). Un admin peut le lancer depuis Admin → Modèles. Les réponses s'affichent en texte.")
           : t("La voix n'est pas disponible pour l'instant ({reason}). Les réponses s'affichent en texte.")
               .replace("{reason}", data?.error || t("service arrêté")));
       }

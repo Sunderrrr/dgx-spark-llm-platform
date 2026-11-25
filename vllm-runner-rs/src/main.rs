@@ -292,6 +292,8 @@ async fn voice_launch(body: Bytes) -> Response {
         "chatterbox" | "chatterbox-turbo" | "chatterbox-multilingual" => "/usr/local/sbin/voice-recreate.sh",
         "Qwen3-TTS-12Hz-1.7B-Base" | "Qwen3-TTS-12Hz-0.6B-Base" => "/usr/local/sbin/voice-qwen-recreate.sh",
         "kyutai/tts-1.6b-en_fr" => "/usr/local/sbin/voice-kyutai-recreate.sh",
+        // The personal voice: the script mounts whatever install-voice.sh activated.
+        "custom-voice" => "/usr/local/sbin/voice-custom-recreate.sh",
         _ => return (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "detail": "invalid repo_id"}))).into_response(),
     };
     let (ok, out) = sudo(&[script, &repo], Duration::from_secs(120));

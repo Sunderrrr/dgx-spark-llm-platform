@@ -140,16 +140,17 @@ async fn warm_asr(state: &AppState, user: &str) -> &'static str {
     "starting"
 }
 
-async fn kyutai_ready() -> bool {
+/// The loaded engine can speak a conversation (Kyutai or the personal voice) and is loaded.
+async fn conversation_ready() -> bool {
     let info = media::voice_chat_info_aged(std::time::Duration::ZERO).await;
-    info.get("engine").and_then(Value::as_str) == Some("kyutai") && info.get("loaded").is_some_and(keys::truthy)
+    media::conversation_engine(&info) && info.get("loaded").is_some_and(keys::truthy)
 }
 
 static VOICE_STARTS: std::sync::Mutex<Option<(std::time::Instant, bool)>> = std::sync::Mutex::new(None);
 
-/// `sidecar_autostart('voice', _kyutai_ready, 120)`: Ok, or the reason.
+/// `sidecar_autostart('voice', conversation_ready, 120)`: Ok, or the reason.
 async fn voice_autostart(state: &AppState) -> Result<(), String> {
-    if kyutai_ready().await {
+    if conversation_ready().await {
         return Ok(());
     }
     if let Some(a) = asr_ondemand::mem_available_gb() {
@@ -174,7 +175,7 @@ async fn voice_autostart(state: &AppState) -> Result<(), String> {
     }
     let end = std::time::Instant::now() + std::time::Duration::from_secs(120);
     while std::time::Instant::now() < end {
-        if kyutai_ready().await {
+        if conversation_ready().await {
             return Ok(());
         }
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -198,11 +199,11 @@ pub async fn api_voice_chat_start(State(state): State<AppState>, headers: Header
         }
         b
     };
-    if !kyutai_ready().await {
+    if !conversation_ready().await {
         if let Err(reason) = voice_autostart(&state).await {
             let body = media::voice_chat_body().await;
             if body.get("wrong_engine").and_then(Value::as_bool) == Some(true) {
-                return (StatusCode::CONFLICT, Json(merge(body, json!({"ok": false, "code": "voice_engine", "asr": asr, "error": "Le moteur vocal chargé n'est pas Kyutai TTS."})))).into_response();
+                return (StatusCode::CONFLICT, Json(merge(body, json!({"ok": false, "code": "voice_engine", "asr": asr, "error": "Le moteur vocal chargé ne sait pas tenir une conversation (Kyutai TTS ou voix personnalisée)."})))).into_response();
             }
             return (StatusCode::SERVICE_UNAVAILABLE, Json(merge(body, json!({"ok": false, "code": "voice_unavailable", "asr": asr, "error": reason})))).into_response();
         }
@@ -247,7 +248,7 @@ pub async fn api_voice_speak(State(state): State<AppState>, headers: HeaderMap, 
     };
     if !up.status().is_success() {
         if up.status().as_u16() == 404 {
-            return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "Le moteur vocal chargé n'est pas Kyutai TTS.", "code": "voice_engine"}))).into_response();
+            return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "Le moteur vocal chargé ne sait pas tenir une conversation (Kyutai TTS ou voix personnalisée).", "code": "voice_engine"}))).into_response();
         }
         return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "La voix a refusé la phrase.", "status": up.status().as_u16()}))).into_response();
     }

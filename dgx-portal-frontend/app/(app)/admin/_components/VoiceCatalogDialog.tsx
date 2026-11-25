@@ -24,7 +24,8 @@ import { PlusIcon } from "@heroicons/react/24/outline";
 
 /// The engines the voice sidecar supports, mirrors `VOICE_REPO_IDS`.
 const ENGINES: { repo: string; label: string; note: string }[] = [
-  { repo: "kyutai/tts-1.6b-en_fr", label: "Kyutai TTS 1.6B", note: "fr · en — voix fr-a à fr-d, seul moteur qui parle pendant une conversation" },
+  { repo: "kyutai/tts-1.6b-en_fr", label: "Kyutai TTS 1.6B", note: "fr · en — voix fr-a à fr-d, parle pendant une conversation" },
+  { repo: "custom-voice", label: "Voix personnalisée", note: "ta propre voix (Fish Audio S2 Pro + ta référence, voice-custom/), parle pendant une conversation" },
   { repo: "Qwen3-TTS-12Hz-1.7B-Base", label: "Qwen3-TTS 1.7B", note: "multilingue, synthèse hors conversation" },
   { repo: "Qwen3-TTS-12Hz-0.6B-Base", label: "Qwen3-TTS 0.6B", note: "version légère" },
   { repo: "chatterbox-multilingual", label: "Chatterbox multilingual", note: "multilingue, clonage de voix" },

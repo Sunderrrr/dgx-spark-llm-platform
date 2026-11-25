@@ -176,8 +176,19 @@ pub(crate) async fn voice_chat_info_aged(max_age: Duration) -> Value {
     v
 }
 
-/// The engine the playground's voice mode speaks with.
+/// The engine the playground's voice mode was built for.
 const KYUTAI_ENGINE: &str = "kyutai";
+
+/// Can the loaded voice engine hold a conversation (`/api/speak`, streamed PCM)?
+///
+/// Kyutai always could; any other engine says so itself with
+/// `"conversation": true` in its `/api/model-info` (the personal voice,
+/// voice-custom). Chatterbox and Qwen3-TTS answer 404 on `/api/speak`, so the
+/// flag — not a list of names here — is what keeps them out of the voice mode.
+pub(crate) fn conversation_engine(info: &Value) -> bool {
+    info.get("engine").and_then(Value::as_str) == Some(KYUTAI_ENGINE)
+        || info.get("conversation").and_then(Value::as_bool) == Some(true)
+}
 
 /// `/api/voice/chat/status` (`_status_body`): can the voice mode speak, and with what.
 pub async fn voice_chat_status() -> Value {
@@ -189,13 +200,13 @@ pub(crate) async fn voice_chat_body() -> Value {
     let info = voice_chat_info().await;
     let state = sidecars::proc_status("voice").await;
     let engine = info.get("engine").cloned().unwrap_or(Value::Null);
-    let engine_str = engine.as_str().unwrap_or("");
+    let speaks = conversation_engine(&info);
     let truthy = |k: &str| info.get(k).is_some_and(crate::keys::truthy);
     json!({
-        "ready": engine_str == KYUTAI_ENGINE && truthy("loaded"),
+        "ready": speaks && truthy("loaded"),
         "state": state,
         "engine": engine,
-        "wrong_engine": crate::keys::truthy(&engine) && engine_str != KYUTAI_ENGINE,
+        "wrong_engine": crate::keys::truthy(&engine) && !speaks,
         "voices": info.get("voices").filter(|v| crate::keys::truthy(v)).cloned().unwrap_or_else(|| json!([])),
         "default_voice": info.get("default_voice").cloned().unwrap_or(Value::Null),
         "sample_rate": info.get("sample_rate").filter(|v| crate::keys::truthy(v)).cloned().unwrap_or_else(|| json!(24000)),
@@ -215,6 +226,18 @@ pub async fn transcribe_available() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn conversation_engine_is_kyutai_or_a_declared_one() {
+        assert!(conversation_engine(&json!({"engine": "kyutai", "loaded": true})));
+        assert!(conversation_engine(&json!({"engine": "fish-s2-pro", "conversation": true})));
+        // Cloning engines: no /api/speak, so never the voice mode.
+        assert!(!conversation_engine(&json!({"engine": "qwen3-tts", "loaded": true})));
+        assert!(!conversation_engine(&json!({"engine": "chatterbox"})));
+        // The flag must be a real true, not a truthy string.
+        assert!(!conversation_engine(&json!({"engine": "x", "conversation": "yes"})));
+        assert!(!conversation_engine(&json!({})));
+    }
 
     #[test]
     fn cache_expires_after_its_ttl() {

@@ -1,5 +1,55 @@
 # Changelog
 
+## 2026-11-25 — voix personnalisée : le mode vocal avec la voix de l'opérateur (S2 Pro)
+
+Nouveau moteur `voice-custom/` : Fish Audio S2 Pro qui clone une voix de référence
+(extrait + transcription exacte), servi comme quatrième moteur du conteneur `voice`
+(même nom, même réseau, port 8004). Il parle le contrat du mode vocal (`/api/speak`,
+PCM en flux, 44,1 kHz) et l'annonce avec `"conversation": true` dans `/api/model-info`.
+Le portail ne compare plus le nom du moteur à `kyutai` : `media::conversation_engine`
+accepte Kyutai OU tout moteur qui déclare ce drapeau (Chatterbox et Qwen3-TTS restent
+dehors, ils répondent 404 sur `/api/speak`). Le clonage depuis la page refuse ce moteur.
+
+**Référence plutôt que fine-tuning** : la doc de fine-tuning de Fish Audio déconseille
+de fine-tuner ce checkpoint aligné par RL, et précise que leur LoRA apprend la façon de
+parler, pas le timbre. La voix personnelle est donc une référence bien choisie, encodée
+une fois et gardée en cache par le moteur.
+
+Chaîne complète dans `voice-custom/README.md` : `reference/try_voice.sh` (quatre
+références candidates construites depuis le dataset, mêmes phrases rendues avec chacune,
+RTF mesuré), `install-voice.sh` (copie root, bascule atomique du lien
+`/var/lib/voice-custom/active`), puis Admin → Modèles → « custom-voice ». Rien ne
+redémarre à l'installation.
+
+Image : fish-speech épingle torch 2.8, sans build pour le GB10 (sm_121) ; le code
+d'inférence est installé sans ses épingles sur torch 2.10 cu130, avec un jeu de
+dépendances dont la chaîne d'import a été vérifiée au commit `0f8a12e`.
+
+Au passage : la page d'accueil affichait « Chatterbox » pour Kyutai ; le libellé suit
+maintenant le vrai moteur.
+
+**Non mesuré ici (pas de GPU)** : le chargement réel de S2 Pro sur le GB10, torch.compile
+sur sm_121 (repli automatique en eager), et la latence du premier son. `try_voice.sh`
+mesure les trois. ~17 Gio de mémoire unifiée une fois chargé.
+
+**Deux défauts d'image corrigés à la vérification du 2026-11-25** : le patch ne se
+construisait pas.
+1. `librosa==1.0.1` et `ormsgpack==1.13.1` exigent **Python ≥ 3.11**, alors que la base
+   `nvidia/cuda:13.0.3-runtime-ubuntu22.04` fournit Python **3.10** : `pip` échouait sur
+   `No matching distribution`. Base passée à **Ubuntu 24.04** (Python 3.12, digest
+   épinglé), où toute la liste se résout.
+2. Ubuntu 24.04 marque son Python « externally managed » (PEP 668) et son `pip` est
+   géré par Debian : l'étape `pip install --upgrade pip` échouait sur
+   `Cannot uninstall pip 24.0, RECORD file not found`. L'auto-mise à jour est retirée
+   (pip 24.0 résout les pins) et `--break-system-packages` ajouté.
+
+Vérifié après correction : l'image **se construit** ; `ModelManager`, `ServeTTSRequest`
+et `tts_inference_engine` existent bien à ce commit (`modded_dac_vq` est une config
+réelle du dépôt) ; `fishaudio/s2-pro` est public et pèse 8,5 Go de poids + 1,7 Go de
+codec ; le serveur HTTP, lancé avec un moteur factice, rend `conversation: true`,
+streame du PCM 44,1 kHz, refuse au-delà de 1000 caractères (413), découpe une phrase
+longue en deux, et sert WAV/MP3/PCM ; `install-voice.sh` et `voice-custom-recreate.sh`
+appliquent leurs gardes et basculent le lien `active` de façon atomique.
 
 ## 2026-11-24 — vitesse réelle d'Inkling, et l'incident que j'ai provoqué
 

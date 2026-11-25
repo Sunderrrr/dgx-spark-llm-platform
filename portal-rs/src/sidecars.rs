@@ -119,7 +119,18 @@ pub async fn voice_model() -> Option<String> {
     v
 }
 
-/// voice_routes.get_voice_engine: 'chatterbox' or 'qwen3-tts' (model-info cached 30 s).
+/// The home-page label of a voice engine id (Kyutai used to show as « Chatterbox »).
+fn voice_engine_label(engine: &str) -> &'static str {
+    match engine {
+        "qwen3-tts" => "Qwen3-TTS",
+        "fish-s2-pro" => "Voix personnalisée (S2 Pro)",
+        "kyutai" => "Kyutai TTS",
+        _ => "Chatterbox",
+    }
+}
+
+/// voice_routes.get_voice_engine: the `engine` of the voice sidecar's model-info
+/// ('chatterbox', 'qwen3-tts', 'kyutai', 'fish-s2-pro'), cached 30 s.
 pub async fn voice_engine() -> String {
     let info = match cached(&MODELS, "voice_info", Duration::from_secs(30)) {
         Some(v) => v,
@@ -330,7 +341,7 @@ pub async fn running_and_metrics(db: &Database) -> (Vec<Value>, Value) {
         running.push(json!({"name": m, "kind": "decisions", "exposed": false}));
     }
     if let Some(v) = voice {
-        let label = if voice_engine().await == "qwen3-tts" { "Qwen3-TTS" } else { "Chatterbox" };
+        let label = voice_engine_label(&voice_engine().await);
         running.push(json!({"name": format!("{label} ({v})"), "kind": "voice", "exposed": false}));
         out.insert("voice".into(), m_voice);
     }
@@ -347,5 +358,13 @@ mod tests {
         assert_eq!(py_round0(3.5), 4);
         assert_eq!(py_round0(1234.4), 1234);
         assert_eq!(py_round1(0.25), 0.2);
+    }
+
+    #[test]
+    fn voice_engine_label_names_every_engine() {
+        assert_eq!(voice_engine_label("kyutai"), "Kyutai TTS");
+        assert_eq!(voice_engine_label("fish-s2-pro"), "Voix personnalisée (S2 Pro)");
+        assert_eq!(voice_engine_label("qwen3-tts"), "Qwen3-TTS");
+        assert_eq!(voice_engine_label("chatterbox"), "Chatterbox");
     }
 }

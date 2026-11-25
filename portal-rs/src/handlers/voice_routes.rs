@@ -122,6 +122,11 @@ pub(crate) async fn voice_clone(engine: &str, reference: Vec<u8>, mime: &str, te
     if engine == "kyutai" {
         return Err("Le moteur vocal chargé est Kyutai TTS (mode vocal du playground) : il ne clone pas de voix. Un admin peut relancer Chatterbox ou Qwen3-TTS depuis Admin → Modèles.".to_string());
     }
+    // The personal voice speaks with ONE reference installed on the host: it
+    // takes no reference from the page.
+    if engine == "fish-s2-pro" {
+        return Err("Le moteur vocal chargé est la voix personnalisée (mode vocal du playground) : elle ne clone pas d'autres voix. Un admin peut relancer Chatterbox ou Qwen3-TTS depuis Admin → Modèles.".to_string());
+    }
     let client = |secs| reqwest::Client::builder().timeout(std::time::Duration::from_secs(secs)).build().map_err(|_| "Service voix injoignable.".to_string());
     let ext = audio_ext(mime);
     if engine == "qwen3-tts" {
@@ -351,5 +356,6 @@ mod tests {
         assert_eq!(voice_clone("chatterbox", b"short".to_vec(), "audio/mpeg", "x", "fr", "").await.unwrap_err(), "Échantillon audio refusé : trop court");
         assert!(voice_clone("chatterbox", b"ref".to_vec(), "audio/mpeg", "fail", "fr", "").await.unwrap_err().contains("plus de 5 secondes"));
         assert!(voice_clone("kyutai", vec![], "audio/wav", "x", "fr", "").await.unwrap_err().contains("Kyutai"));
+        assert!(voice_clone("fish-s2-pro", vec![], "audio/wav", "x", "fr", "").await.unwrap_err().contains("voix personnalisée"));
     }
 }

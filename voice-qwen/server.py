@@ -295,26 +295,52 @@ async def clone(
     return Response(content=buf.getvalue(), media_type="audio/wav")
 
 
-# A long sentence is generated in one piece by this Qwen API (it has no
-# audio streaming: `non_streaming_mode=False` only simulates streaming TEXT
-# input). Waiting for the whole sentence before sending a byte is what made the
-# voice feel late, so a long sentence is cut at its first comma and each clause
-# is streamed as soon as it is ready — the first sound arrives after the FIRST
-# clause instead of the whole sentence.
-SPLIT_MIN = 60
-CLAUSE_GAP_S = 0.08
+# This Qwen API has no audio streaming (generate_custom_voice always returns the
+# whole sentence; `non_streaming_mode=False` only simulates streaming TEXT
+# input), and the model generates at about real time (RTF ~1 measured on the
+# GB10). The only lever on latency is therefore GRANULARITY: a sentence is cut
+# into clauses at every comma/colon/semicolon and each clause is streamed as
+# soon as it is ready. The player schedules them in order, so the voice trails
+# the text by one CLAUSE instead of one sentence.
+CLAUSE_MAX_CHARS = 110
+# The FIRST piece is deliberately short: the model generates at about real time,
+# so the wait before the first sound is the generation of that first piece. 35
+# characters is ~2 s of speech — the shortest that still sounds like a sentence.
+FIRST_MAX_CHARS = 35
+CLAUSE_GAP_S = 0.05
 
 
-def _split_first_clause(text: str) -> list[str]:
-    if len(text) < SPLIT_MIN:
-        return [text]
+def _split_clauses(text: str) -> list[str]:
+    """Split on punctuation, then glue short fragments back to a usable size."""
     import re as _re
-    m = _re.search(r"[,;:]\s+", text[20:])
-    if not m:
+    parts = [p.strip() for p in _re.split(r"(?<=[,;:!?])\s+", text) if p.strip()]
+    if not parts:
         return [text]
-    cut = 20 + m.end()
-    head, tail = text[:cut].strip(), text[cut:].strip()
-    return [head, tail] if tail else [text]
+    # Cut a short first piece so playback can start early.
+    if parts and len(parts[0]) > FIRST_MAX_CHARS:
+        head = parts[0]
+        cut = head.rfind(" ", 0, FIRST_MAX_CHARS)
+        cut = cut if cut > 0 else FIRST_MAX_CHARS
+        parts = [head[:cut].strip(), head[cut:].strip()] + parts[1:]
+        parts = [x for x in parts if x]
+    pieces: list[str] = []
+    for part in parts:
+        if pieces and len(pieces) > 1 and len(pieces[-1]) + len(part) + 1 <= CLAUSE_MAX_CHARS:
+            pieces[-1] = f"{pieces[-1]} {part}"
+        else:
+            pieces.append(part)
+    # A piece that is still long is cut at a space, so no single generation ever
+    # blocks the stream for many seconds.
+    out: list[str] = []
+    for piece in pieces:
+        while len(piece) > CLAUSE_MAX_CHARS * 1.6:
+            cut = piece.rfind(" ", 0, int(CLAUSE_MAX_CHARS * 1.6))
+            cut = cut if cut > 0 else int(CLAUSE_MAX_CHARS * 1.6)
+            out.append(piece[:cut].strip())
+            piece = piece[cut:].strip()
+        if piece:
+            out.append(piece)
+    return out or [text]
 
 
 @app.post("/api/speak")
@@ -332,7 +358,7 @@ async def speak(body: dict) -> Response:
         raise HTTPException(status_code=400, detail="empty text")
     if len(text) > 1000:
         raise HTTPException(status_code=413, detail="text longer than 1000 characters")
-    pieces = _split_first_clause(text)
+    pieces = _split_clauses(text)
 
     async def stream():
         import numpy as _np

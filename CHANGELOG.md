@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-11-25 (nuit, suite) — pourquoi la voix « reste lente », mesuré hop par hop
+
+Mesure de bout en bout (navigateur → Traefik → portail → moteur), qui tranche :
+
+| hop | temps |
+|---|---:|
+| `/api/csrf` (chaîne + portail, sans moteur) | **47 ms** |
+| `/api/voice/speak`, phrase courte | 1,9–2,3 s |
+| le même appel, moteur seul | 0,74–0,96 s pour 0,96 s d'audio |
+
+**La chaîne n'ajoute rien** : le portail streame (`Body::from_stream`), Traefik ne bufferise
+pas. Le temps est **la génération elle-même** : le modèle produit environ **1 seconde
+d'audio par seconde de calcul** (RTF 0,86–1,29 selon la longueur et le froid). Il ne peut
+donc jamais prendre d'avance sur le texte — c'est la définition d'un RTF ≈ 1.
+
+Trois pistes vérifiées, aucune n'ouvre de raccourci :
+- **streaming audio natif** : il n'existe pas dans l'API. `non_streaming_mode=False` ne
+  simule que l'entrée TEXTE (lu dans le paquet) ;
+- **vLLM** : 0.34 **ne connaît pas** Qwen3-TTS (aucun module `qwen3_tts`), donc pas de
+  streaming par ce chemin ;
+- **`torch.compile`** : toujours en compilation après **17 minutes** sur sm_121 — même
+  comportement que S2. Abandonné.
+
+**Ce qui a donc été corrigé** : la granularité. La phrase est découpée à chaque
+ponctuation, et la **première** proposition est volontairement courte (35 caractères,
+≈ 2 s de parole) pour démarrer au plus vite, les suivantes restant longues pour la
+prosodie.
+
+| | avant | **après** |
+|---|---:|---:|
+| premier son, phrase courte | 2 125 ms | **1 085–1 256 ms** |
+| premier son, phrase longue | 2 525 ms | **2 282 ms** |
+
+La voix reste **en retard d'environ une proposition** sur le texte, et le temps total
+d'une réponse reste voisin de sa durée audio. Pour aller plus vite il faut un moteur plus
+rapide que la parole : les candidats déjà présents sur la machine sont Chatterbox (0,5B)
+et Kyutai (temps réel, sans voix personnalisée).
 ## 2026-11-25 (nuit) — la voix arrive plus vite que le texte
 
 Rapport de l'opérateur : « quand le texte est écrit, ça prend du temps à dire ce qui est

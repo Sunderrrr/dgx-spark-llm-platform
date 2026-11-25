@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-11-25 — contexte ramené à 256k par session (192k in / 64k out)
+
+Quatre sessions de **262 144** tokens : l'API annonce **196 608 entrées (192k)** et
+**65 536 sorties (64k)** par session, via `--n-predict 65536` sur une fenêtre de 256k.
+
+| configuration | RAM libre | vitesse mesurée |
+|---|---:|---:|
+| 4 × 512k, 192k in… (avant) | 20 Go | ~30 tok/s |
+| **4 × 256k, 192k in / 64k out (servi)** | **62 Go** | **30,9 tok/s** |
+
+Le prix en vitesse est nul — la taille du contexte ne change pas le décodage, ce qui
+confirme la mesure du 24 (1,5M et 2M donnaient déjà la même chose). Le gain est
+ailleurs : **42 Go rendus**, de quoi relancer le sidecar image à côté du modèle et
+laisser la validation rejouer ses journeys lourds au lieu de les refuser.
+
+Vérifié après relance : 4 × 262 144 chargées, chat → « OK », tool calling →
+`recherche_web` avec une question météo, 62 Go libres.
 ## 2026-11-25 — voix personnalisée : le mode vocal avec la voix de l'opérateur (S2 Pro)
 
 Nouveau moteur `voice-custom/` : Fish Audio S2 Pro qui clone une voix de référence

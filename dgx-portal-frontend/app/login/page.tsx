@@ -44,7 +44,6 @@ export default function LoginPage() {
       setError(t("Accès révoqué pour ce compte. Contacte un administrateur."));
     } else if (refused === "managed") {
       // The SSO callback refused a name the portal manages: say which door to use.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setError(t("Ce nom est géré par la plateforme : connecte-toi avec son mot de passe, pas par le SSO."));
     }
   }, [t]);

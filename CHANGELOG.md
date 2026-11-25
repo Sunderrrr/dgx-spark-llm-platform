@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-11-25 (après-midi) — modèle changé : Qwen3.8-Flash-Next, et il voit
+
+Inkling cède la place au modèle qui était au catalogue depuis le 14 :
+**`qwen38-flash-next-Abliterated-Uncensored`** (79 Go, IQ3_S en deux éclats, llama.cpp).
+C'est le changement que les 42 Go rendus par le passage à 256k permettent.
+
+| | Inkling-2-Mini | **Qwen3.8-Flash-Next** |
+|---|---|---|
+| sessions | 4 × 256k | **3 × 256k** (1M au total) |
+| entrée / sortie annoncées | 192k / 64k | **192k / 64k** |
+| décodage mesuré | 30,9 tok/s | **21,8 tok/s** |
+| préremplissage | 274 tok/s | **127 tok/s** |
+| RAM libre | 62 Go | **29 Go** |
+| vision | non (pas de mmproj) | **oui** (`vision: true`, `video: true`) |
+
+**La vision est active pour la première fois** : le lancement passe
+`--mmproj mmproj-Qwen3.8-Flash-Next-BF16.gguf`, que le catalogue portait déjà sans
+qu'il soit utilisé. Vérifié de bout en bout à travers LiteLLM : une image PNG envoyée
+en base64 est décrite correctement (« Un cercle rouge plein sur un fond blanc, comme le
+drapeau du Japon. »), et l'API annonce `supports_vision: true`.
+
+Chat → « OK », tool calling → `recherche_web` avec une question météo, 3 × 262 144
+chargées, 29 Go libres. Compteur du chien de garde pendant le chargement : **33,9 Go
+libres au minimum**, jamais sous le plancher.
+
+Pour revenir à Inkling : Admin → Modèles → « Lancer » sur
+`inkling-2-mini-abliterated` (ou `POST /launch` avec ses arguments du catalogue).
 ## 2026-11-25 — contexte ramené à 256k par session (192k in / 64k out)
 
 Quatre sessions de **262 144** tokens : l'API annonce **196 608 entrées (192k)** et

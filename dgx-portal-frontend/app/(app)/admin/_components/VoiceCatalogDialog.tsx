@@ -25,7 +25,7 @@ import { PlusIcon } from "@heroicons/react/24/outline";
 /// The engines the voice sidecar supports, mirrors `VOICE_REPO_IDS`.
 const ENGINES: { repo: string; label: string; note: string }[] = [
   { repo: "kyutai/tts-1.6b-en_fr", label: "Kyutai TTS 1.6B", note: "fr · en — voix fr-a à fr-d, parle pendant une conversation" },
-  { repo: "custom-qwen-tts", label: t("Voix fine-tunée"), note: "ta voix entraînée sur Qwen3-TTS 1.7B (single-speaker), parle pendant une conversation" },
+  { repo: "custom-qwen-tts", label: "Voix fine-tunée", note: "ta voix entraînée sur Qwen3-TTS 1.7B (single-speaker), parle pendant une conversation" },
   { repo: "Qwen3-TTS-12Hz-1.7B-Base", label: "Qwen3-TTS 1.7B", note: "multilingue, synthèse hors conversation" },
   { repo: "Qwen3-TTS-12Hz-0.6B-Base", label: "Qwen3-TTS 0.6B", note: "version légère" },
   { repo: "chatterbox-multilingual", label: "Chatterbox multilingual", note: "multilingue, clonage de voix" },

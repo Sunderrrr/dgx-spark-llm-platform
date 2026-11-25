@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-11-26 — le modèle de décision passe à LiquidAI d1-3B, Clef supprimé
+
+`Cloudflare Clef` (18 Go de GGUF, servi par un second `llama-server` lancé à la demande)
+est **retiré** : poids, entrée de catalogue, route LiteLLM. Il est remplacé par
+**`LiquidAI/d1-3B`**, un modèle de décision de 3,12 milliards de paramètres construit sur
+LFM2.5-VL (multimodal, 32k de contexte) qui rend ses réponses **en une seule passe,
+sans générer de tokens** — c'est la définition d'un modèle de décision, et c'est ce que
+le contrat System One du portail attend.
+
+**Aucun changement de contrat pour les clients** : le service parle `POST /v1/systemone`
+avec le même corps (`state` + `questions` typées `noul`/`choice`/`score`) et la même
+réponse (`noul` ; `choice` + `confidence` + `probabilities` ; `score` + `legend`, plus
+`usage`). Vérifié à travers LiteLLM sur deux cas réels : « facturé deux fois » →
+équipe `facturation` à **96,5 %**, urgence 2,33/3 ; « livraison en retard de 10 jours,
+demande un geste » → équipe `livraison` à **95,3 %**.
+
+**Ce qui change dans l'infrastructure** : d1 tourne en **service systemd**
+(`d1-decisions.service`, conteneur `d1-decisions:3b-cu130`, publié sur
+`172.19.0.1:8002` seulement), et non plus comme un processus lancé par vllm-runner à la
+demande. Une décision coûte 8 à 30 ms sur GPU ; garder le modèle chaud (~3 Go) évite de
+payer un chargement de 30 s à la première décision. Le `llama-server` de décision et son
+`--mmproj` disparaissent avec Clef.
+
+Reste à faire à la main (fichier `.env`, protégé par hook) : poser
+`DECISIONS_MODEL=d1-3b` et vider `DECISIONS_ARGS` / le chemin du GGUF de Clef, pour que
+la page Admin ne montre plus l'ancien modèle.
 ## 2026-11-25 (nuit) — « trois mots, puis trois secondes de silence » : l'arbitrage mesuré
 
 Le symptôme rapporté venait de mon propre découpage : une **première proposition très

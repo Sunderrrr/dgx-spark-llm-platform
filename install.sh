@@ -202,7 +202,7 @@ for unit in vllm-runner.service vllm-restrict.service dgx-docker-restrict.servic
              dgx-traefik-boot.service dgx-monitor.service dgx-monitor.timer \
              dgx-backup.service dgx-backup.timer dgx-logs.service dgx-logs.timer \
              dgx-validation.service dgx-validation.path \
-             comfyui.service comfyui-relay.service; do
+             comfyui.service comfyui-relay.service d1-decisions.service; do
   [ -f "systemd/$unit" ] || continue
   # Units use /root as the placeholder for the install user's home (see above).
   sed -e "s#/root/ai-platform#${REPO_DIR}#g" -e "s#/root/#${HOME%/}/#g" "systemd/$unit" > "/etc/systemd/system/$unit"

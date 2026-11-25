@@ -1,0 +1,30 @@
+# The decision model (LiquidAI/d1-3B) — the System One API on :8002, the port the
+# platform has always used for it.
+#
+# A SERVICE and not an on-demand process (the previous Clef engine was spawned by
+# vllm-runner): d1 answers in one forward pass and holds ~3 GiB, so it stays warm
+# next to the chat model instead of paying a load at every first decision. The
+# runner no longer manages it; `DECISIONS_API_BASE` already points here.
+[Unit]
+Description=Decision model (LiquidAI d1-3B) — System One API
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/bin/docker rm -f d1-decisions
+ExecStart=/usr/bin/docker run --rm --name d1-decisions \
+  --log-opt max-size=20m --log-opt max-file=3 \
+  --network ai-platform_default --gpus all --shm-size=2g \
+  --security-opt no-new-privileges --cap-drop ALL \
+  -p 172.19.0.1:8002:8002 \
+  -v /root/models/d1-3b:/app/model:ro \
+  -v /root/.cache/huggingface:/app/hf_cache \
+  -e HF_HOME=/app/hf_cache \
+  d1-decisions:3b-cu130 python3 -m uvicorn server:app --host 0.0.0.0 --port 8002
+ExecStop=/usr/bin/docker stop -t 10 d1-decisions
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

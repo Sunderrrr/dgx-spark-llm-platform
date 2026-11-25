@@ -94,6 +94,25 @@ async fn upsert(public_name: &str, upstream: &str, max_input: i64, max_output: i
         "model_info": {
             "mode": "chat",
             "supports_function_calling": true,
+            // Clients decide whether to offer a thinking control from these
+            // flags, not by probing: with `supports_reasoning` absent, an app
+            // (Kodus, OpenWebUI…) greys out its whole level selector and says
+            // the model cannot reason — measured 2026-11-25 on the served
+            // Inkling, which does emit `reasoning_content`.
+            // The levels below are exactly the ones `chat/playground.rs`
+            // forwards in `chat_template_kwargs`, so the app cannot offer one
+            // the engine would ignore.
+            "supports_reasoning": true,
+            "supports_none_reasoning_effort": true,
+            "supports_minimal_reasoning_effort": true,
+            "supports_low_reasoning_effort": true,
+            "supports_xhigh_reasoning_effort": true,
+            "supports_max_reasoning_effort": true,
+            "reasoning_effort_levels": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+            // A vision-capable engine must say so, or the client hides the
+            // control: the launch on 2026-11-25 dropped it while the model did
+            // accept images.
+            "supports_vision": engine_vision().await,
             "max_input_tokens": max_input,
             "max_output_tokens": max_output,
         },
@@ -160,6 +179,21 @@ fn template_kwargs(args: &str) -> Option<serde_json::Value> {
 }
 
 /// `_register_litellm_model(name, vllm_args, engine)`.
+/// Does the running engine accept images? `/props` announces it as
+/// `modalities.vision` (or the legacy `vision`), and a registration that omits
+/// it makes clients hide their image control.
+async fn engine_vision() -> bool {
+    let base = std::env::var("VLLM_API_URL").unwrap_or_else(|_| "http://172.19.0.1:8000/v1".into());
+    let root = base.trim_end_matches('/').trim_end_matches("/v1");
+    let Ok(c) = reqwest::Client::builder().timeout(std::time::Duration::from_secs(3)).build() else { return false };
+    let Ok(r) = c.get(format!("{root}/props")).send().await else { return false };
+    let Ok(v) = r.json::<serde_json::Value>().await else { return false };
+    v.pointer("/modalities/vision").and_then(|x| x.as_bool())
+        .or_else(|| v.get("vision").and_then(|x| x.as_bool()))
+        .unwrap_or(false)
+}
+
+
 pub async fn register(name: &str, args: &str, engine: &str) -> bool {
     let (max_input, max_output) = crate::health::ctx_split(args, engine);
     // Whatever the engine runs with, the API sends — and nothing more: a model

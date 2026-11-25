@@ -74,7 +74,7 @@ then a relaunch.
 The fish-speech PyTorch engine returns audio per text chunk, not per frame: one
 sentence comes back in one piece. The voice mode already sends one sentence per
 call, and the server splits a long sentence once at its first comma. torch.compile
-is on by default (`S2PRO_COMPILE=1`) and falls back to eager if it cannot build;
+is OFF by default (`S2PRO_COMPILE=1` turns it on) and falls back to eager if it cannot build;
 `model-info` reports which one runs. Whether this is conversational on the GB10 is
 for `try_voice.sh` to measure — if not, the next step is a streaming backend
 (vLLM-Omni or SGLang-Omni serve S2 Pro with frame-level streaming).

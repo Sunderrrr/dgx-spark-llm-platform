@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026-11-25 — la voix S2 Pro tourne sur la DGX : elle parle, mais trois fois trop lentement
+
+Premier test réel du moteur `voice-custom/` sur le GPU. **Il fonctionne** — et trois
+défauts que seul le GPU pouvait révéler sont tombés.
+
+**Blocages corrigés dans l'image**
+1. `torch.compile` (Inductor) compile pour sm_121 pendant des dizaines de minutes sans
+   émettre un seul échantillon : après 20 min, toujours à `0/1023`. Le moteur passe en
+   **eager par défaut** (`S2PRO_COMPILE=1` pour le réactiver) ; `try_voice.sh` suit avec
+   `S2PRO_COMPILE=0`.
+2. `torchaudio.load` en 2.10 **ne décode plus par lui-même** : il passe par TorchCodec,
+   dont la roue ne se charge pas contre cette ABI de torch
+   (`libtorchcodec_image.so`). fish-speech ne pouvait donc pas lire la référence.
+   L'appel est remplacé par **libsndfile** (chemin et `BytesIO`), patch appliqué au
+   build.
+3. Conséquence de 2 : le backend « ffmpeg » choisi par fish-speech est le chemin cassé ;
+   le patch le contourne entièrement.
+
+**Mesures réelles** (quatre références construites depuis le dataset, mêmes 8 phrases) :
+
+| référence | durée | RTF | 1ʳᵉ phrase |
+|---|---:|---:|---:|
+| court | 14,1 s | 2,86 | 7,9 s |
+| moyen | 17,9 s | 2,97 | 7,1 s |
+| long | 26,5 s | 3,08 | 7,8 s |
+| varie | 20,2 s | 3,42 | 8,7 s |
+
+Chargement : **96,5 s** en eager (poids dans le cache HF, aucun téléchargement).
+Moteur réel lancé sur `voice_net` : `engine: fish-s2-pro`, `conversation: true`,
+`loaded: true`, `voices: ["mael"]`, `compiled: false`. Une phrase de 2,93 s d'audio
+demande **9,7 s** (RTF **3,31**).
+
+**Verdict** : RTF ≈ 3 signifie que le mode vocal du playground prendrait trois fois la
+durée de la phrase pour la dire — inutilisable en conversation. Le moteur reste
+excellent pour la synthèse hors conversation (`/tts`, `/v1/audio/speech`). Pour du direct
+il faudrait un backend réellement en flux (vLLM-Omni ou SGLang-Omni servent S2 Pro trame
+par trame), ou rester sur Kyutai pour le mode vocal.
+
+Échantillons à écouter : `~/voice-runs/s2/samples/<candidate>/01..08.wav`. La voix
+installée est `moyen` (`/var/lib/voice-custom/active`). ~17 Go de mémoire unifiée.
 ## 2026-11-25 (après-midi) — modèle changé : Qwen3.8-Flash-Next, et il voit
 
 Inkling cède la place au modèle qui était au catalogue depuis le 14 :

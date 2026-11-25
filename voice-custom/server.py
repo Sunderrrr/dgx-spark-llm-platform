@@ -37,7 +37,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger("s2pro-voice")
 
 REPO = os.environ.get("S2PRO_CHECKPOINT", "fishaudio/s2-pro")
-COMPILE = os.environ.get("S2PRO_COMPILE", "1") == "1"
+# Eager by default: on the GB10 torch.compile (Inductor) was still compiling for
+# sm_121 after 20 minutes without emitting a single audio frame (measured
+# 2026-11-25). S2PRO_COMPILE=1 opts back in.
+COMPILE = os.environ.get("S2PRO_COMPILE", "0") == "1"
 SEED = int(os.environ["S2PRO_SEED"]) if os.environ.get("S2PRO_SEED") else None
 REF_ID = "voice"                        # /app/references/voice, mounted by the recreate script
 MAX_TEXT_CHARS = 1000                   # /api/speak: a sentence or two, like Kyutai

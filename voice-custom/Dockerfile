@@ -59,6 +59,33 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
     python3 -m pip install --no-cache-dir --break-system-packages --no-deps \
       "descript-audio-codec==1.0.0" "descript-audiotools==0.7.2"
 
+# torchaudio 2.10 decodes ONLY through TorchCodec, whatever `backend=` is passed:
+# its wheel does not load against this torch ABI (libtorchcodec_image.so), and
+# without it fish-speech cannot even read the reference clip. The one call that
+# matters is replaced with libsndfile (installed), which reads these PCM wavs.
+RUN python3 - <<'PY'
+from pathlib import Path
+p = Path("/opt/fish-speech/fish_speech/inference_engine/reference_loader.py")
+s = p.read_text()
+old = "waveform, original_sr = torchaudio.load(reference_audio, backend=self.backend)"
+new = (
+    "import soundfile as _sf\n"
+    "        import torch as _torch\n"
+    "        if hasattr(reference_audio, \"read\"):\n"
+    "            try:\n"
+    "                reference_audio.seek(0)\n"
+    "            except (OSError, ValueError):\n"
+    "                pass\n"
+    "            _data, original_sr = _sf.read(reference_audio, dtype=\"float32\", always_2d=True)\n"
+    "        else:\n"
+    "            _data, original_sr = _sf.read(str(reference_audio), dtype=\"float32\", always_2d=True)\n"
+    "        waveform = _torch.from_numpy(_data.T.copy())"
+)
+assert old in s, "reference_loader: appel introuvable"
+p.write_text(s.replace(old, new))
+print("reference_loader patched")
+PY
+
 WORKDIR /app
 COPY s2engine.py server.py /app/
 COPY reference/ /app/reference/

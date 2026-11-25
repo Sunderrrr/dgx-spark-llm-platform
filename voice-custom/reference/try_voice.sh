@@ -8,6 +8,9 @@
 # S2 Pro, in a throwaway container of the engine image. Pick the candidate
 # that sounds most like you, then:  sudo voice-custom/install-voice.sh <run_dir>/refs/<candidate> <name>
 #
+# S2PRO_COMPILE=0 measures without torch.compile (eager): on the GB10 the
+# compilation alone runs for tens of minutes before any audio comes out.
+#
 # CANDIDATES overrides the sets: "name=clip1,clip2;name2=clip3,clip4" (clip
 # names as in metadata.csv). The defaults use the conversational text 0904
 # and, for « varie », short replies in several tones — only clips whose
@@ -57,7 +60,12 @@ for set in "${SETS[@]}"; do
   [[ "$name" =~ ^[a-z0-9_-]{1,32}$ ]] || { echo "candidate name « $name »: a-z 0-9 _ -" >&2; exit 2; }
   run python3 /app/reference/build_reference.py --dataset /data --clips "$clips" --out "/out/refs/$name"
 done
-run python3 /app/reference/test_voice.py --refs /out/refs --out /out/samples
+# torch.compile (Inductor) on the GB10 compiles for tens of minutes before the
+# first token is emitted (measured 2026-11-25: still compiling after 20 min on
+# sm_121, no audio produced). S2PRO_COMPILE=0 measures the eager path instead.
+COMPILE_FLAG=""
+[ "${S2PRO_COMPILE:-0}" = "0" ] && COMPILE_FLAG="--no-compile"
+run python3 /app/reference/test_voice.py --refs /out/refs --out /out/samples $COMPILE_FLAG
 
 echo
 echo "Listen to $RUN/samples/*/ and install the candidate you prefer:"

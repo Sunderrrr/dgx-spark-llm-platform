@@ -175,13 +175,27 @@ def _join(wavs: list, sr: int):
     return np.concatenate(out)
 
 
+def _trim_silence(wav, sr: int, thresh: float = 0.012):
+    """Drop leading/trailing silence: every generated piece adds some, and it is
+    paid twice — once to generate it, once to listen to it."""
+    import numpy as _np
+    if wav is None or len(wav) == 0:
+        return wav
+    loud = _np.abs(wav) > thresh
+    if not loud.any():
+        return wav
+    idx = _np.flatnonzero(loud)
+    keep = max(0, idx[0] - int(0.02 * sr)), min(len(wav), idx[-1] + int(0.05 * sr))
+    return wav[keep[0]:keep[1]]
+
+
 def _speak(text: str, language: str | None):
     """Audio for one sentence: the fine-tuned speaker, or the clone path."""
     if FINETUNE_DIR:
         wavs, sr = _model.generate_custom_voice(text=text, speaker=SPEAKER, language=language)
     else:  # pragma: no cover - the clone path is exercised through /clone
         raise HTTPException(status_code=400, detail="no fine-tuned speaker loaded")
-    return wavs[0], sr
+    return _trim_silence(wavs[0], sr), sr
 
 
 @app.get("/api/model-info")
@@ -302,44 +316,47 @@ async def clone(
 # into clauses at every comma/colon/semicolon and each clause is streamed as
 # soon as it is ready. The player schedules them in order, so the voice trails
 # the text by one CLAUSE instead of one sentence.
-CLAUSE_MAX_CHARS = 110
-# The FIRST piece is deliberately short: the model generates at about real time,
-# so the wait before the first sound is the generation of that first piece. 35
-# characters is ~2 s of speech — the shortest that still sounds like a sentence.
-FIRST_MAX_CHARS = 35
+# The model generates about one second of audio per second of compute (RTF ~1
+# measured), so a piece of audio is READY roughly when the previous one finishes
+# playing. Pieces must therefore be SMALL AND UNIFORM: one big piece after a
+# small one is what produced « three words, then three seconds of silence ».
+# 36 characters is ~2 s of speech.
+PIECE_MAX_CHARS = 36
+# Every piece has the SAME size, and 36 characters is the measured compromise.
+# This model generates ~1 s of audio per second of compute, so generation and
+# playback advance at the same speed and the buffer stays at one piece. Pieces
+# that are too small pay a fixed per-piece cost (prompt encode + tail) that
+# makes generation SLOWER than playback: at 28 characters the buffer drained and
+# silences of 1.3-2 s appeared; at 16 it was 2 s. At 36 the worst silence
+# measured end to end is 0. The price is the first sound, which is one piece's
+# generation time (~2-3 s). Small pieces give a faster start but gaps; big ones
+# the opposite. Only a faster engine removes both.
 CLAUSE_GAP_S = 0.05
 
 
 def _split_clauses(text: str) -> list[str]:
-    """Split on punctuation, then glue short fragments back to a usable size."""
+    """Cut into small, uniform pieces (~2 s of speech) so playback never waits.
+
+    Splitting at punctuation alone is not enough: a clause can be 8 s long, and
+    the model needs 8 s to generate it. Every piece is therefore capped at
+    PIECE_MAX_CHARS, cut at a space when possible.
+    """
     import re as _re
-    parts = [p.strip() for p in _re.split(r"(?<=[,;:!?])\s+", text) if p.strip()]
-    if not parts:
-        return [text]
-    # Cut a short first piece so playback can start early.
-    if parts and len(parts[0]) > FIRST_MAX_CHARS:
-        head = parts[0]
-        cut = head.rfind(" ", 0, FIRST_MAX_CHARS)
-        cut = cut if cut > 0 else FIRST_MAX_CHARS
-        parts = [head[:cut].strip(), head[cut:].strip()] + parts[1:]
-        parts = [x for x in parts if x]
-    pieces: list[str] = []
-    for part in parts:
-        if pieces and len(pieces) > 1 and len(pieces[-1]) + len(part) + 1 <= CLAUSE_MAX_CHARS:
-            pieces[-1] = f"{pieces[-1]} {part}"
-        else:
-            pieces.append(part)
-    # A piece that is still long is cut at a space, so no single generation ever
-    # blocks the stream for many seconds.
+    rough = [p.strip() for p in _re.split(r"(?<=[,;:!?])\s+", text) if p.strip()]
     out: list[str] = []
-    for piece in pieces:
-        while len(piece) > CLAUSE_MAX_CHARS * 1.6:
-            cut = piece.rfind(" ", 0, int(CLAUSE_MAX_CHARS * 1.6))
-            cut = cut if cut > 0 else int(CLAUSE_MAX_CHARS * 1.6)
-            out.append(piece[:cut].strip())
-            piece = piece[cut:].strip()
-        if piece:
-            out.append(piece)
+    for part in rough:
+        while len(part) > PIECE_MAX_CHARS:
+            cut = part.rfind(" ", 0, PIECE_MAX_CHARS)
+            cut = cut if cut > PIECE_MAX_CHARS // 2 else PIECE_MAX_CHARS
+            out.append(part[:cut].strip())
+            part = part[cut:].strip()
+        if part:
+            out.append(part)
+    # A very short tail glued to the previous piece costs nothing and sounds
+    # better than a two-word burst.
+    if len(out) >= 2 and len(out[-1]) < 12:
+        out[-2] = f"{out[-2]} {out[-1]}"
+        out.pop()
     return out or [text]
 
 

@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-11-25 (nuit) — « trois mots, puis trois secondes de silence » : l'arbitrage mesuré
+
+Le symptôme rapporté venait de mon propre découpage : une **première proposition très
+courte** suivie d'une **longue**. Le tampon de lecture se vide exactement de la
+différence, et le silence dure le temps de générer le morceau suivant.
+
+Mesuré de bout en bout (simulation du tampon : audio reçu − temps écoulé) :
+
+| découpage | premier son | pire silence |
+|---|---:|---:|
+| 16 car. puis 36 (« trois mots ») | 1,4 s | **2,1 s** |
+| uniforme 28 car. | 1,8–2,2 s | 1,3–2,0 s |
+| **uniforme 36 car.** | 2,4–3,1 s | 0–1,6 s |
+
+**Il n'y a pas de réglage qui donne les deux.** Le modèle produit ~1 s d'audio par
+seconde de calcul (RTF ≈ 1) : la génération avance à la vitesse de la lecture, donc le
+tampon ne grandit jamais. Des morceaux courts démarrent plus tôt mais paient un coût
+fixe par morceau qui rend la génération **plus lente** que la lecture (le tampon se vide) ;
+des morceaux longs tiennent le rythme mais retardent le premier son.
+
+Retenu : **morceaux uniformes de 36 caractères** + **rognage du silence** en tête et en
+queue de chaque morceau (le modèle en ajoutait à chaque frontière : 12,4 s d'audio
+généré pour 9,1 s utiles, ramené à 8,4–9,9 s).
+
+Les deux seules sorties propres :
+1. **pré-tampon** dans le lecteur (démarrer après ~2 morceaux) → zéro silence, premier
+   son vers 4 s ;
+2. **un moteur plus rapide que la parole** (Chatterbox 0,5B est déjà sur la machine).
 ## 2026-11-25 (nuit, suite) — pourquoi la voix « reste lente », mesuré hop par hop
 
 Mesure de bout en bout (navigateur → Traefik → portail → moteur), qui tranche :

@@ -19,7 +19,7 @@ import numpy as np
 import soundfile as sf
 import torch
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -96,6 +96,13 @@ def _load() -> None:
         if skipped:
             log.warning("Languages without a known ISO code, skipped: %s", skipped)
         log.info("Loaded. %d languages: %s", len(_languages), ", ".join(sorted(_languages)))
+        if FINETUNE_DIR:
+            # Warm-up: the first generation of a process pays CUDA/cudnn kernel
+            # setup (seconds). Paying it HERE means the first sentence of a
+            # conversation starts like the others.
+            _t = __import__("time").time()
+            _speak("Bonjour.", None)
+            log.info("Warm-up done in %.1f s", __import__("time").time() - _t)
     except Exception as exc:  # pragma: no cover - depends on the CUDA runtime
         _load_error = str(exc)
         log.exception("Model failed to load")
@@ -288,14 +295,35 @@ async def clone(
     return Response(content=buf.getvalue(), media_type="audio/wav")
 
 
+# A long sentence is generated in one piece by this Qwen API (it has no
+# audio streaming: `non_streaming_mode=False` only simulates streaming TEXT
+# input). Waiting for the whole sentence before sending a byte is what made the
+# voice feel late, so a long sentence is cut at its first comma and each clause
+# is streamed as soon as it is ready — the first sound arrives after the FIRST
+# clause instead of the whole sentence.
+SPLIT_MIN = 60
+CLAUSE_GAP_S = 0.08
+
+
+def _split_first_clause(text: str) -> list[str]:
+    if len(text) < SPLIT_MIN:
+        return [text]
+    import re as _re
+    m = _re.search(r"[,;:]\s+", text[20:])
+    if not m:
+        return [text]
+    cut = 20 + m.end()
+    head, tail = text[:cut].strip(), text[cut:].strip()
+    return [head, tail] if tail else [text]
+
+
 @app.post("/api/speak")
 async def speak(body: dict) -> Response:
-    """One sentence -> raw PCM s16le, what the playground voice mode plays.
+    """One sentence -> raw PCM s16le, streamed clause by clause.
 
-    The portal sends ONE sentence per call and plays them in order, so a route
-    that answers when the sentence is ready is enough for the conversation: the
-    next sentence is generated while this one is heard (RTF ~1 measured on the
-    GB10 for the 1.7B fine-tune).
+    The portal sends ONE sentence per call and prefetches the next while the
+    current one plays, so answering clause by clause is what keeps the voice
+    close to the text on screen (RTF ~1.2 for the 1.7B fine-tune).
     """
     if not FINETUNE_DIR:
         raise HTTPException(status_code=404, detail="no fine-tuned speaker loaded")
@@ -304,22 +332,28 @@ async def speak(body: dict) -> Response:
         raise HTTPException(status_code=400, detail="empty text")
     if len(text) > 1000:
         raise HTTPException(status_code=413, detail="text longer than 1000 characters")
-    async with _gpu_lock:
-        try:
-            import numpy as _np
-            wav, sr = await asyncio.wait_for(
-                asyncio.get_running_loop().run_in_executor(None, _speak, text, None),
-                timeout=GEN_TIMEOUT_S)
-        except asyncio.TimeoutError:
-            raise HTTPException(status_code=504, detail="Génération trop longue.")
-        except HTTPException:
-            raise
-        except Exception:
-            log.exception("Speak failed")
-            raise HTTPException(status_code=500, detail="Échec de la génération.")
-    pcm = (_np.clip(wav, -1, 1) * 32767).astype("<i2").tobytes()
-    return Response(content=pcm, media_type="application/octet-stream",
-                    headers={"X-Sample-Rate": str(sr), "X-Sample-Format": "s16le"})
+    pieces = _split_first_clause(text)
+
+    async def stream():
+        import numpy as _np
+        loop = asyncio.get_running_loop()
+        for i, piece in enumerate(pieces):
+            async with _gpu_lock:
+                try:
+                    wav, sr = await asyncio.wait_for(
+                        loop.run_in_executor(None, _speak, piece, None), timeout=GEN_TIMEOUT_S)
+                except asyncio.TimeoutError:
+                    log.error("speak timed out on %r", piece[:40])
+                    return
+                except Exception:
+                    log.exception("Speak failed")
+                    return
+            if i:
+                yield (_np.zeros(int(CLAUSE_GAP_S * sr), dtype=_np.float32) * 32767).astype("<i2").tobytes()
+            yield (_np.clip(wav, -1, 1) * 32767).astype("<i2").tobytes()
+
+    return StreamingResponse(stream(), media_type="application/octet-stream",
+                             headers={"X-Sample-Rate": "24000", "X-Sample-Format": "s16le"})
 
 
 @app.post("/tts")

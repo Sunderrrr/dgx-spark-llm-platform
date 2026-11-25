@@ -1,5 +1,35 @@
 # Changelog
 
+## 2026-11-25 (nuit) — la voix arrive plus vite que le texte
+
+Rapport de l'opérateur : « quand le texte est écrit, ça prend du temps à dire ce qui est
+écrit ». La cause était mesurable : `/api/speak` attendait la génération de **toute la
+phrase** avant d'envoyer le premier octet.
+
+**Corrigé dans le moteur** (`voice-qwen/server.py`)
+1. Une phrase longue est coupée à sa première virgule et **chaque proposition est
+   envoyée dès qu'elle est prête** (`StreamingResponse`) : le premier son arrive après
+   la première proposition, plus après la phrase entière.
+2. **Warm-up au chargement** : la première génération d'un processus payait
+   l'initialisation CUDA (`Warm-up done in 1.8 s`) ; elle est désormais payée au
+   démarrage, pas à la première phrase d'une conversation.
+
+**Mesuré** (premier octet, dans le conteneur) :
+
+| cas | avant | après |
+|---|---:|---:|
+| phrase courte (0,9 s d'audio) | ~1,1 s | **0,74 s** |
+| phrase longue (9,1 s d'audio) | **~9-10 s** | **3,0 s** |
+
+**Débit** : RTF 0,86 sur une phrase longue découpée, 0,96 sur une phrase moyenne à
+chaud, 1,29 à froid — la voix tient donc à peu près le rythme de la parole. Elle reste
+**en retard d'environ une phrase** sur le texte, ce qui est inhérent à un TTS qui ne
+streame pas l'audio : `generate_custom_voice` rend toujours la phrase complète
+(`non_streaming_mode=False` ne simule que l'entrée texte, vérifié dans le paquet).
+
+`torch.compile` testé : compilation toujours en cours après 8 minutes sur sm_121 — on
+reste en eager. Pour supprimer complètement le retard, la suite est de servir
+Qwen3-TTS **via vLLM** (le modèle y est supporté avec un vrai streaming audio).
 ## 2026-11-25 (soir) — S2 supprimé, et ta voix passe au fine-tune Qwen3-TTS 1.7B
 
 Fish Audio S2 Pro est **retiré** (conteneur, image, 11 Go de cache, code et câblage).

@@ -32,7 +32,6 @@ on:
       - "voice/**"
       - "voice-kyutai/**"
       - "voice-qwen/**"
-      - "voice-custom/**"
       - "image-gen/**"
       - ".github/workflows/docker-gpu.yml"
   pull_request:
@@ -64,7 +63,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        dir: [asr, voice, voice-kyutai, voice-qwen, voice-custom, image-gen]
+        dir: [asr, voice, voice-kyutai, voice-qwen, image-gen]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       # BuildKit caches layers BETWEEN runs of the same job (gha cache backend):

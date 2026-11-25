@@ -43,6 +43,12 @@ MAX_CH = 2
 MAX_TEXT_CHARS = 3000
 GEN_TIMEOUT_S = float(os.environ.get("QWEN_TTS_GEN_TIMEOUT", "240"))
 
+# Single-speaker fine-tune (Qwen3-TTS-12Hz-*-Base): when SET, the engine loads
+# that local checkpoint instead of the catalog repo id and speaks with SPEAKER —
+# no reference clip at inference. Trained with the official finetuning/ recipe.
+FINETUNE_DIR = os.environ.get("QWEN_TTS_FINETUNE_DIR", "").strip()
+SPEAKER = os.environ.get("QWEN_TTS_SPEAKER", "").strip() or "speaker"
+
 app = FastAPI(title="DGX Qwen3-TTS", docs_url=None, redoc_url=None, openapi_url=None)
 
 _model = None
@@ -71,9 +77,11 @@ def _load() -> None:
         from qwen_tts import Qwen3TTSModel
 
         impl = _attn_impl()
-        log.info("Loading %s (attn=%s)…", MODEL_ID, impl)
+        source = FINETUNE_DIR or MODEL_ID
+        log.info("Loading %s (attn=%s)%s…", source, impl,
+                 f", fine-tuned speaker « {SPEAKER} »" if FINETUNE_DIR else "")
         _model = Qwen3TTSModel.from_pretrained(
-            MODEL_ID,
+            source,
             device_map="cuda:0" if torch.cuda.is_available() else "cpu",
             dtype=torch.bfloat16,
             attn_implementation=impl,
@@ -160,12 +168,27 @@ def _join(wavs: list, sr: int):
     return np.concatenate(out)
 
 
+def _speak(text: str, language: str | None):
+    """Audio for one sentence: the fine-tuned speaker, or the clone path."""
+    if FINETUNE_DIR:
+        wavs, sr = _model.generate_custom_voice(text=text, speaker=SPEAKER, language=language)
+    else:  # pragma: no cover - the clone path is exercised through /clone
+        raise HTTPException(status_code=400, detail="no fine-tuned speaker loaded")
+    return wavs[0], sr
+
+
 @app.get("/api/model-info")
 def model_info() -> JSONResponse:
     return JSONResponse({
         "loaded": _model is not None,
         "type": MODEL_ID.rsplit("/", 1)[-1],
         "engine": "qwen3-tts",
+        # Only a fine-tuned checkpoint can answer a sentence on its own, which is
+        # what the playground voice mode needs (/api/speak).
+        "conversation": bool(FINETUNE_DIR),
+        "voices": [SPEAKER] if (FINETUNE_DIR and _model is not None) else [],
+        "default_voice": SPEAKER if (FINETUNE_DIR and _model is not None) else None,
+        "sample_rate": 24000,
         "device": "cuda" if torch.cuda.is_available() else "cpu",
         "supported_languages": _languages,
         "min_reference_seconds": MIN_REF_SECONDS,
@@ -263,3 +286,76 @@ async def clone(
     buf = io.BytesIO()
     sf.write(buf, audio_out, out_sr, format="WAV", subtype="PCM_16")
     return Response(content=buf.getvalue(), media_type="audio/wav")
+
+
+@app.post("/api/speak")
+async def speak(body: dict) -> Response:
+    """One sentence -> raw PCM s16le, what the playground voice mode plays.
+
+    The portal sends ONE sentence per call and plays them in order, so a route
+    that answers when the sentence is ready is enough for the conversation: the
+    next sentence is generated while this one is heard (RTF ~1 measured on the
+    GB10 for the 1.7B fine-tune).
+    """
+    if not FINETUNE_DIR:
+        raise HTTPException(status_code=404, detail="no fine-tuned speaker loaded")
+    text = " ".join(str(body.get("text", "")).split())
+    if not text:
+        raise HTTPException(status_code=400, detail="empty text")
+    if len(text) > 1000:
+        raise HTTPException(status_code=413, detail="text longer than 1000 characters")
+    async with _gpu_lock:
+        try:
+            import numpy as _np
+            wav, sr = await asyncio.wait_for(
+                asyncio.get_running_loop().run_in_executor(None, _speak, text, None),
+                timeout=GEN_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="Génération trop longue.")
+        except HTTPException:
+            raise
+        except Exception:
+            log.exception("Speak failed")
+            raise HTTPException(status_code=500, detail="Échec de la génération.")
+    pcm = (_np.clip(wav, -1, 1) * 32767).astype("<i2").tobytes()
+    return Response(content=pcm, media_type="application/octet-stream",
+                    headers={"X-Sample-Rate": str(sr), "X-Sample-Format": "s16le"})
+
+
+@app.post("/tts")
+async def tts(body: dict) -> Response:
+    """Raw PCM/wav for the portal's /v1/audio/speech route."""
+    if not FINETUNE_DIR:
+        raise HTTPException(status_code=404, detail="no fine-tuned speaker loaded")
+    text = " ".join(str(body.get("text", "")).split())
+    if not text:
+        raise HTTPException(status_code=400, detail="empty text")
+    if len(text) > MAX_TEXT_CHARS:
+        raise HTTPException(status_code=413, detail="Texte à lire trop long.")
+    async with _gpu_lock:
+        try:
+            wav, sr = await asyncio.wait_for(
+                asyncio.get_running_loop().run_in_executor(None, _speak, text, None),
+                timeout=GEN_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="Génération trop longue.")
+        except Exception:
+            log.exception("TTS failed")
+            raise HTTPException(status_code=500, detail="Échec de la génération.")
+    fmt = str(body.get("output_format", "wav")).lower()
+    if fmt == "pcm":
+        import numpy as _np
+        return Response(content=(_np.clip(wav, -1, 1) * 32767).astype("<i2").tobytes(),
+                        media_type="application/octet-stream",
+                        headers={"X-Sample-Rate": str(sr), "X-Sample-Format": "s16le"})
+    buf = io.BytesIO()
+    sf.write(buf, wav, sr, format="WAV", subtype="PCM_16")
+    if fmt == "wav":
+        return Response(content=buf.getvalue(), media_type="audio/wav")
+    import subprocess
+    mp3 = subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "wav", "-i", "pipe:0",
+                          "-f", "mp3", "-b:a", "128k", "pipe:1"],
+                         input=buf.getvalue(), capture_output=True, timeout=60, check=False)
+    if mp3.returncode != 0:
+        return Response(content=buf.getvalue(), media_type="audio/wav")
+    return Response(content=mp3.stdout, media_type="audio/mpeg")

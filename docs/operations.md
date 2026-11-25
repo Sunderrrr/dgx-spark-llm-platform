@@ -552,9 +552,6 @@ container will run — not the tag you may have built by hand:
   `docker build -f asr/Dockerfile -t whisper-asr:turbo-cu130 asr/`)
 - `image-recreate.sh` → **`ai-platform-image-gen`** (build with
   `docker build -f image-gen/Dockerfile -t ai-platform-image-gen image-gen/`)
-- `voice-custom-recreate.sh` → **`fish-s2pro-voice:0f8a12e-cu130`** (build with
-  `docker build -f voice-custom/Dockerfile -t fish-s2pro-voice:0f8a12e-cu130 voice-custom/`);
-  the voice it loads is `/var/lib/voice-custom/active`, see `voice-custom/README.md`
 
 A rebuild under another tag changes nothing: the running container keeps the old
 image, and the version check (`docker exec asr python3 -c

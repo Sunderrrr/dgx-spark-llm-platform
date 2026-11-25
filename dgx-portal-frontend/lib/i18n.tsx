@@ -361,7 +361,7 @@ const EN: Record<string, string> = {
   "Par défaut (moyenne)": "Default (medium)",
   "⚠️ Ces images n'ont pas été générées : le modèle a cité {n} image(s) qui n'existent pas. Demande « génère les images » pour les créer vraiment.": "⚠️ These images were not generated: the model cited {n} image(s) that do not exist. Ask « generate the images » to really create them.",
   // Voice mode (2026-10-13): hands-free conversation with Kyutai TTS (or, since
-  // 2026-11-25, the personal voice of voice-custom/).
+  // 2026-11-25, the fine-tuned Qwen3-TTS voice of voice-qwen/).
   "Mode vocal": "Voice mode",
   "Quitter le mode vocal": "Leave voice mode",
   "Je t'écoute…": "Listening…",
@@ -382,7 +382,8 @@ const EN: Record<string, string> = {
   "service arrêté": "service stopped",
   "Le micro est inaccessible : autorise-le dans le navigateur.": "The microphone is unavailable: allow it in your browser.",
   "Kyutai TTS 1.6B (FR/EN, mode vocal)": "Kyutai TTS 1.6B (FR/EN, voice mode)",
-  "Voix personnalisée (S2 Pro, mode vocal)": "Personal voice (S2 Pro, voice mode)",
+  "Voix fine-tunée (Qwen3-TTS 1.7B, mode vocal)": "Fine-tuned voice (Qwen3-TTS 1.7B, voice mode)",
+  "Voix fine-tunée": "Fine-tuned voice",
   "System prompt": "System prompt",
   "Ce que le modèle voit pour ce tour": "What the model sees for this turn",
   "Aucun system prompt.": "No system prompt.",

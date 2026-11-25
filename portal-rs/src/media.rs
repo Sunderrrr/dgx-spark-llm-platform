@@ -182,9 +182,10 @@ const KYUTAI_ENGINE: &str = "kyutai";
 /// Can the loaded voice engine hold a conversation (`/api/speak`, streamed PCM)?
 ///
 /// Kyutai always could; any other engine says so itself with
-/// `"conversation": true` in its `/api/model-info` (the personal voice,
-/// voice-custom). Chatterbox and Qwen3-TTS answer 404 on `/api/speak`, so the
-/// flag — not a list of names here — is what keeps them out of the voice mode.
+/// `"conversation": true` in its `/api/model-info` (the fine-tuned Qwen3-TTS of
+/// voice-qwen, when a checkpoint is loaded). Chatterbox and the stock Qwen3-TTS
+/// answer 404 on `/api/speak`, so the flag — not a list of names here — is what
+/// keeps them out of the voice mode.
 pub(crate) fn conversation_engine(info: &Value) -> bool {
     info.get("engine").and_then(Value::as_str) == Some(KYUTAI_ENGINE)
         || info.get("conversation").and_then(Value::as_bool) == Some(true)

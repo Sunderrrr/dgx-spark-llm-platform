@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-11-25 (soir) — S2 supprimé, et ta voix passe au fine-tune Qwen3-TTS 1.7B
+
+Fish Audio S2 Pro est **retiré** (conteneur, image, 11 Go de cache, code et câblage).
+Il est remplacé par une **voix fine-tunée** sur `Qwen3-TTS-12Hz-1.7B-Base`, le modèle
+que Qwen destine explicitement au fine-tune (« can be used for fine-tuning »).
+
+**Entraînement réel sur la DGX**, recette officielle `QwenLM/Qwen3-TTS/finetuning` :
+481 extraits du dataset (25,5 min), rééchantillonnés en 24 kHz (Qwen3-TTS refuse les
+autres taux — `Only support 24kHz audio`), codes audio extraits par
+`Qwen3-TTS-Tokenizer-12Hz`, puis `sft_12hz.py` (10 époques, batch 32, lr 2e-6,
+speaker « mael »). Deux obstacles levés en route : `attn_implementation` forcé sur
+`flash_attention_2` (aucune roue pour sm_121) → passé à `sdpa` ; `--init_model_path`
+attend un **chemin local**, pas un identifiant Hub.
+
+**Le résultat est vérifié objectivement**, pas à l'oreille : les phrases générées sont
+transcrites par Whisper large-v3-turbo et retombent **mot pour mot** —
+« Salut, je suis ta voix fine-tunée sur la DGX. », « Le serveur a redémarré cette nuit à
+3 heures et la sauvegarde s'est bien passée. »
+
+**Le moteur `voice-qwen` gagne ce qu'il n'avait pas** : `QWEN_TTS_FINETUNE_DIR` +
+`QWEN_TTS_SPEAKER` chargent le checkpoint local et parlent avec le nom du locuteur
+(aucun extrait de référence à l'inférence), plus les routes `/api/speak` (PCM 24 kHz) et
+`/tts` (wav/mp3/pcm). `model-info` annonce `conversation: true` quand ce mode est actif,
+ce que le portail lit déjà.
+
+| | S2 Pro (supprimé) | **Qwen3-TTS fine-tuné** |
+|---|---|---|
+| décodage (RTF) | **3,3** (inutilisable en direct) | **1,18** |
+| mémoire | ~17 Go | ~6 Go |
+| mode vocal | oui | **oui** (`/api/speak`) |
+| voix installée | référence audio | **checkpoint `/var/lib/qwen-tts-finetuned/active`** |
+
+Nouvelle variante admin « Voix fine-tunée (Qwen3-TTS 1.7B, mode vocal) »
+(`custom-qwen-tts`), son script `voice-qwen-custom-recreate.sh`, sa règle sudoers.
+Le modèle de chat a été arrêté le temps de l'entraînement (la machine est venue à 4 Go
+libres) puis relancé : 4 × 256k, 57 Go libres.
 ## 2026-11-25 — la voix S2 Pro tourne sur la DGX : elle parle, mais trois fois trop lentement
 
 Premier test réel du moteur `voice-custom/` sur le GPU. **Il fonctionne** — et trois

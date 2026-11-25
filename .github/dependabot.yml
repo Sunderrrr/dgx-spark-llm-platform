@@ -165,12 +165,6 @@ updates:
       day: monday
     open-pull-requests-limit: 0
   - package-ecosystem: docker
-    directory: /voice-custom
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 0
-  - package-ecosystem: docker
     directory: /voice-qwen
     schedule:
       interval: weekly

@@ -5,7 +5,7 @@
 // You speak — the mic finds where your sentence ends, Whisper writes it (live,
 // in your bubble), it goes out as an ordinary turn of THIS conversation. The
 // answer is read sentence by sentence by the voice engine (Kyutai TTS, or the
-// personal voice of voice-custom/) while the model is still
+// fine-tuned voice of voice-qwen/) while the model is still
 // writing; on screen the whole answer is shown in grey and turns white as it
 // is said. Speak over it and it pauses; once your words are recognised it
 // stops and your turn goes out (barge-in) — a sound that was not speech lets

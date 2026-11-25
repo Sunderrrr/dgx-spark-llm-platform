@@ -224,8 +224,8 @@ fi
 # cannot delete model files: the runner runs them with `sudo`, and the sudoers
 # rules below are the only ones authorizing them. A missing wrapper shows up as
 # « command not allowed » on the first click, not at install time.
-for s in ocr/ocr-recreate.sh voice/voice-recreate.sh voice-qwen/voice-qwen-recreate.sh \
-         voice-kyutai/voice-kyutai-recreate.sh voice-custom/voice-custom-recreate.sh \
+for s in ocr/ocr-recreate.sh voice/voice-recreate.sh voice-qwen/voice-qwen-recreate.sh voice-qwen/voice-qwen-custom-recreate.sh \
+         voice-kyutai/voice-kyutai-recreate.sh \
          asr/asr-recreate.sh systemd/image-recreate.sh systemd/model-files-rm.sh \
          systemd/ocr-restrict.sh systemd/dgx-docker-restrict.sh; do
   if [ -f "$s" ]; then

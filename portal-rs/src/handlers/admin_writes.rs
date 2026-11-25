@@ -12,7 +12,7 @@ const MAX_BUDGET: f64 = 1e12;
 /// `sidecars.VOICE_REPO_IDS`: the voice variants the catalog may name.
 const VOICE_REPO_IDS: [&str; 7] = [
     "kyutai/tts-1.6b-en_fr",
-    "custom-voice",
+    "custom-qwen-tts",
     "Qwen3-TTS-12Hz-1.7B-Base",
     "Qwen3-TTS-12Hz-0.6B-Base",
     "chatterbox-multilingual",

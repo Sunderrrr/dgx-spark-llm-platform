@@ -1,5 +1,50 @@
 # Changelog
 
+## 2026-11-26 (nuit) — audit de sécurité complet : 6 constats corrigés
+
+Audit de source complet (15 unités de couverture, chasse puis vérification
+indépendante par un second agent pour chaque constat). Les six failles confirmées sont
+corrigées ici ; les dix hypothèses qui dépendent d'un fait de déploiement restent
+documentées dans `run-3/NEEDS-VALIDATION.md`, sans sévérité.
+
+1. **Le SSO contournait la double authentification** (`handlers/sso_routes.rs`) : la
+   porte mot de passe refuse de créer une session tant qu'une passkey est active, la
+   porte SSO ne lisait jamais `user_security` — un mot de passe d'annuaire suffisait
+   pour un compte protégé par clé. La même requête est maintenant faite avant
+   `apply_session`, avec un refus explicite (`/login?refused=passkey`).
+2. **Le conteneur LiteLLM, exposé à internet, détenait `RUNNER_TOKEN`**
+   (`docker-compose.yml`) : oubli du passage à `MEDIA_TOKEN`. Il pouvait arrêter le
+   modèle servi, effacer des poids et lancer l'OCR avec `--trust-remote-code`. La
+   variable est retirée ; `MEDIA_TOKEN` reste son seul secret interne.
+3. **Le budget de décompression des ZIP était contournable** (`skillstore.rs`) : il
+   n'était incrémenté que pour les entrées décodables en texte, donc des entrées
+   binaires forçaient des gigaoctets de deflate synchrone à budget nul. Les octets
+   réellement gonflés sont désormais comptés **avant** le décodage, et la somme des
+   tailles déclarées sature au lieu de déborder (contournement ZIP64).
+4. **Le verrou GPU de la voix était relâché pendant la génération**
+   (`voice-qwen/server.py`) : `asyncio.wait_for` annule le futur, pas le thread, donc
+   au timeout de 240 s le verrou tombait et la génération continuait. Le verrou est
+   un `threading.Lock` **acquis dans le worker**, et `/tts` découpe le texte comme
+   `/clone` au lieu d'une séquence unique de 3000 caractères.
+5. **Le conteneur de décision tournait du code tiers avec le cache HF du runner en
+   écriture** (`systemd/d1-decisions.service`) : modèle en `trust_remote_code`, cache
+   monté en lecture seule désormais, `HF_HOME` dédié et `--pids-limit`.
+6. **Le filtre réseau du crawler sortait en 0 quand son réseau n'existait pas**
+   (`systemd/dgx-web-restrict.service`) : installation neuve = unité « active » sans
+   aucune règle. Il échoue maintenant (`Restart=on-failure`), et la migration d'un
+   déploiement existant se contente de relancer l'unité.
+
+Corrections préventives issues des hypothèses vérifiables sans déploiement : borne sur
+le texte des `questions` du modèle de décision, échec honnête du sidecar image quand
+le pipeline n'atteint pas le GPU, sémaphore sur le décodage ASR, règle ebtables de l'OCR
+portée par le pont (plus par l'IP du portail), `valid_name` sur les clés S3 de la
+migration, répertoire de validation en 1777 (sticky), seau de débit global sur les
+routes média `/v1`, et entrées de `workflow_dispatch` passées par `env` au lieu d'être
+interpolées dans le shell du runner auto-hébergé.
+
+Un constat a été **rejeté** en vérification : `App::launch` valide l'identifiant,
+l'engine, le binaire et les arguments **avant** d'arrêter le modèle courant ; seul le
+refus pour mémoire insuffisante suit l'arrêt, et cet ordre est volontaire.
 ## 2026-11-26 (nuit) — Kodus : le thinking ne s'active que par le NOM du modèle
 
 Retour de l'opérateur : « le mode thinking sur LiteLLM pour le modèle Qwen ne marche

@@ -42,6 +42,10 @@ export default function LoginPage() {
     if (refused === "blocked") {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setError(t("Accès révoqué pour ce compte. Contacte un administrateur."));
+    } else if (refused === "passkey") {
+      // The SSO door refuses a session while a passkey is enabled: the second
+      // factor is only checked by the password form.
+      setError(t("Ce compte exige sa clé de sécurité : connecte-toi avec le mot de passe, puis valide la clé."));
     } else if (refused === "managed") {
       // The SSO callback refused a name the portal manages: say which door to use.
       setError(t("Ce nom est géré par la plateforme : connecte-toi avec son mot de passe, pas par le SSO."));

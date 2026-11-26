@@ -188,10 +188,33 @@ fn bearer_ok(headers: &HeaderMap) -> bool {
     token_ok(given, &gateway_token())
 }
 
+
+/// `gateway_gate`: the /v1 media faces have no account identity (LiteLLM presents
+/// the platform token), so the per-account guards of the session routes cannot
+/// apply. One bucket shared by the gateway still bounds the shared GPU.
+async fn gateway_gate(state: &AppState) -> Option<axum::response::Response> {
+    match crate::guards::rate_limited(state.db.pool(), "gateway", "rl-media-gateway", 60, 60.0).await {
+        Ok(0) => None,
+        Ok(wait) => Some((
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({"error": {"message": format!("rate limited, retry in {wait} s"), "type": "rate_limit_error"}})),
+        )
+            .into_response()),
+        Err(_) => Some((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": {"message": "rate limiter unavailable", "type": "server_error"}})),
+        )
+            .into_response()),
+    }
+}
+
 /// `POST /v1/images/generations` — OpenAI's shape, one prompt, n variants.
-pub async fn v1_images(State(_state): State<AppState>, headers: HeaderMap, Json(body): Json<serde_json::Value>) -> Response {
+pub async fn v1_images(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<serde_json::Value>) -> Response {
     if !bearer_ok(&headers) {
         return (StatusCode::UNAUTHORIZED, Json(json!({"error": {"message": "unauthorized", "type": "auth_error"}}))).into_response();
+    }
+    if let Some(refusal) = gateway_gate(&state).await {
+        return refusal;
     }
     let prompt = body.get("prompt").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
     if prompt.is_empty() {
@@ -239,9 +262,12 @@ pub async fn v1_images(State(_state): State<AppState>, headers: HeaderMap, Json(
 }
 
 /// `POST /v1/audio/transcriptions` — multipart in, OpenAI JSON out.
-pub async fn v1_transcriptions(State(_state): State<AppState>, headers: HeaderMap, request: axum::extract::Request) -> Response {
+pub async fn v1_transcriptions(State(state): State<AppState>, headers: HeaderMap, request: axum::extract::Request) -> Response {
     if !bearer_ok(&headers) {
         return (StatusCode::UNAUTHORIZED, Json(json!({"error": {"message": "unauthorized", "type": "auth_error"}}))).into_response();
+    }
+    if let Some(refusal) = gateway_gate(&state).await {
+        return refusal;
     }
     let content_type = headers
         .get(header::CONTENT_TYPE)
@@ -283,9 +309,12 @@ pub async fn v1_transcriptions(State(_state): State<AppState>, headers: HeaderMa
 }
 
 /// `POST /v1/audio/speech` — OpenAI's shape to the Chatterbox/Kyutai service.
-pub async fn v1_speech(State(_state): State<AppState>, headers: HeaderMap, Json(body): Json<serde_json::Value>) -> Response {
+pub async fn v1_speech(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<serde_json::Value>) -> Response {
     if !bearer_ok(&headers) {
         return (StatusCode::UNAUTHORIZED, Json(json!({"error": {"message": "unauthorized", "type": "auth_error"}}))).into_response();
+    }
+    if let Some(refusal) = gateway_gate(&state).await {
+        return refusal;
     }
     let input = body.get("input").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
     if input.is_empty() {
@@ -373,9 +402,12 @@ fn video_status_word(raw: &str) -> &'static str {
 }
 
 /// `POST /v1/videos` — submit a text-to-video job, return the OpenAI object.
-pub async fn v1_videos(State(_state): State<AppState>, headers: HeaderMap, request: axum::extract::Request) -> Response {
+pub async fn v1_videos(State(state): State<AppState>, headers: HeaderMap, request: axum::extract::Request) -> Response {
     if !bearer_ok(&headers) {
         return (StatusCode::UNAUTHORIZED, Json(json!({"error": {"message": "unauthorized", "type": "auth_error"}}))).into_response();
+    }
+    if let Some(refusal) = gateway_gate(&state).await {
+        return refusal;
     }
     // LiteLLM's `/v1/videos` POSTs a FORM (it can also upload a reference file),
     // while an OpenAI SDK posts JSON. Accept both rather than answer 415 to the

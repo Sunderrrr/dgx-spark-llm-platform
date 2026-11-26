@@ -59,6 +59,10 @@ _RETRY_S = 10.0
 # while capping the GPU load.
 _gpu_sem = asyncio.Semaphore(2)
 
+# Concurrency of the decode/resample step: three at once bounds the transient
+# memory without serialising the feature (the GPU call has its own semaphore).
+_decode_sem = asyncio.Semaphore(int(os.environ.get("ASR_DECODE_CONCURRENCY", "3")))
+
 
 def _load_model() -> None:
     """Load the weights (startup, and retried on demand below)."""
@@ -179,7 +183,14 @@ async def transcribe(
             ).astype(np.float32)
         return d
 
-    data = await run_in_threadpool(_decode)
+    # Decoding and resampling happen BEFORE the GPU semaphore and in the anyio
+    # threadpool (40 workers), so tens of accepted files could be decoded at once,
+    # each holding a float32 array plus float64 resampling temporaries, on the
+    # unified memory shared with the chat model (audit 2026-11-26). Decode under
+    # a small dedicated semaphore: the per-file caps bound one request, this
+    # bounds their number.
+    async with _decode_sem:
+        data = await run_in_threadpool(_decode)
 
     kwargs = {}
     if language:

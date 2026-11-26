@@ -14,6 +14,7 @@ import io
 import logging
 import os
 import re
+import threading
 
 import numpy as np
 import soundfile as sf
@@ -56,7 +57,20 @@ _languages: dict[str, str] = {}
 _load_error: str | None = None
 # One model on one GPU: two simultaneous generations would step on each other.
 # The lock queues them instead of letting them fail.
-_gpu_lock = asyncio.Lock()
+#
+# It is a THREAD lock, acquired inside the worker, and not an asyncio.Lock held
+# across the await: `asyncio.wait_for` cancels the future but not the thread
+# running the blocking model call, so an asyncio lock was released at the
+# timeout while the generation kept the GPU — the next request then ran
+# concurrently on the same model (audit 2026-11-26). A thread lock is released
+# only when the call really returns.
+_gpu_lock = threading.Lock()
+
+
+def _exclusive(fn, *args):
+    """Run `fn` holding the GPU: the lock lives inside the worker thread."""
+    with _gpu_lock:
+        return fn(*args)
 
 
 def _attn_impl() -> str:
@@ -291,10 +305,9 @@ async def clone(
         # stopped answering during a generation — the portal then concluded
         # « service injoignable » and the admin saw the backend offline. So we
         # run it in a thread, under lock.
-        async with _gpu_lock:
-            # Hard bound: a generation gone wrong must not hold the GPU lock
-            # indefinitely (the portal has already given up at 180 s on its side).
-            wavs, out_sr = await asyncio.wait_for(run_in_threadpool(_run), timeout=GEN_TIMEOUT_S)
+        # The lock lives in the worker (_exclusive): a client-facing timeout must
+        # never release the GPU while the blocking call is still running.
+        wavs, out_sr = await asyncio.wait_for(run_in_threadpool(_exclusive, _run), timeout=GEN_TIMEOUT_S)
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Génération trop longue, réessaie avec un texte plus court.")
     except Exception:
@@ -381,10 +394,10 @@ async def speak(body: dict) -> Response:
         import numpy as _np
         loop = asyncio.get_running_loop()
         for i, piece in enumerate(pieces):
-            async with _gpu_lock:
+            if True:
                 try:
                     wav, sr = await asyncio.wait_for(
-                        loop.run_in_executor(None, _speak, piece, None), timeout=GEN_TIMEOUT_S)
+                        loop.run_in_executor(None, _exclusive, _speak, piece, None), timeout=GEN_TIMEOUT_S)
                 except asyncio.TimeoutError:
                     log.error("speak timed out on %r", piece[:40])
                     return
@@ -409,16 +422,24 @@ async def tts(body: dict) -> Response:
         raise HTTPException(status_code=400, detail="empty text")
     if len(text) > MAX_TEXT_CHARS:
         raise HTTPException(status_code=413, detail="Texte à lire trop long.")
-    async with _gpu_lock:
-        try:
-            wav, sr = await asyncio.wait_for(
-                asyncio.get_running_loop().run_in_executor(None, _speak, text, None),
+    # One autoregressive call over up to MAX_TEXT_CHARS took minutes (the file's
+    # own measurement: ~1400 characters exceeded 6 min), so the whole request used
+    # to time out and leave an orphaned generation. Chunk like /clone does: each
+    # piece finishes well inside GEN_TIMEOUT_S and the audio is concatenated.
+    pieces = _chunk_text(text)
+    try:
+        chunks_out = []
+        for piece in pieces:
+            one, sr = await asyncio.wait_for(
+                asyncio.get_running_loop().run_in_executor(None, _exclusive, _speak, piece, None),
                 timeout=GEN_TIMEOUT_S)
-        except asyncio.TimeoutError:
-            raise HTTPException(status_code=504, detail="Génération trop longue.")
-        except Exception:
-            log.exception("TTS failed")
-            raise HTTPException(status_code=500, detail="Échec de la génération.")
+            chunks_out.append(one)
+        wav = chunks_out[0] if len(chunks_out) == 1 else np.concatenate(chunks_out)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Génération trop longue.")
+    except Exception:
+        log.exception("TTS failed")
+        raise HTTPException(status_code=500, detail="Échec de la génération.")
     fmt = str(body.get("output_format", "wav")).lower()
     if fmt == "pcm":
         import numpy as _np

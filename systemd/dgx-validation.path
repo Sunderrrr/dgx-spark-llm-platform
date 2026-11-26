@@ -10,7 +10,10 @@ Description=Start the full validation when the admin panel asks for it
 [Path]
 PathChanged=/root/ai-platform/runtime/validation/demande.txt
 MakeDirectory=yes
-DirectoryMode=0777
+# 1777, not 0777: the portal (uid 10001) must create/remove its trigger
+# file, but the sticky bit stops ANY writer from replacing the root-owned
+# courante.log with a symlink the root tee would follow (audit 2026-11-26).
+DirectoryMode=1777
 
 [Install]
 WantedBy=multi-user.target

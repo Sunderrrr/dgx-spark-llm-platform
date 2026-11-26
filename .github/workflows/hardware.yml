@@ -68,13 +68,20 @@ jobs:
           echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)"
 
       - name: Report the starting state
+        # The dispatch inputs are free text typed by whoever triggers the run: they
+        # go through `env` and are quoted by the shell, never interpolated into the
+        # script body. A `reason` containing a quote and `$(...)` used to run
+        # commands on the SELF-HOSTED runner (audit 2026-11-26).
+        env:
+          GROUPS: ${{ inputs.groups }}
+          REASON: ${{ inputs.reason }}
         run: |
           {
             echo '## Hardware gates'
             echo
-            echo "Groups: \`${{ inputs.groups }}\`"
-            if [ -n "${{ inputs.reason }}" ]; then
-              echo "Reason: ${{ inputs.reason }}"
+            echo "Groups: \`$GROUPS\`"
+            if [ -n "$REASON" ]; then
+              echo "Reason: $REASON"
             fi
             echo
             echo '```'

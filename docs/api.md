@@ -237,3 +237,26 @@ all checked against the real routes):
   so 502 is banned for user-facing answers.
 - A key is required for everything through the gateway. Budgets are enforced by
   LiteLLM (**429** `ExceededBudget` past the cap).
+### `gpt-5-dgx` — the alias that makes Kodus offer thinking
+
+Kodus (`kodustech/kodus-ai`) does **not** ask an endpoint what it can do: it maps the
+model id to a known family (`libs/llm/providers/kernel/model-family.ts`) and greys out
+its whole thinking selector for anything it does not recognize — its own comment names
+`llama`, `mimo` and **`qwen`** as belonging there. A `qwen…` id therefore shows
+« This model doesn't support reasoning » however complete our `/model/info` is.
+
+`gpt-5-dgx` is the same model under an id Kodus's `openai` family recognizes, so its
+picker offers Off / Medium / High and sends `reasoning_effort` — the vocabulary the
+engine accepts. Two facts measured on 2026-11-26:
+
+- LiteLLM forwards `reasoning_effort` **as told when the model_info advertises the exact
+  levels of the engine** (`low`, `medium`, `xhigh`, read from
+  `/props → chat_template_caps`). Advertising a wider list made the template refuse
+  `high` with a 400;
+- the whole standard scale works through the alias: `none` → 0 characters of reasoning,
+  `low` → 107, `medium` → 140, `high` → 98 (clamped to the nearest supported level).
+
+The clean fix remains upstream (a `qwen` family in that file) — the alias is a shim for
+a client that decides by name, and it is named so on purpose: it is NOT an OpenAI model.
+```
+

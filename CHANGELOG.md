@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-11-26 (nuit) — Kodus : le thinking ne s'active que par le NOM du modèle
+
+Retour de l'opérateur : « le mode thinking sur LiteLLM pour le modèle Qwen ne marche
+pas ». La cause n'est pas de notre côté. **Kodus ne sonde jamais l'endpoint** : il
+déduit les capacités du **nom** du modèle
+(`libs/llm/providers/kernel/model-family.ts` : `claude`, `gemini`, `glm`,
+`kimi|moonshot|^k<digit>`, `deepseek`, `minimax`, `gpt…|o1-3`, sinon `unknown`).
+Leur propre commentaire nomme les exclus : *« llama, mimo and qwen already returned
+undefined and still do »* → `thinksByDefault: false` → sélecteur grisé, message
+« This model doesn't support reasoning », **quelle que soit** la richesse de notre
+`/model/info`.
+
+Deux corrections :
+
+1. **`gpt-5-dgx`, alias de compatibilité** (même moteur, même clé) dont l'identifiant
+   tombe dans la famille `openai` de Kodus : son sélecteur propose Off / Medium / High et
+   envoie `reasoning_effort`, vocabulaire que le moteur accepte.
+2. **Un second mécanisme, mesuré celui-là** : LiteLLM ne transmet un `reasoning_effort`
+   que si le `model_info` annonce **exactement** les niveaux du moteur
+   (`reasoning_effort_levels`, lus dans `/props → chat_template_caps`). Avec une liste
+   plus large (`…high`), le template refuse : 400
+   `reasoning_effort "high" is not supported by the chat template`. Une fois les niveaux
+   réels annoncés, tout passe.
+
+| effort envoyé | raisonnement produit |
+|---|---:|
+| `none` | **0 caractère** (vraiment coupé) |
+| `low` | 107 caractères |
+| `medium` | 140 caractères |
+| `high` | 98 caractères (ramené au niveau supporté) |
+
+Fait notable : le hook `dgx_thinking.effort` (`async_pre_call_hook`) **n'est jamais
+appelé** par LiteLLM 1.109 — même piège que les hooks asynchrones déjà documentés pour
+`cronos_inflight`. Toute traduction de vocabulaire doit donc vivre dans ce que LiteLLM
+lit réellement : `model_info`.
+
+Le correctif propre reste en amont : ajouter une famille `qwen` dans Kodus.
 ## 2026-11-26 — le mode thinking est réparé côté LiteLLM (capacités lues, pas devinées)
 
 Rapport de l'opérateur : « le mode thinking sur LiteLLM pour le modèle Qwen ne marche

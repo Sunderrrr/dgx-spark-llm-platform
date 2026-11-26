@@ -33,6 +33,24 @@ Two more that follow from the same principle:
 
 ---
 
+## Before you push or open a PR: nothing personal, nothing site-specific
+
+The repository is **public**. Before any push — and in the PR title, its body, its
+screenshots and the commit messages — re-read the diff and ask *who or what does this
+identify?* The answer must be nobody:
+
+- no real name, mail, phone, street, account id, avatar, voice sample, photo, or a path
+  carrying a first name (`/home/<name>/…`);
+- no site value: real domain, VPN/LAN IP, hostname, SSID, token, database name, NFS
+  mount, port map, firewall rule;
+- no screenshot or log paste containing any of it.
+
+Use the neutral placeholders the repo already uses (`DGX_` prefix, `example.org`,
+`api.example.org`, `alice`/`bob`). The secret scanners catch known credential values,
+not personal data: they are a backstop, not the rule.
+
+---
+
 ## Every change lands through a pull request
 
 `master` takes **no direct push**. A change goes:

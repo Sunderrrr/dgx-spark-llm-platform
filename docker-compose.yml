@@ -131,7 +131,12 @@ services:
       # The media proxy's internal guard (docs/api.md): the caller's KEY check
       # and the billing are LiteLLM's own job, this token only proves the call
       # comes from this gateway. It never leaves the docker network.
-      RUNNER_TOKEN: ${RUNNER_TOKEN:?RUNNER_TOKEN must be set in .env (run setup.sh)}
+      #
+      # NOT RUNNER_TOKEN. This service used it before the media gateway got its
+      # own secret, and the leftover gave the internet-facing gateway the model
+      # lifecycle: /stop, /models/delete-files and /ocr/launch with
+      # --trust-remote-code (audit 2026-11-26). The runner token stays with
+      # portal-rs and the host runner.
       MEDIA_TOKEN: ${MEDIA_TOKEN:-}
       # Turns off the admin UI (/ui, /sso): it was publicly reachable via
       # the public API domain and concentrated the whole master key on an exposed

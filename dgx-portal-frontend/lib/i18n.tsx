@@ -2022,6 +2022,8 @@ const EN: Record<string, string> = {
   "Trop de requêtes. Réessaie dans {wait} s.": "Too many requests. Try again in {wait} s.",
   "Accès réservé aux administrateurs.": "Administrators only.",
   "CSRF token manquant ou invalide.": "Missing or invalid CSRF token.",
+  "Ce compte exige sa clé de sécurité : connecte-toi avec le mot de passe, puis valide la clé.":
+    "This account requires its security key: sign in with the password, then validate the key.",
   "Accès révoqué pour ce compte.": "Access revoked for this account.",
   "Mot de passe incorrect.": "Incorrect password.",
   "Mot de passe requis.": "Password required.",

@@ -19,8 +19,10 @@ ExecStart=/usr/bin/docker run --rm --name d1-decisions \
   --security-opt no-new-privileges --cap-drop ALL \
   -p 172.19.0.1:8002:8002 \
   -v /root/models/d1-3b:/app/model:ro \
-  -v /root/.cache/huggingface:/app/hf_cache \
-  -e HF_HOME=/app/hf_cache \
+  -v /tmp/d1-hf:/tmp/hf_cache \
+  -v /root/.cache/huggingface:/app/hf_cache:ro \
+  -e HF_HOME=/tmp/hf_cache \
+  --pids-limit 512 \
   d1-decisions:3b-cu130 python3 -m uvicorn server:app --host 0.0.0.0 --port 8002
 ExecStop=/usr/bin/docker stop -t 10 d1-decisions
 Restart=on-failure

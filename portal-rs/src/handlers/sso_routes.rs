@@ -127,6 +127,23 @@ pub async fn oauth_callback(State(state): State<AppState>, connect: Option<axum:
         crate::sessions::log_audit(pool, &username, "login.refuse", "nom géré localement : connexion SSO refusée").await;
         return to("/login?refused=managed");
     }
+    // The password door refuses to mint a session while a WebAuthn second factor
+    // is enabled and answers `webauthn_required` instead (login.rs). This callback
+    // used to walk past it: a directory account with a passkey got a full session
+    // from the SSO door with the password alone, i.e. the factor the user enabled
+    // was optional. Same gate, same place: refuse and let the password door ask
+    // for the key. Directory accounts only — a locally managed name never reaches
+    // this line.
+    let passkey: Option<i64> = sqlx::query_scalar("SELECT enabled FROM user_security WHERE username=?")
+        .bind(&username)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+    if passkey.unwrap_or(0) != 0 {
+        crate::sessions::log_audit(pool, &username, "login.refuse", "second facteur exigé : connexion SSO refusée").await;
+        return to("/login?refused=passkey");
+    }
     if sqlx::query_scalar::<_, i64>("SELECT 1 FROM blocked_users WHERE username=?").bind(&username).fetch_optional(pool).await.ok().flatten().is_some() {
         crate::sessions::log_audit(pool, &username, "login.refuse", "compte bloqué par un administrateur").await;
         return to("/login?refused=blocked");

@@ -513,6 +513,14 @@ pub async fn admin_storage_migrate(State(state): State<AppState>, headers: Heade
                     for (k, size, _) in keys {
                         let mut parts = k.rsplitn(3, '/');
                         let (Some(name), Some(kind)) = (parts.next(), parts.next()) else { continue };
+                        // A bucket key is untrusted input like any other media name: the
+                        // last two segments used to become (kind, name) unchecked, and
+                        // `local_path` concatenates them, so `media//portal.db` wrote
+                        // the portal database outside MEDIA_ROOT (audit 2026-11-26).
+                        // Same control as every other reference.
+                        if !crate::media_store::valid_name(kind, name) {
+                            continue;
+                        }
                         todo.push((kind.to_string(), name.to_string(), size));
                     }
                 }

@@ -197,6 +197,10 @@ EOF
   chmod 0644 /etc/vllm-runner/paths.env
 fi
 
+# The network filters read the compose subnets at start: they are enabled
+# here but (re)started after `docker compose up -d` in the printed next
+# steps below, otherwise a fresh install ends with an ACTIVE unit and no
+# rule (audit 2026-11-26).
 for unit in vllm-runner.service vllm-restrict.service dgx-docker-restrict.service \
              dgx-web-restrict.service dgx-ocr-restrict.service \
              dgx-traefik-boot.service dgx-monitor.service dgx-monitor.timer \

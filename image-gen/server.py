@@ -96,11 +96,18 @@ def _load_pipeline():
 
         # .to("cuda") moves WITHOUT converting the dtype: on a 4-bit model a
         # conversion would break the quantized weights. If accelerate has already
-        # sharded the model, the move fails — that is not a load error.
+        # sharded the model, the move raises while the pipeline is already placed
+        # on the device — that case is fine. Anything else is NOT: the pipeline
+        # stays on the CPU and generation takes minutes. Readiness used to be
+        # `_pipe is not None`, so a swallowed OOM advertised a ready sidecar that
+        # served from CPU (audit 2026-11-26); fail honestly instead.
         try:
             pipe = pipe.to("cuda")
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001
+            placed = str(getattr(pipe, "device", "")).startswith("cuda") or any(
+                str(getattr(m, "device", "")).startswith("cuda") for m in getattr(pipe, "components", {}).values())
+            if not placed:
+                raise RuntimeError(f"pipeline could not be moved to the GPU: {exc}") from exc
 
         try:
             pipe.set_progress_bar_config(disable=True)

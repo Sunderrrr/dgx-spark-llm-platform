@@ -383,7 +383,7 @@ pub fn skills_from_zip(data: &[u8], subpath: &str) -> Result<(Vec<Skill>, Vec<(S
     let mut entries: Vec<(String, u64, Option<u32>)> = Vec::new();
     for i in 0..zf.len() {
         let f = zf.by_index_raw(i).map_err(|_| ImportError("Ce fichier n'est pas une archive .zip valide.".into()))?;
-        total_declared += f.size();
+        total_declared = total_declared.saturating_add(f.size());
         let name = f
             .name()
             .map_err(|_| ImportError("Ce fichier n'est pas une archive .zip valide.".into()))?
@@ -460,8 +460,17 @@ pub fn skills_from_zip(data: &[u8], subpath: &str) -> Result<(Vec<Skill>, Vec<(S
                 break;
             }
             let read_ok = zf.by_index(*idx).ok().is_some_and(|f| f.take(MAX_FILE_BYTES + 1).read_to_end(&mut buf).is_ok());
-            let Some(text) = read_ok.then(|| decode(&buf)).flatten() else { continue };
-            inflated += buf.len();
+            if !read_ok {
+                continue;
+            }
+            // Charge the bytes ACTUALLY inflated, before looking at the content.
+            // The counter used to grow only when `decode` accepted the member as
+            // text, so a member that decoded to None (a leading NUL, invalid
+            // UTF-8) was inflated and then skipped for free: 3000 binary members
+            // bought gigabytes of synchronous deflate inside an async handler
+            // while MAX_EXPANDED_BYTES stayed at zero (audit 2026-11-26).
+            inflated = inflated.saturating_add(buf.len());
+            let Some(text) = decode(&buf) else { continue };
             total += text.len();
             if total > MAX_SKILL_BYTES || files.len() >= MAX_FILES_PER_SKILL {
                 break;

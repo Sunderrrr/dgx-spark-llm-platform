@@ -8,12 +8,17 @@ Description=Prevents the web-search sidecars' network (SearXNG, crawl4ai) from r
 # 0.05 s from this network). So we cut every NEW connection from this network
 # to the host. Outbound traffic to the Internet goes through FORWARD/MASQUERADE
 # and is not affected: searches keep working.
+StartLimitIntervalSec=0
 After=network.target docker.service
 Requires=docker.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+# The network may not exist yet (fresh install): retry until it does, instead of
+# declaring protection that was never installed.
+Restart=on-failure
+RestartSec=15
 # The subnet is deliberately NOT pinned in docker-compose.yml (pinning it
 # forces docker to recreate the network): so we read it at runtime.
 #
@@ -29,9 +34,13 @@ RemainAfterExit=yes
 # SearXNG, same subnet) and the Internet (public addresses). The RETURN on the
 # subnet itself is inserted BEFORE the DROPs — without it, web search would be
 # dead (SearXNG sits in 172.16.0.0/12).
+# An absent network is a FAILURE, not a success: `exit 0` here used to mark the
+# unit active with no rule installed, and install.sh enables it before the stack
+# creates web_net — the crawler then reached the host unfiltered until a reboot.
+# It now exits 1 and Restart=on-failure retries once the network exists.
 ExecStart=/bin/sh -c '\
 SUB=$(docker network inspect ai-platform_web_net -f "{{range .IPAM.Config}}{{.Subnet}}{{end}}" 2>/dev/null); \
-[ -n "$SUB" ] || exit 0; \
+if [ -z "$SUB" ]; then echo "ai-platform_web_net absent: refusing to report protection" >&2; exit 1; fi; \
 iptables -C INPUT -s "$SUB" -m conntrack --ctstate NEW -j DROP 2>/dev/null \
   || iptables -I INPUT 1 -s "$SUB" -m conntrack --ctstate NEW -j DROP; \
 iptables -C DOCKER-USER -s "$SUB" -d "$SUB" -j RETURN 2>/dev/null \

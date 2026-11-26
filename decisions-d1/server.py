@@ -26,6 +26,7 @@ log = logging.getLogger("d1")
 MODEL_DIR = os.environ.get("D1_MODEL", "/app/model")
 MAX_STATE_CHARS = 60_000          # ~32k tokens of context, minus the questions
 MAX_QUESTIONS = 128               # the System One API's own bound
+MAX_QUESTIONS_CHARS = 64_000      # instructions + criteria, the rest of the window
 
 app = FastAPI(title="DGX d1 decision model", docs_url=None, redoc_url=None, openapi_url=None)
 _model = None
@@ -75,6 +76,12 @@ def system_one(body: dict) -> JSONResponse:
         raise HTTPException(status_code=400, detail="questions must be a non-empty object")
     if len(questions) > MAX_QUESTIONS:
         raise HTTPException(status_code=400, detail=f"at most {MAX_QUESTIONS} questions")
+    # The count was bounded but the TEXT was not: instructions and criteria
+    # descriptions reached one forward pass unbounded, so a multi-megabyte
+    # question could push an oversized sequence onto the shared GPU (audit
+    # 2026-11-26). Bound the serialized payload like the state is bounded.
+    if len(json.dumps(questions, ensure_ascii=False)) > MAX_QUESTIONS_CHARS:
+        raise HTTPException(status_code=413, detail="questions too long")
     state = body.get("state")
     if isinstance(state, (dict, list)):
         state = json.dumps(state, ensure_ascii=False)

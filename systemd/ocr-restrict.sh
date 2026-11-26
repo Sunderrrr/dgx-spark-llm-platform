@@ -15,7 +15,6 @@ ID=$(docker network inspect "$NET" -f '{{.Id}}' 2>/dev/null) || exit 0
 [ -n "$ID" ] || exit 0
 BR="br-${ID:0:12}"
 SRC=$(docker inspect ocr -f "{{index .NetworkSettings.Networks \"$NET\" \"IPAddress\"}}" 2>/dev/null)
-DST=$(docker inspect portal-rs -f "{{index .NetworkSettings.Networks \"$NET\" \"IPAddress\"}}" 2>/dev/null)
 
 # Purge of rules that became obsolete on this bridge. Deletion BY INDEX,
 # starting from the end: `ebtables -D` requires the exact rule specification,
@@ -29,12 +28,18 @@ for i in $(ebtables -L FORWARD --Ln 2>/dev/null \
 done
 
 [ "$ACTION" = del ] && exit 0
-[ -n "$SRC" ] && [ -n "$DST" ] || { echo "ocr or portal-rs missing from $NET — nothing to set" >&2; exit 0; }
+[ -n "$SRC" ] || { echo "ocr missing from $NET — nothing to set" >&2; exit 1; }
 
 # 5100 is the Rust portal's port (main.rs binds PORTAL_RUST_PORT, 5100 in compose).
 # The Flask port 5100 is only the FRONTEND's host publish, and the frontend is not
 # on ocr_net: the old rule matched no listener and left the portal reachable from
 # arbitrary OCR model code (audit 2026-11-23, finding 4).
-ebtables -A FORWARD --logical-in "$BR" -p IPv4 --ip-src "$SRC" --ip-dst "$DST" \
+#
+# The DESTINATION is the bridge itself, not the portal container's IP: that IP is
+# reassigned when portal-rs is recreated, and the rule is re-applied only after an
+# OCR recreation, so a deploy left the rule matching nothing (audit 2026-11-26).
+# Matching the whole ocr_net bridge keeps the containment across every
+# recreation: the only other member of that network is the portal.
+ebtables -A FORWARD --logical-in "$BR" -p IPv4 --ip-src "$SRC" \
          --ip-proto tcp --ip-dport 5100 -j DROP
-echo "filtre pose : $SRC -> $DST:5100 sur $BR"
+echo "filtre pose : $SRC -> :5100 sur $BR"

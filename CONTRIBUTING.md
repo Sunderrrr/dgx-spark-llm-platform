@@ -33,6 +33,25 @@ Two more that follow from the same principle:
 
 ---
 
+## Every change lands through a pull request
+
+`master` takes **no direct push**. A change goes:
+
+1. **Branch** (`git switch -c <topic>`) → commit → push the branch → open a pull
+   request. One topic per PR.
+2. **Wait for the reviewer.** The Kodus bot (**Kody**) analyses the PR itself; a merge
+   before its review defeats the point.
+3. **Fix what it reports**, or answer on the thread why a point does not apply.
+4. **Ask for the re-check** by commenting on the PR:
+   ```
+   @kody review --force
+   ```
+5. **Merge** when the re-check is clean and CI is green (squash, delete the branch).
+
+The same bar as the local gate: nothing is « good enough to push anyway ».
+
+---
+
 ## Set up
 
 ```bash

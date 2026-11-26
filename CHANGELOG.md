@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-11-26 — le mode thinking est réparé côté LiteLLM (capacités lues, pas devinées)
+
+Rapport de l'opérateur : « le mode thinking sur LiteLLM pour le modèle Qwen ne marche
+pas ». Mesuré, trois défauts distincts :
+
+1. **Le raisonnement n'était annoncé nulle part.** `supports_reasoning` valait `null`
+   dans `/model/info`, et une application qui le lit (Kodus, OpenWebUI) en conclut que
+   le modèle ne sait pas réfléchir et grise tout son sélecteur.
+2. **J'annonçais sept niveaux d'effort** (`none…max`) alors que le template de Qwen3.8
+   n'en accepte que **trois** : `low`, `medium`, `xhigh`. Un client envoyant `high`
+   recevait `reasoning_effort "high" is not supported by the chat template`. Ces trois
+   niveaux, le moteur les déclare lui-même dans `/props`
+   (`chat_template_caps.reasoning_effort_levels`) — c'est désormais **là** que
+   l'enregistrement les lit, plus dans une liste écrite à la main.
+3. **Le portail ne réessayait que sur 500.** llama.cpp répond **400** quand le template
+   refuse l'effort : le repli « une fois sans l'effort » ne se déclenchait jamais. Il
+   couvre maintenant 400, 422 et 500.
+
+`litellm_models::engine_caps()` lit désormais `/props` **une fois** par enregistrement et
+en tire la vision ET les niveaux de raisonnement ; une seule source de vérité, celle du
+moteur réellement chargé.
+
+Vérifié à travers LiteLLM après ré-enregistrement : `xhigh` → **166 caractères** de
+raisonnement, `low` → **135**, `high` → **172** ; `/model/info` annonce
+`supports_reasoning: true` et `reasoning_effort_levels: ["low","medium","xhigh"]`.
 ## 2026-11-26 — le modèle de décision passe à LiquidAI d1-3B, Clef supprimé
 
 `Cloudflare Clef` (18 Go de GGUF, servi par un second `llama-server` lancé à la demande)

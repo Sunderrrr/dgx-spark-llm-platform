@@ -68,7 +68,7 @@ fn engine_api_key(engine: &str) -> String {
 
 /// `_litellm_upsert`: (re)create the route `public_name` → `upstream` on the
 /// engine; the previous entry is put back when the creation is refused.
-async fn upsert(public_name: &str, upstream: &str, max_input: i64, max_output: i64, api_key: &str, kwargs: Option<serde_json::Value>) -> bool {
+async fn upsert(public_name: &str, upstream: &str, max_input: i64, max_output: i64, api_key: &str, kwargs: Option<serde_json::Value>, caps: &EngineCaps) -> bool {
     if key().is_empty() {
         return false;
     }
@@ -94,25 +94,18 @@ async fn upsert(public_name: &str, upstream: &str, max_input: i64, max_output: i
         "model_info": {
             "mode": "chat",
             "supports_function_calling": true,
-            // Clients decide whether to offer a thinking control from these
-            // flags, not by probing: with `supports_reasoning` absent, an app
-            // (Kodus, OpenWebUI…) greys out its whole level selector and says
-            // the model cannot reason — measured 2026-11-25 on the served
-            // Inkling, which does emit `reasoning_content`.
-            // The levels below are exactly the ones `chat/playground.rs`
-            // forwards in `chat_template_kwargs`, so the app cannot offer one
-            // the engine would ignore.
-            "supports_reasoning": true,
-            "supports_none_reasoning_effort": true,
-            "supports_minimal_reasoning_effort": true,
-            "supports_low_reasoning_effort": true,
-            "supports_xhigh_reasoning_effort": true,
-            "supports_max_reasoning_effort": true,
-            "reasoning_effort_levels": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
-            // A vision-capable engine must say so, or the client hides the
-            // control: the launch on 2026-11-25 dropped it while the model did
-            // accept images.
-            "supports_vision": engine_vision().await,
+            // Capabilities advertised to clients must be the engine's own: an
+            // app greys out its thinking control when `supports_reasoning` is
+            // absent, and sends a level this template may reject when the list
+            // is wider than reality. Measured 2026-11-25: `high` → 400.
+            "supports_reasoning": caps.reasoning,
+            "reasoning_effort_levels": caps.levels.clone(),
+            "supports_none_reasoning_effort": caps.levels.iter().any(|l| l == "none"),
+            "supports_minimal_reasoning_effort": caps.levels.iter().any(|l| l == "minimal"),
+            "supports_low_reasoning_effort": caps.levels.iter().any(|l| l == "low"),
+            "supports_high_reasoning_effort": caps.levels.iter().any(|l| l == "high"),
+            "supports_xhigh_reasoning_effort": caps.levels.iter().any(|l| l == "xhigh"),
+            "supports_max_reasoning_effort": caps.levels.iter().any(|l| l == "max"),
             "max_input_tokens": max_input,
             "max_output_tokens": max_output,
         },
@@ -179,18 +172,44 @@ fn template_kwargs(args: &str) -> Option<serde_json::Value> {
 }
 
 /// `_register_litellm_model(name, vllm_args, engine)`.
-/// Does the running engine accept images? `/props` announces it as
-/// `modalities.vision` (or the legacy `vision`), and a registration that omits
-/// it makes clients hide their image control.
-async fn engine_vision() -> bool {
+/// What the running engine can do, read from its own `/props` instead of guessed.
+///
+/// `chat_template_caps` is the engine TELLING us, for the template it actually
+/// loaded, whether an effort is accepted and which levels are. Advertising a
+/// superset breaks clients: on 2026-11-25 the registration announced seven
+/// levels while this model's template accepts three, so any app sending `high`
+/// got `reasoning_effort "high" is not supported by the chat template`.
+#[derive(Default)]
+struct EngineCaps {
+    vision: bool,
+    reasoning: bool,
+    levels: Vec<String>,
+}
+
+async fn engine_caps() -> EngineCaps {
     let base = std::env::var("VLLM_API_URL").unwrap_or_else(|_| "http://172.19.0.1:8000/v1".into());
     let root = base.trim_end_matches('/').trim_end_matches("/v1");
-    let Ok(c) = reqwest::Client::builder().timeout(std::time::Duration::from_secs(3)).build() else { return false };
-    let Ok(r) = c.get(format!("{root}/props")).send().await else { return false };
-    let Ok(v) = r.json::<serde_json::Value>().await else { return false };
-    v.pointer("/modalities/vision").and_then(|x| x.as_bool())
-        .or_else(|| v.get("vision").and_then(|x| x.as_bool()))
-        .unwrap_or(false)
+    let Ok(client) = reqwest::Client::builder().timeout(std::time::Duration::from_secs(3)).build()
+    else { return EngineCaps::default() };
+    let Ok(resp) = client.get(format!("{root}/props")).send().await else { return EngineCaps::default() };
+    let Ok(v) = resp.json::<serde_json::Value>().await else { return EngineCaps::default() };
+    let caps = v.get("chat_template_caps");
+    let levels: Vec<String> = caps
+        .and_then(|c| c.get("reasoning_effort_levels"))
+        .and_then(|l| l.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    let effort_ok = caps.and_then(|c| c.get("supports_reasoning_effort")).and_then(|b| b.as_bool()) == Some(true);
+    let preserve = caps.and_then(|c| c.get("supports_preserve_reasoning")).and_then(|b| b.as_bool()) == Some(true);
+    EngineCaps {
+        vision: v.pointer("/modalities/vision").and_then(|x| x.as_bool())
+            .or_else(|| v.get("vision").and_then(|x| x.as_bool()))
+            .unwrap_or(false),
+        // A template that preserves reasoning or accepts an effort produces
+        // `reasoning_content`; one that does neither never will.
+        reasoning: effort_ok || preserve || !levels.is_empty(),
+        levels,
+    }
 }
 
 
@@ -200,7 +219,8 @@ pub async fn register(name: &str, args: &str, engine: &str) -> bool {
     // launched without --chat-template-kwargs keeps its template's default, so the
     // CLIENT chooses its reasoning level.
     let kwargs = template_kwargs(args);
-    upsert(name, &upstream(name, engine), max_input, max_output, &engine_api_key(engine), kwargs).await
+    let caps = engine_caps().await;
+    upsert(name, &upstream(name, engine), max_input, max_output, &engine_api_key(engine), kwargs, &caps).await
 }
 
 /// Where LiteLLM reaches the decision engine: its own port, never :8000.
@@ -276,7 +296,8 @@ pub async fn point_auto_model(name: &str, args: &str, engine: &str) -> bool {
     let (max_input, max_output) = crate::health::ctx_split(args, engine);
     let auto = std::env::var("AUTO_MODEL_NAME").unwrap_or_else(|_| "auto-model".into());
     let kwargs = template_kwargs(args);
-    upsert(&auto, &upstream(name, engine), max_input, max_output, &engine_api_key(engine), kwargs).await
+    let caps = engine_caps().await;
+    upsert(&auto, &upstream(name, engine), max_input, max_output, &engine_api_key(engine), kwargs, &caps).await
 }
 
 #[cfg(test)]

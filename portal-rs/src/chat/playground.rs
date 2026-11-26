@@ -358,7 +358,11 @@ async fn run(state: &AppState, mut t: Turn, out: &Out, rid: &str) {
                     return;
                 }
             };
-            if !r.status().is_success() && effort.is_some() && r.status().as_u16() == 500 {
+            // Any refusal counts: llama.cpp answers 400 for an effort its template does
+    // not support (measured 2026-11-25 with `high` on Qwen3.8-Flash-Next, whose
+    // template accepts low/medium/xhigh only), and a 500-only test never fired.
+    let refused = matches!(r.status().as_u16(), 400 | 422 | 500);
+    if !r.status().is_success() && effort.is_some() && refused {
                 // This model's template refuses the effort: once more without it.
                 eprintln!("[chat] playground {user}: reasoning_effort refused by the model — retrying without");
                 r = match open(json!({"enable_thinking": think})).await {

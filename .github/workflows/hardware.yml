@@ -73,15 +73,15 @@ jobs:
         # script body. A `reason` containing a quote and `$(...)` used to run
         # commands on the SELF-HOSTED runner (audit 2026-11-26).
         env:
-          GROUPS: ${{ inputs.groups }}
-          REASON: ${{ inputs.reason }}
+          DISPATCH_GROUPS: ${{ inputs.groups }}
+          DISPATCH_REASON: ${{ inputs.reason }}
         run: |
           {
             echo '## Hardware gates'
             echo
-            echo "Groups: \`$GROUPS\`"
-            if [ -n "$REASON" ]; then
-              echo "Reason: $REASON"
+            echo "Groups: \`$DISPATCH_GROUPS\`"
+            if [ -n "$DISPATCH_REASON" ]; then
+              echo "Reason: $DISPATCH_REASON"
             fi
             echo
             echo '```'

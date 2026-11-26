@@ -73,6 +73,16 @@ def _exclusive(fn, *args):
         return fn(*args)
 
 
+# Two locks, for two different failures:
+#  - `_gpu_lock` (thread) keeps TWO CUDA calls from overlapping when a client
+#    timeout abandons a worker: the lock is released by the call returning, not by
+#    the future being cancelled;
+#  - `_rpc_lock` (asyncio) keeps REQUESTS from interleaving their pieces with each
+#    other, so a streamed answer stays in order and a queued request waits its turn
+#    instead of stealing one piece between two others.
+_rpc_lock = asyncio.Lock()
+
+
 def _attn_impl() -> str:
     """flash_attention_2 is recommended but does not compile everywhere (ARM64
     notably) — we take it only if it really imports, otherwise native PyTorch
@@ -305,9 +315,10 @@ async def clone(
         # stopped answering during a generation — the portal then concluded
         # « service injoignable » and the admin saw the backend offline. So we
         # run it in a thread, under lock.
-        # The lock lives in the worker (_exclusive): a client-facing timeout must
-        # never release the GPU while the blocking call is still running.
-        wavs, out_sr = await asyncio.wait_for(run_in_threadpool(_exclusive, _run), timeout=GEN_TIMEOUT_S)
+        # The GPU lock lives in the worker (_exclusive): a client-facing timeout
+        # must never release the GPU while the blocking call is still running.
+        async with _rpc_lock:
+            wavs, out_sr = await asyncio.wait_for(run_in_threadpool(_exclusive, _run), timeout=GEN_TIMEOUT_S)
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Génération trop longue, réessaie avec un texte plus court.")
     except Exception:
@@ -394,7 +405,7 @@ async def speak(body: dict) -> Response:
         import numpy as _np
         loop = asyncio.get_running_loop()
         for i, piece in enumerate(pieces):
-            if True:
+            async with _rpc_lock:
                 try:
                     wav, sr = await asyncio.wait_for(
                         loop.run_in_executor(None, _exclusive, _speak, piece, None), timeout=GEN_TIMEOUT_S)
@@ -429,12 +440,13 @@ async def tts(body: dict) -> Response:
     pieces = _chunk_text(text)
     try:
         chunks_out = []
-        for piece in pieces:
-            one, sr = await asyncio.wait_for(
-                asyncio.get_running_loop().run_in_executor(None, _exclusive, _speak, piece, None),
-                timeout=GEN_TIMEOUT_S)
-            chunks_out.append(one)
-        wav = chunks_out[0] if len(chunks_out) == 1 else np.concatenate(chunks_out)
+        async with _rpc_lock:
+            for piece in pieces:
+                one, sr = await asyncio.wait_for(
+                    asyncio.get_running_loop().run_in_executor(None, _exclusive, _speak, piece, None),
+                    timeout=GEN_TIMEOUT_S)
+                chunks_out.append(one)
+        wav = _join(chunks_out, sr)
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Génération trop longue.")
     except Exception:

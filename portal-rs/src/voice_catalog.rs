@@ -26,14 +26,22 @@ pub async fn ensure_table(pool: &SqlitePool) {
     )
     .execute(pool)
     .await;
-    // INSERT OR IGNORE: an operator who renamed or deleted the entry keeps their
-    // choice — this only fills an empty catalog.
-    let _ = sqlx::query(
-        "INSERT OR IGNORE INTO voice_configs (name, repo_id, added_at) \
-         VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
-    )
-    .bind(DEFAULT_VOICE.0)
-    .bind(DEFAULT_VOICE.1)
-    .execute(pool)
-    .await;
+    // Seed ONLY an empty catalog. `INSERT OR IGNORE` alone was not enough: a
+    // deleted entry came back on the next page load, because the unique name no
+    // longer existed — the operator's choice was undone every time (Kody, PR 17).
+    let empty: Option<i64> = sqlx::query_scalar("SELECT COUNT(*) FROM voice_configs")
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+    if empty.unwrap_or(1) == 0 {
+        let _ = sqlx::query(
+            "INSERT INTO voice_configs (name, repo_id, added_at) \
+             VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
+        )
+        .bind(DEFAULT_VOICE.0)
+        .bind(DEFAULT_VOICE.1)
+        .execute(pool)
+        .await;
+    }
 }

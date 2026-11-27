@@ -1,6 +1,31 @@
 # Changelog
 
-## 2026-11-26 (nuit) — audit de sécurité complet : 6 constats corrigés
+## 2026-11-27 — la voix ne se lançait plus : CDI NVIDIA périmée + catalogue voix vide
+
+Signalé par l'opérateur : « je n'arrive plus à lancer le modèle de voice avec ma
+voix ». Deux causes distinctes, mesurées.
+
+1. **La spécification CDI de NVIDIA était périmée.** `nvidia-cdi-refresh.path` ne
+   surveille que `/lib/modules/*/modules.dep` ; une mise à jour du pilote remplace
+   `libnvidia-egl-wayland.so.1.1.23` par `.1.1.24` sans toucher ce fichier. Le CDI
+   continuait donc de nommer la version disparue, et **tout** conteneur `--gpus all`
+   mourait à la création (`failed to fulfil mount request: open …libnvidia-egl-wayland.so.1.1.23`).
+   Le conteneur `voice` était `Exited (127)`, l'ASR aussi. Régénérer la spec
+   (`nvidia-ctk cdi generate`) répare ; le dépôt livre maintenant un drop-in qui fait
+   surveiller aussi les bibliothèques du pilote, et `install.sh` l'installe.
+2. **Le catalogue voix n'était jamais semé.** La table, la page et la route
+   `/admin/voice/catalog/launch` existaient, mais `voice_configs` restait vide : la
+   zone affichait « aucun modèle » et le seul bouton disponible était le « Démarrer »
+   générique (un `docker start`), qui ne peut pas choisir de moteur et n'existe plus si
+   le conteneur a été supprimé. `voice_catalog::ensure_table` sème désormais
+   « Ma voix (fine-tuné) » → `custom-qwen-tts` comme le fait `image_catalog` pour
+   l'image : la carte apparaît au premier chargement de la page, avec son bouton
+   **Lancer** qui repasse par le script de recréation de la voix fine-tunée.
+## 2026-11-26 (nuit) — audit de sécurité complet : 6 constats corrigés et la carte « Voix » liste chaque entrée du
+catalogue avec son bouton **Lancer** — le bouton icône, lui, reste un `docker start` :
+il ne peut pas choisir de moteur, ni recréer un conteneur supprimé. Le sidecar
+annonce enfin `custom-qwen-tts` quand le fine-tune est chargé, au lieu du nom du
+modèle de base (« Qwen3-TTS-12Hz-1.7B-Base »).
 
 Audit de source complet (15 unités de couverture, chasse puis vérification
 indépendante par un second agent pour chaque constat). Les six failles confirmées sont

@@ -223,6 +223,26 @@ export function ModelsTab({ data, act, actionDisabled, setConfirmAction }: Admin
                 <Text type="supporting" color="secondary" wordBreak="break-all">
                   {data.voice_model_name || t("aucun modèle")}
                 </Text>
+                {/* Launch the ENGINE, like the LLM cards: the icon button above is a
+                    bare `docker start` and cannot choose a model (nor recreate a
+                    container that was removed). These rows go through
+                    /admin/voice/catalog/launch, which runs the recreate script the
+                    catalog entry names — the operator's fine-tune included. */}
+                {voiceCfgs.map((cfg) => (
+                  <HStack key={cfg.id} gap={2} vAlign="center" hAlign="between">
+                    <Text type="supporting" color="secondary" wordBreak="break-all">
+                      {cfg.name}
+                    </Text>
+                    <Button
+                      label={t("Lancer")}
+                      variant="primary"
+                      size="sm"
+                      icon={<Icon icon={PlayIcon} size="sm" />}
+                      isDisabled={actionDisabled}
+                      onClick={() => act("/admin/voice/catalog/launch", { voice_name: cfg.name })}
+                    />
+                  </HStack>
+                ))}
               </VStack>
             </Card>
             <Card>

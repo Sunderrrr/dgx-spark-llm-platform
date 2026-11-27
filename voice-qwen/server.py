@@ -226,7 +226,11 @@ def _speak(text: str, language: str | None):
 def model_info() -> JSONResponse:
     return JSONResponse({
         "loaded": _model is not None,
-        "type": MODEL_ID.rsplit("/", 1)[-1],
+        # A fine-tuned checkpoint IS a distinct engine: `custom-qwen-tts` is the id
+        # the runner map and the voice catalog use, and it is the only one that
+        # speaks the operator's voice. Reporting the base id here made the admin
+        # card announce "Qwen3-TTS-12Hz-1.7B-Base" while a fine-tune was loaded.
+        "type": "custom-qwen-tts" if FINETUNE_DIR else MODEL_ID.rsplit("/", 1)[-1],
         "engine": "qwen3-tts",
         # Only a fine-tuned checkpoint can answer a sentence on its own, which is
         # what the playground voice mode needs (/api/speak).

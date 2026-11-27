@@ -47,6 +47,12 @@ async fn main() -> anyhow::Result<()> {
         spend: portal_rs::spend::pool_from_env(),
     };
 
+    // The voice catalog is seeded ONCE here, not on every admin poll: the page
+    // read used to run two statements and a possible INSERT per request (Kody,
+    // PR 17). A failure is logged, never silent: an empty catalog would show
+    // « aucun modèle » with no diagnosis.
+    portal_rs::voice_catalog::ensure_table(state.db.pool()).await;
+
     // The directory snapshot's first read starts now, so the first visit of
     // the Users page already has the LDAP states (directory_states_for([]) at
     // Flask's start). Same seam as the background jobs.

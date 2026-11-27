@@ -16,6 +16,7 @@ pub mod security;
 pub mod system;
 pub mod hf;
 pub mod image_catalog;
+pub mod voice_catalog;
 pub mod docs;
 pub mod sidecars;
 pub mod media;

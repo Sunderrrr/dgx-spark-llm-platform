@@ -140,6 +140,9 @@ pub async fn api_admin(State(state): State<AppState>, uri: Uri, headers: HeaderM
         let requests = rowjson::rows(pool, "SELECT * FROM model_requests ORDER BY created_at DESC LIMIT 200").await?;
         let model_cfgs = rowjson::rows(pool, "SELECT * FROM model_configs ORDER BY name").await?;
         let ocr_cfgs = rowjson::rows(pool, "SELECT * FROM ocr_configs ORDER BY name").await?;
+        // The catalog is seeded here so the admin page always has the
+        // fine-tuned voice to launch (voice_catalog::ensure_table).
+        crate::voice_catalog::ensure_table(pool).await;
         let voice_cfgs = rowjson::rows(pool, "SELECT * FROM voice_configs ORDER BY name").await?;
         let budget_reqs = rowjson::rows(pool, "SELECT * FROM budget_requests ORDER BY created_at DESC LIMIT 200").await?;
         let (p, d, r): (Option<i64>, Option<i64>, Option<i64>) = sqlx::query_as("SELECT SUM(status='pending'), SUM(status='done'), SUM(status='rejected') FROM model_requests").fetch_one(pool).await?;

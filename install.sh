@@ -216,6 +216,11 @@ done
 # earlyoom drop-in (GB10 unified memory: the kernel OOM killer cannot see GPU
 # memory, earlyoom acts on MemAvailable first).
 if systemctl cat earlyoom.service >/dev/null 2>&1; then
+  # The driver's userspace libraries change under modules.dep's radar; without
+  # this drop-in the CDI spec goes stale and every GPU sidecar stops starting.
+  install -d /etc/systemd/system/nvidia-cdi-refresh.path.d
+  install -m 0644 systemd/nvidia-cdi-refresh.path.d/dgx-driver-libs.conf \
+    /etc/systemd/system/nvidia-cdi-refresh.path.d/dgx-driver-libs.conf
   install -d /etc/systemd/system/earlyoom.service.d
   install -m 0644 systemd/earlyoom.service.d-dgx.conf /etc/systemd/system/earlyoom.service.d/dgx.conf
 else

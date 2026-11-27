@@ -43,8 +43,10 @@ pub async fn ensure_table(pool: &SqlitePool) {
         }
     };
     if empty == 0 {
+        // OR IGNORE keeps it idempotent if two starts race on an empty table
+        // (the count check above narrows the window, it does not close it).
         if let Err(e) = sqlx::query(
-            "INSERT INTO voice_configs (name, repo_id, added_at) \
+            "INSERT OR IGNORE INTO voice_configs (name, repo_id, added_at) \
              VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
         )
         .bind(DEFAULT_VOICE.0)

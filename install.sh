@@ -217,12 +217,13 @@ done
 # memory, earlyoom acts on MemAvailable first).
 # The driver's userspace libraries change under modules.dep's radar; without this
 # drop-in the CDI spec goes stale and every GPU sidecar stops starting. It has
-# nothing to do with earlyoom, so it is installed unconditionally.
-if [ -d /etc/systemd/system/nvidia-cdi-refresh.path.d ] || systemctl cat nvidia-cdi-refresh.path >/dev/null 2>&1; then
-  install -d /etc/systemd/system/nvidia-cdi-refresh.path.d
-  install -m 0644 systemd/nvidia-cdi-refresh.path.d/dgx-driver-libs.conf \
-    /etc/systemd/system/nvidia-cdi-refresh.path.d/dgx-driver-libs.conf
-fi
+# nothing to do with earlyoom, so it is installed unconditionally — a drop-in for a
+# unit this box does not have is inert, whereas a missing one costs every GPU
+# sidecar (Kody, PR 17: the old guard skipped it when neither the unit nor the
+# directory existed).
+install -d /etc/systemd/system/nvidia-cdi-refresh.path.d
+install -m 0644 systemd/nvidia-cdi-refresh.path.d/dgx-driver-libs.conf \
+  /etc/systemd/system/nvidia-cdi-refresh.path.d/dgx-driver-libs.conf
 if systemctl cat earlyoom.service >/dev/null 2>&1; then
   install -d /etc/systemd/system/earlyoom.service.d
   install -m 0644 systemd/earlyoom.service.d-dgx.conf /etc/systemd/system/earlyoom.service.d/dgx.conf

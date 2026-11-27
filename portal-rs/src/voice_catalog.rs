@@ -12,8 +12,14 @@
 //! card appears on the first load of the admin page.
 use sqlx::SqlitePool;
 
-/// The operator's fine-tuned voice, and the label the card shows.
-const DEFAULT_VOICE: (&str, &str) = ("Ma voix (fine-tuné)", "custom-qwen-tts");
+/// The voices seeded on an empty catalog: the fine-tune (best quality) and the
+/// light clone (0.6B base + a reference clip, a third of the memory). The 0.6B id
+/// is in the runner's map since before this change, so it launches without any
+/// runner restart; `custom-qwen-tts` needs the rebuilt runner.
+const DEFAULT_VOICES: [(&str, &str); 2] = [
+    ("Ma voix (0.6B, clonée)", "Qwen3-TTS-12Hz-0.6B-Base"),
+    ("Ma voix (fine-tuné 1.7B)", "custom-qwen-tts"),
+];
 
 /// The table, created on first use like the other sidecar catalogs, and seeded.
 pub async fn ensure_table(pool: &SqlitePool) {
@@ -43,18 +49,20 @@ pub async fn ensure_table(pool: &SqlitePool) {
         }
     };
     if empty == 0 {
-        // OR IGNORE keeps it idempotent if two starts race on an empty table
-        // (the count check above narrows the window, it does not close it).
-        if let Err(e) = sqlx::query(
-            "INSERT OR IGNORE INTO voice_configs (name, repo_id, added_at) \
-             VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
-        )
-        .bind(DEFAULT_VOICE.0)
-        .bind(DEFAULT_VOICE.1)
-        .execute(pool)
-        .await
-        {
-            eprintln!("[voice_catalog] cannot seed the default voice: {e}");
+        for (name, repo_id) in DEFAULT_VOICES {
+            // OR IGNORE keeps it idempotent if two starts race on an empty table
+            // (the count check above narrows the window, it does not close it).
+            if let Err(e) = sqlx::query(
+                "INSERT OR IGNORE INTO voice_configs (name, repo_id, added_at) \
+                 VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
+            )
+            .bind(name)
+            .bind(repo_id)
+            .execute(pool)
+            .await
+            {
+                eprintln!("[voice_catalog] cannot seed «{name}»: {e}");
+            }
         }
     }
 }

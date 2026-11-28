@@ -165,7 +165,7 @@ bare repo id uses `-hf` (which can pick the wrong shard).
   out of reach of `vllm_args`: `--disable-fetch-requests` (otherwise TabbyAPI
   fetches images by URL itself = SSRF) and `--allowed-origins
   https://no-browser.invalid` (auth disabled + CORS `*`). LOCAL PATCH to
-  TabbyAPI (`vllm-runner/patches/tabbyapi-tool-calls-only-when-declared.patch`,
+  TabbyAPI (`patches/tabbyapi-tool-calls-only-when-declared.patch`,
   to reapply after any `git pull` in `/root/tabbyAPI`): TabbyAPI parsed
   `<tool_call>` even with no declared tool. Limits: no `/metrics` (404), 6
   sessions sharing `--cache-size 262144`, ~10 GB available once loaded. A single

@@ -6,6 +6,7 @@ use super::*;
 use super::admin_accounts::{management, verify_password_locked};
 use crate::webauthn as wa;
 use sqlx::SqlitePool;
+use crate::clock::now_s;
 
 /// `config.WEBAUTHN_*`: origin (the public URL), RP ID (its host), RP name, UV.
 pub fn settings() -> (String, String, String, bool) {
@@ -16,10 +17,6 @@ pub fn settings() -> (String, String, String, bool) {
     let rp_name = std::env::var("WEBAUTHN_RP_NAME").unwrap_or_else(|_| "DGX".into());
     let uv = std::env::var("WEBAUTHN_REQUIRE_UV").unwrap_or_else(|_| "0".into()) == "1";
     (origin, rp_id, rp_name, uv)
-}
-
-fn now_f() -> f64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
 }
 
 fn random(n: usize) -> Option<Vec<u8>> {
@@ -44,7 +41,7 @@ async fn stored(pool: &SqlitePool, username: &str) -> Vec<(i64, String, i64, Opt
 
 /// `_set_enabled(username, enabled)`.
 async fn set_enabled(pool: &SqlitePool, username: &str, on: bool) {
-    let now = now_f();
+    let now = now_s();
     let _ = sqlx::query(
         "INSERT INTO user_security (username, enabled, created_at, updated_at) VALUES (?,?,?,?) ON CONFLICT(username) DO UPDATE SET enabled=excluded.enabled, updated_at=excluded.updated_at",
     )
@@ -58,7 +55,7 @@ async fn set_enabled(pool: &SqlitePool, username: &str, on: bool) {
 
 /// `_pending_insert`: one challenge in flight per account and kind.
 async fn pending_insert(pool: &SqlitePool, nonce: &str, username: &str, kind: &str, challenge: &[u8], fullname: Option<&str>, is_admin: Option<i64>, source: Option<&str>) {
-    let now = now_f();
+    let now = now_s();
     let _ = sqlx::query("DELETE FROM pending_webauthn WHERE username=? AND kind=?").bind(username).bind(kind).execute(pool).await;
     let _ = sqlx::query("INSERT INTO pending_webauthn (nonce, username, kind, challenge, fullname, is_admin, source, created_at, expires_at) VALUES (?,?,?,?,?,?,?,?,?)")
         .bind(nonce)
@@ -94,7 +91,7 @@ async fn pending_get(pool: &SqlitePool, nonce: &str, kind: &str) -> Option<Pendi
             .ok()
             .flatten();
     let (username, row_kind, challenge, fullname, is_admin, expires) = row?;
-    if expires < now_f() {
+    if expires < now_s() {
         let _ = sqlx::query("DELETE FROM pending_webauthn WHERE nonce=?").bind(nonce).execute(pool).await;
         return None;
     }
@@ -193,7 +190,7 @@ async fn finish_registration(state: &AppState, username: &str, cred: &Value, non
         .bind(i64::from(ver.sign_count))
         .bind(transports)
         .bind(label)
-        .bind(now_f())
+        .bind(now_s())
         .execute(pool)
         .await;
     set_enabled(pool, username, true).await;
@@ -342,7 +339,7 @@ pub async fn remove(State(state): State<AppState>, headers: HeaderMap, body: axu
     let _ = sqlx::query("DELETE FROM webauthn_credentials WHERE username=? AND credential_id=?").bind(&s.username).bind(&cred_id).execute(pool).await;
     let remaining: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM webauthn_credentials WHERE username=?").bind(&s.username).fetch_one(pool).await.unwrap_or(0);
     if remaining == 0 {
-        let _ = sqlx::query("UPDATE user_security SET enabled=0, updated_at=? WHERE username=?").bind(now_f()).bind(&s.username).execute(pool).await;
+        let _ = sqlx::query("UPDATE user_security SET enabled=0, updated_at=? WHERE username=?").bind(now_s()).bind(&s.username).execute(pool).await;
     }
     Json(json!({"ok": true})).into_response()
 }

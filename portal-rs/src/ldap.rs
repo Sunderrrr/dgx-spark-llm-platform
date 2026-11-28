@@ -12,6 +12,7 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
+use crate::clock::now_s;
 
 pub const ACTIVE: &str = "active";
 pub const DISABLED: &str = "disabled";
@@ -395,10 +396,6 @@ struct Snapshot {
 
 static SNAPSHOT: Mutex<Snapshot> = Mutex::new(Snapshot { t: 0.0, states: None, running: false });
 
-fn now() -> f64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
-}
-
 /// `directory_states_for(names)`: {name: active | disabled | absent} from the
 /// last background read, None until one succeeded. A stale snapshot
 /// schedules a refresh (which also syncs the LDAP groups) and answers with
@@ -406,7 +403,7 @@ fn now() -> f64 {
 pub fn states_for(state: &crate::AppState, names: &[String]) -> Option<HashMap<String, String>> {
     let (launch, states) = {
         let mut s = SNAPSHOT.lock().unwrap_or_else(|e| e.into_inner());
-        let launch = now() - s.t > FRESH_S && !s.running;
+        let launch = now_s() - s.t > FRESH_S && !s.running;
         if launch {
             s.running = true;
         }
@@ -423,7 +420,7 @@ pub fn states_for(state: &crate::AppState, names: &[String]) -> Option<HashMap<S
                     s.states = Some(d.states);
                     d.groups
                 });
-                s.t = now();
+                s.t = now_s();
                 groups
             };
             if let Some(g) = groups {

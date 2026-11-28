@@ -3,13 +3,13 @@
 //! choices, the account block, the 182-day activity and the real quotas.
 //! The writes of the page live under other prefixes (served by the Flask backend until its removal).
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{Duration, NaiveDate};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row, SqlitePool};
 
 use crate::keys::AccountInfo;
+use crate::clock::now_s;
 
 pub const MAX_MCP_SERVERS: i64 = 16;
 pub const MAX_SKILLS: i64 = 50;
@@ -52,10 +52,6 @@ fn py_round0(x: f64) -> i64 {
     format!("{x:.0}").parse().unwrap_or(x as i64)
 }
 
-fn now_epoch() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
-}
-
 /// `_rate_used`: requests consumed in the current window (0 once it expired).
 /// Every bucket shares the chat window, as in Flask.
 pub async fn rate_used(db: &SqlitePool, username: &str, bucket: &str) -> i64 {
@@ -68,7 +64,7 @@ pub async fn rate_used(db: &SqlitePool, username: &str, bucket: &str) -> i64 {
     match row {
         Some(r) => {
             let first_at: f64 = r.get::<Option<f64>, _>("first_at").unwrap_or(0.0);
-            if now_epoch() - first_at > CHAT_RATE_WINDOW {
+            if now_s() - first_at > CHAT_RATE_WINDOW {
                 0
             } else {
                 r.get::<Option<i64>, _>("fails").unwrap_or(0)

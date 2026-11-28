@@ -9,13 +9,10 @@ use std::time::{Duration, Instant};
 use sqlx::SqlitePool;
 
 use crate::db::Database;
+use crate::clock::now_s;
 
 const TTFT_ALPHA: f64 = 0.2;
 const QUOTA_CACHE_TTL: Duration = Duration::from_secs(30);
-
-fn now() -> f64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
-}
 
 /// Python's `str(round(x, n))` for the settings these gauges write.
 pub fn py_round_str(x: f64, n: i32) -> String {
@@ -37,7 +34,7 @@ pub async fn inflight_start(pool: &SqlitePool, username: &str) -> String {
     let mut b = [0u8; 8];
     let _ = getrandom::getrandom(&mut b);
     let rid = hex::encode(b);
-    let _ = sqlx::query("INSERT INTO inflight_requests (id, username, started_at) VALUES (?,?,?)").bind(&rid).bind(username).bind(now()).execute(pool).await;
+    let _ = sqlx::query("INSERT INTO inflight_requests (id, username, started_at) VALUES (?,?,?)").bind(&rid).bind(username).bind(now_s()).execute(pool).await;
     rid
 }
 
@@ -98,7 +95,7 @@ pub async fn record_prefill(db: &Database, prompt_tokens: i64, ttft_s: f64) {
         return;
     }
     set_setting(db.pool(), "prefill_rate_last", &py_round_str(prompt_tokens as f64 / ttft_s, 1)).await;
-    set_setting(db.pool(), "prefill_rate_at", &format!("{}", now())).await;
+    set_setting(db.pool(), "prefill_rate_at", &format!("{}", now_s())).await;
 }
 
 static QUOTA: Mutex<Option<HashMap<String, (Instant, Option<String>)>>> = Mutex::new(None);

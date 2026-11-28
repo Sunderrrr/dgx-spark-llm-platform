@@ -20,6 +20,7 @@ use axum::Json;
 use serde_json::{json, Value};
 
 use crate::db::{AccountFacts, Database};
+use crate::clock::now_s;
 
 /// A signed-in user, with the role re-read at this request.
 #[derive(Debug, Clone)]
@@ -142,13 +143,6 @@ fn max_age() -> f64 {
         .unwrap_or(12.0 * 3600.0)
 }
 
-fn now() -> f64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0)
-}
-
 /// The `session` cookie's value.
 pub fn get_session_token(headers: &HeaderMap) -> Option<String> {
     headers
@@ -236,7 +230,7 @@ pub async fn require_session(headers: &HeaderMap, db: &Database) -> Result<Sessi
         .filter(|u| !u.is_empty())
         .ok_or(AuthError::Unauthorized)?
         .to_string();
-    let t = now();
+    let t = now_s();
     if too_old(data.get("auth_at").and_then(Value::as_f64), t, max_age()) {
         drop_session(db, &token).await;
         return Err(AuthError::Unauthorized);

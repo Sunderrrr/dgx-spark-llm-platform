@@ -4,6 +4,7 @@
 use super::*;
 use super::admin_routes::admin_guard;
 use super::admin_writes::{admin_form, json_error};
+use crate::clock::now_s;
 
 /// `instance_config.CONFIGURABLE`: (name, label, secret, code default).
 const CONFIGURABLE: [(&str, &str, bool, &str); 33] = [
@@ -218,10 +219,6 @@ struct Validation {
 
 static VALIDATION: std::sync::Mutex<Validation> = std::sync::Mutex::new(Validation { running: false, start: None, output: Vec::new(), code: None });
 
-fn epoch_now() -> f64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
-}
-
 fn validation_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(std::env::var("DGX_VALIDATION_DIR").unwrap_or_else(|_| "/run/dgx/validation".into()))
 }
@@ -230,12 +227,12 @@ fn validation_dir() -> std::path::PathBuf {
 /// or replaced file is read again from its start).
 async fn follow(path: std::path::PathBuf, mut on_line: impl FnMut(String) -> bool) {
     use tokio::io::{AsyncReadExt, AsyncSeekExt};
-    let started = epoch_now();
+    let started = now_s();
     let mut pos: u64 = 0;
     let mut first = true;
     let mut pending = String::new();
     loop {
-        if epoch_now() - started > 1200.0 {
+        if now_s() - started > 1200.0 {
             return;
         }
         if let Ok(mut f) = tokio::fs::File::open(&path).await {
@@ -280,13 +277,13 @@ pub async fn admin_validate(State(state): State<AppState>, headers: HeaderMap, b
         if v.running {
             return (StatusCode::CONFLICT, Json(json!({"ok": false, "error": "Une vérification est déjà en cours."}))).into_response();
         }
-        *v = Validation { running: true, start: Some(epoch_now()), output: Vec::new(), code: None };
+        *v = Validation { running: true, start: Some(now_s()), output: Vec::new(), code: None };
     }
     tokio::spawn(async move {
         let dir = validation_dir();
         let wrote = async {
             tokio::fs::create_dir_all(&dir).await?;
-            tokio::fs::write(dir.join("demande.txt"), epoch_now().to_string()).await
+            tokio::fs::write(dir.join("demande.txt"), now_s().to_string()).await
         }
         .await;
         if let Err(e) = wrote {
@@ -324,7 +321,7 @@ pub async fn admin_validate_state(State(state): State<AppState>, headers: Header
     Json(json!({
         "ok": true,
         "running": v.running,
-        "duration_s": v.start.map_or(0, |s| (epoch_now() - s).round() as i64),
+        "duration_s": v.start.map_or(0, |s| (now_s() - s).round() as i64),
         "code": v.code,
         "output": tail,
         "passed": v.code.map(|c| c == 0),
@@ -490,7 +487,7 @@ pub async fn admin_storage_migrate(State(state): State<AppState>, headers: Heade
     let Some(lock) = MigrationLock::take() else {
         return refuse("Une migration est déjà en cours.", StatusCode::CONFLICT);
     };
-    let mut st = json!({"running": true, "target": target, "total": 0, "done": 0, "failed": 0, "bytes": 0, "started": epoch_now(), "finished": null, "last_error": ""});
+    let mut st = json!({"running": true, "target": target, "total": 0, "done": 0, "failed": 0, "bytes": 0, "started": now_s(), "finished": null, "last_error": ""});
     write_status(&st);
     crate::sessions::log_audit(state.db.pool(), &s.username, "stockage.migration", &format!("vers {target}")).await;
     let answer = st.clone();
@@ -542,7 +539,7 @@ pub async fn admin_storage_migrate(State(state): State<AppState>, headers: Heade
             write_status(&st);
         }
         st["running"] = json!(false);
-        st["finished"] = json!(epoch_now());
+        st["finished"] = json!(now_s());
         write_status(&st);
     });
     Json(json!({"ok": true, "migration": answer})).into_response()

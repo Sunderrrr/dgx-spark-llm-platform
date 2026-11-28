@@ -11,8 +11,8 @@
     "test": "node --test tests/*.test.ts"
   },
   "dependencies": {
-    "@astryxdesign/core": "^0.7.4",
-    "@astryxdesign/theme-neutral": "^0.7.4",
+    "@astryxdesign/core": "^0.7.17",
+    "@astryxdesign/theme-neutral": "^0.7.17",
     "@blobatar/react": "^2.7.0",
     "@heroicons/react": "^2.2.0",
     "@stylexjs/stylex": "^0.19.0",
@@ -26,12 +26,12 @@
     "voice-glow": "^0.2.1"
   },
   "devDependencies": {
-    "@astryxdesign/cli": "^0.7.4",
-    "@types/node": "^26.6.6",
-    "@types/react": "^19",
+    "@astryxdesign/cli": "^0.7.17",
+    "@types/node": "^26.6.11",
+    "@types/react": "^19.3.3",
     "@types/react-dom": "^19",
-    "eslint": "^10.13.0",
-    "eslint-config-next": "16.4.0",
+    "eslint": "^10.16.0",
+    "eslint-config-next": "16.4.6",
     "typescript": "^5"
   },
   "allowScripts": {

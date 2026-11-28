@@ -176,3 +176,14 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 0
+  # decisions-d1 shipped after this file was written: its CUDA base is pinned by
+  # digest too, and no entry covered it (found in the 2026-11-28 dependency pass).
+  # Same weekly check as its siblings; note that open-pull-requests-limit: 0 keeps
+  # Dependabot from opening PRs for ANY of these — the entries are the inventory of
+  # what must be reviewed by hand, not an auto-update channel.
+  - package-ecosystem: docker
+    directory: /decisions-d1
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 0

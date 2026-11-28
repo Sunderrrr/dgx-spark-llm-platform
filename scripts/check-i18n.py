@@ -44,13 +44,19 @@ def _files():
 
 
 def _is_i18n_module(path_):
-    """True for the entry file and anything under lib/i18n/.
+    """True for the entry file, the dictionaries and the locale-defining hook.
 
-    Those are the only files allowed to hardcode a locale — the hook that
-    defines it lives there — and they hold dictionary entries, not `t()` calls.
+    Narrower than "anything under lib/i18n/": only the files that legitimately
+    mint a locale string (the context that defines fr-FR/en-US) and the
+    dictionaries themselves are exempt. A future helper added under lib/i18n/
+    is scanned like any other file — a widened directory would silently let a
+    hardcoded `toLocaleString("fr-FR")` through.
     """
     full = os.path.abspath(path_)
-    return full == os.path.abspath(I18N) or full.startswith(os.path.abspath(I18N_DIR) + os.sep)
+    if full == os.path.abspath(I18N):
+        return True
+    rel = os.path.relpath(full, os.path.abspath(I18N_DIR)).replace(os.sep, "/")
+    return rel in ("dictionary.ts", "dict-common.ts") or rel.startswith("dict-") or rel == "context.tsx"
 
 
 def _en_sources():

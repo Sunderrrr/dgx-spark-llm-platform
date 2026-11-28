@@ -147,7 +147,7 @@ Shell traps that cost real time:
 ## Code conventions
 
 - **i18n contract**: UI strings are **French-as-msgid**. English lives in
-  `lib/i18n.tsx`. A missing EN key silently falls back to French. When you add a
+  `lib/i18n/dict-*.ts` (the dictionary moved out of `lib/i18n.tsx` in the cleanup; the entry re-exports the same surface). A missing EN key silently falls back to French. When you add a
   `t("…")` string, add its EN translation in the same commit. Don't add a
   duplicate key (TS error). Formatting follows the language, not just the text
   (`useLocale()` → `fr-FR` / `en-US`; in a helper outside a component the locale
@@ -192,7 +192,7 @@ Shell traps that cost real time:
     and listen to `pageerror` — `next dev` rewrites `AGENTS.md`, restore it.
   `j11_page_sweep` fails on any hydration error.
 - **Chat SSE errors are structured notices** (`dgx_notice` ids, FR msgids in
-  `lib/notices.ts`, EN in `lib/i18n.tsx`): the server writes no sentence.
+  `lib/notices.ts`, EN in `lib/i18n/dict-*.ts`): the server writes no sentence.
 - **Conventions for commits and pull requests** are in
   [`CONTRIBUTING.md`](../CONTRIBUTING.md); participation is covered by the
   [Code of Conduct](../CODE_OF_CONDUCT.md).

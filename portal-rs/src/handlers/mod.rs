@@ -687,16 +687,56 @@ async fn viewer(state: &AppState, headers: &HeaderMap) -> Result<auth::SessionDa
     auth::require_session(headers, &state.db).await.map_err(|e| e.into_response())
 }
 
-/// GET /api/image/history - the viewer's image jobs
-pub async fn api_image_history(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let session = match viewer(&state, &headers).await {
+/// Signed-in viewer of a PAGE path, or the redirect a page must answer with.
+///
+/// Same body as `viewer` above, but a page does not get a 401: Flask's
+/// `login_required` redirects to the login form and the browser follows. Every
+/// page route (media, preview, video, user requests) needs exactly this, so it
+/// lives here once instead of next to each of them.
+pub(crate) async fn page_viewer(state: &AppState, headers: &HeaderMap, path: &str) -> Result<auth::SessionData, Response> {
+    match auth::require_session(headers, &state.db).await {
+        Ok(s) => Ok(s),
+        Err(auth::AuthError::Unauthorized) => Err(auth::login_redirect(path)),
+        Err(e) => Err(e.into_response()),
+    }
+}
+
+/// Which `media::*_history` query a history route runs.
+///
+/// The four routes answer the same contract (the viewer's own jobs, or 503 when
+/// SQLite cannot be read), so only the query is a parameter. An enum rather than
+/// a function pointer because each future borrows pool and username, which a
+/// plain `fn` pointer cannot express without boxing.
+#[derive(Clone, Copy)]
+enum MediaHistory {
+    Image,
+    Ocr,
+    Video,
+    Voice,
+}
+
+/// One body for the four `/api/{image,ocr,video,voice}/history` routes.
+async fn media_history(state: &AppState, headers: &HeaderMap, kind: MediaHistory) -> Response {
+    let session = match viewer(state, headers).await {
         Err(r) => return r,
         Ok(s) => s,
     };
-    match media::image_history(state.db.pool(), &session.username).await {
+    let pool = state.db.pool();
+    let rows = match kind {
+        MediaHistory::Image => media::image_history(pool, &session.username).await,
+        MediaHistory::Ocr => media::ocr_history(pool, &session.username).await,
+        MediaHistory::Video => media::video_history(pool, &session.username).await,
+        MediaHistory::Voice => media::voice_history(pool, &session.username).await,
+    };
+    match rows {
         Ok(v) => Json(v).into_response(),
         Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "error": "Base du portail illisible."}))).into_response(),
     }
+}
+
+/// GET /api/image/history - the viewer's image jobs
+pub async fn api_image_history(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    media_history(&state, &headers, MediaHistory::Image).await
 }
 
 /// GET /api/image/status/:prompt_id - one of the viewer's image jobs, 404 otherwise
@@ -714,38 +754,17 @@ pub async fn api_image_status(State(state): State<AppState>, headers: HeaderMap,
 
 /// GET /api/ocr/history - the viewer's OCR jobs
 pub async fn api_ocr_history(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let session = match viewer(&state, &headers).await {
-        Err(r) => return r,
-        Ok(s) => s,
-    };
-    match media::ocr_history(state.db.pool(), &session.username).await {
-        Ok(v) => Json(v).into_response(),
-        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "error": "Base du portail illisible."}))).into_response(),
-    }
+    media_history(&state, &headers, MediaHistory::Ocr).await
 }
 
 /// GET /api/video/history - the viewer's video jobs
 pub async fn api_video_history(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let session = match viewer(&state, &headers).await {
-        Err(r) => return r,
-        Ok(s) => s,
-    };
-    match media::video_history(state.db.pool(), &session.username).await {
-        Ok(v) => Json(v).into_response(),
-        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "error": "Base du portail illisible."}))).into_response(),
-    }
+    media_history(&state, &headers, MediaHistory::Video).await
 }
 
 /// GET /api/voice/history - the viewer's voice jobs
 pub async fn api_voice_history(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let session = match viewer(&state, &headers).await {
-        Err(r) => return r,
-        Ok(s) => s,
-    };
-    match media::voice_history(state.db.pool(), &session.username).await {
-        Ok(v) => Json(v).into_response(),
-        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"ok": false, "error": "Base du portail illisible."}))).into_response(),
-    }
+    media_history(&state, &headers, MediaHistory::Voice).await
 }
 
 /// GET /api/voice/info - capabilities of the loaded voice backend

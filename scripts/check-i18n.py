@@ -3,7 +3,8 @@
 
 Why this script exists
 ----------------------
-The portal's i18n contract lives in `dgx-portal-frontend/lib/i18n.tsx`: the
+The portal's i18n contract lives in `dgx-portal-frontend/lib/i18n.tsx` (the
+public entry point) and its dictionary modules under `lib/i18n/`: the
 **French text serves as the key**, English is a dictionary, and **a missing key
 silently falls back to French**. That silence is the problem: nothing breaks,
 nobody sees the missing English, and the English-speaking user reads French.
@@ -12,8 +13,9 @@ The same blind spot existed for formatting (about twenty hardcoded
 
 This script makes both blind spots noisy. It checks:
 
-1. every literal `t("…")` string has an entry in the `EN` dictionary;
-2. no formatting locale is hardcoded outside `lib/i18n.tsx`.
+1. every literal `t("…")` string has an entry in the `EN` dictionary
+   (`lib/i18n/dict-*.ts`, plus `lib/i18n.tsx` if it still holds the block);
+2. no formatting locale is hardcoded outside the i18n module.
 
 It **reports without failing** the dictionary entries it never sees used: a
 `t(variable)` (label from the server, options table…) is invisible to static
@@ -27,8 +29,9 @@ import sys
 
 ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'dgx-portal-frontend')
 I18N = os.path.join(ROOT_DIR, 'lib', 'i18n.tsx')
-# Only file allowed to hardcode a locale: it is where the locale is defined.
-ALLOWED_LOCALE = {os.path.join('lib', 'i18n.tsx')}
+I18N_DIR = os.path.join(ROOT_DIR, 'lib', 'i18n')
+# One dictionary module per domain, e.g. dict-playground.ts.
+DICT_MODULE = re.compile(r'^dict-.*\.ts$')
 IGNORES = ('node_modules', '.next', '.git')
 
 
@@ -40,20 +43,45 @@ def _files():
                 yield os.path.join(base, n)
 
 
+def _is_i18n_module(path_):
+    """True for the entry file and anything under lib/i18n/.
+
+    Those are the only files allowed to hardcode a locale — the hook that
+    defines it lives there — and they hold dictionary entries, not `t()` calls.
+    """
+    full = os.path.abspath(path_)
+    return full == os.path.abspath(I18N) or full.startswith(os.path.abspath(I18N_DIR) + os.sep)
+
+
+def _en_sources():
+    """Files that may declare dictionary entries: lib/i18n.tsx (legacy block)
+    and the per-domain modules under lib/i18n/."""
+    yield I18N
+    if os.path.isdir(I18N_DIR):
+        for name in sorted(os.listdir(I18N_DIR)):
+            if DICT_MODULE.match(name):
+                yield os.path.join(I18N_DIR, name)
+
+
 def _en_keys():
-    """Keys declared in the `const EN: Record<string, string> = { … }` block.
+    """Keys declared by the dictionary.
+
+    Entries live in `lib/i18n/dict-*.ts` since the module was split; the old
+    `const EN: Record<string, string> = { … }` block in `lib/i18n.tsx` is still
+    parsed when present.
 
     A key starts a line and is followed by « : ». A multi-line value therefore
     does not match (it is not followed by a colon) — which avoids counting
     values as keys.
     """
-    src = open(I18N, encoding='utf-8').read()
-    start = src.index('const EN: Record<string, string> = {')
-    end = src.index('\n};', start)
-    block = src[start:end]
     keys = set()
-    for pattern in (r'^\s*"((?:[^"\\]|\\.)*)"\s*:', r"^\s*'((?:[^'\\]|\\.)*)'\s*:"):
-        keys.update(m.group(1) for m in re.finditer(pattern, block, re.M))
+    for path_ in _en_sources():
+        src = open(path_, encoding='utf-8').read()
+        if 'const EN: Record<string, string> = {' in src:
+            start = src.index('const EN: Record<string, string> = {')
+            src = src[start:src.index('\n};', start)]
+        for pattern in (r'^\s*"((?:[^"\\]|\\.)*)"\s*:', r"^\s*'((?:[^'\\]|\\.)*)'\s*:"):
+            keys.update(m.group(1) for m in re.finditer(pattern, src, re.M))
     return keys
 
 
@@ -61,7 +89,7 @@ def _calls_t():
     """(string, file:line) for each literal `t("…")` found."""
     found = []
     for path_ in _files():
-        if os.path.abspath(path_) == os.path.abspath(I18N):
+        if _is_i18n_module(path_):
             continue
         rel = os.path.relpath(path_, ROOT_DIR)
         txt = open(path_, encoding='utf-8').read()
@@ -87,7 +115,7 @@ def main():
     locales = []
     for path_ in _files():
         rel = os.path.relpath(path_, ROOT_DIR)
-        if rel in ALLOWED_LOCALE:
+        if _is_i18n_module(path_):
             continue
         for i, line in enumerate(open(path_, encoding='utf-8'), 1):
             for m in re.finditer(r'toLocale\w*\(\s*(?:\)|["\']([a-zA-Z-]+)["\'])', line):

@@ -202,6 +202,9 @@ jobs:
       # eslint only need A runtime, not THE runtime — the @types/node pin
       # (tied to the node:20 image, see dependabot.yml) is what defines the
       # type surface, and it does not move with this choice.
+      # SHA for v7.1.0, verified against the API: `gh api repos/actions/setup-node/git/refs/tags/v7.1.0`
+      # returns this commit. Re-check it when bumping: a wrong digest runs a different action than
+      # the comment claims.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: 24

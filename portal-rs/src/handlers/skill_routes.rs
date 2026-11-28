@@ -114,9 +114,11 @@ pub async fn api_skill_sync(State(state): State<AppState>, headers: HeaderMap, P
         Ok(s) => s,
     };
     // A Git import downloads up to 25 MiB and inflates up to 96 MiB inside this
-    // handler: without the per-account bucket the zip route already has, one
-    // account looping this endpoint pins every tokio worker (audit run-4, F1).
-    match crate::guards::rate_limited(state.db.pool(), &session.username, "rl-skills", crate::guards::SKILLS_RATE_MAX, 60.0).await {
+    // handler: without a per-account bucket, one account looping this endpoint
+    // pins every tokio worker (audit run-4, F1). It has its OWN bucket, separate
+    // from the zip route's: sharing one would let a few resyncs starve the zip
+    // import (and answer it "too many imports", review of run-4).
+    match crate::guards::rate_limited(state.db.pool(), &session.username, "rl-skills-git", crate::guards::SKILLS_RATE_MAX, 60.0).await {
         Ok(0) => {}
         Ok(wait) => {
             return (StatusCode::TOO_MANY_REQUESTS,
@@ -218,7 +220,7 @@ pub async fn api_skill_import_git(State(state): State<AppState>, headers: Header
     // A Git import downloads up to 25 MiB and inflates up to 96 MiB inside this
     // handler: without the per-account bucket the zip route already has, one
     // account looping this endpoint pins every tokio worker (audit run-4, F1).
-    match crate::guards::rate_limited(state.db.pool(), &session.username, "rl-skills", crate::guards::SKILLS_RATE_MAX, 60.0).await {
+    match crate::guards::rate_limited(state.db.pool(), &session.username, "rl-skills-git", crate::guards::SKILLS_RATE_MAX, 60.0).await {
         Ok(0) => {}
         Ok(wait) => {
             return (StatusCode::TOO_MANY_REQUESTS,

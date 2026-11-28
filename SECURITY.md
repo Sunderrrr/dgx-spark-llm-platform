@@ -1,7 +1,7 @@
 # Security — DGX platform
 
 Security posture of the platform: what it trusts, what it enforces, and
-what it knowingly accepts. Audience is operators and auditors; it is meant to be
+what it knowingly accepts. Audience is operators and auditors. It is meant to be
 read on its own, without the [README](README.md).
 
 One sentence of context: the platform runs on a **single NVIDIA DGX Spark** (GB10,
@@ -27,7 +27,7 @@ client → Cloudflare → Traefik → dgx-portal-frontend (:5000) → portal-rs 
                         └─ forwardAuth → /internal/authcheck      └→ sidecars (OCR, voice, ASR, image, video, web search)
 ```
 
-TLS terminates at Cloudflare/Traefik; everything behind it is plain HTTP on
+TLS terminates at Cloudflare/Traefik. Everything behind it is plain HTTP on
 docker networks. `portal-rs` has **no published port** — only the Next.js
 frontend is reachable from outside, and it talks to the portal over the internal
 network.
@@ -67,30 +67,30 @@ is refused. The exclusions are deliberate, and each is commented in the source:
 
 | Blocked | Why |
 |---|---|
-| `--trust-remote-code` | executes arbitrary Python from the HF repo (blocked for chat; see [OCR](#31-ocr-executes-third-party-code-by-design)) |
+| `--trust-remote-code` | executes arbitrary Python from the HF repo (blocked for chat, see [OCR](#31-ocr-executes-third-party-code-by-design)) |
 | `--download-dir`, `--chat-template`, `--tokenizer` | arbitrary file read, and Jinja2 template injection through the chat template |
-| `--model`, `--host`, `--port`, `--api-key` | forced by the runner; overriding them would move or expose the endpoint |
+| `--model`, `--host`, `--port`, `--api-key` | forced by the runner<br>overriding them would move or expose the endpoint |
 
 The daemon runs **non-root** (`vllmrunner`) and requires a Bearer token compared
 with `hmac.compare_digest`. Its own port (`:8001`) and the served engine's
 (`:8000`) are normally firewalled to localhost plus the docker bridge by
 `systemd/vllm-restrict.service`. **As of 2026-09-24 that unit is deliberately
 left stopped**, at the operator's request, so a workstation can talk to the raw
-vLLM API (`:8000`, which takes no key) over the private LAN/overlay; `:8001`
-stays token-protected. This is an accepted, documented risk — recorded in the
-operator-private `.machine/security-accepted-risks.md` — and it is reversible at
+vLLM API (`:8000`, which takes no key) over the private LAN/overlay. `:8001`
+stays token-protected. This is an accepted, documented risk (recorded in the
+operator-private `.machine/security-accepted-risks.md`), and it is reversible at
 any time with `systemctl start vllm-restrict.service`. (`:8188` is not listening
 while ComfyUI is stopped.)
 Spawned engines inherit an **explicit minimal environment** (PATH, HOME,
 HF_HOME, PYTHONUNBUFFERED, two vLLM perf knobs) instead of `**os.environ`, so the
-root environment's secrets never reach the model process, `/logs` or `/stream`;
+root environment's secrets never reach the model process, `/logs` or `/stream`.
 `HF_TOKEN` is passed through only when set.
 
 ### 2.2 Sidecar control — no docker socket in the path we control
 
 Sidecar lifecycle goes through narrowly scoped `sudo` rules
 (`/etc/sudoers.d/vllmrunner-*`) pointing at
-**root-owned wrapper scripts** that fix the image, network, mounts and hardening
+**root-owned wrapper scripts** that fix the image, network, mounts, hardening
 flags. The admin only ever controls the trailing arguments, revalidated
 host-side.
 
@@ -129,8 +129,8 @@ secrets and their mount lists stay minimal (see §3.2).
 
 ### 2.3 Network isolation
 
-Each sidecar has its own docker network — `ocr_net`, `voice_net`, `asr_net`,
-`image_net`, `web_net` — shared only with `portal-rs`. Third-party
+Each sidecar has its own docker network (`ocr_net`, `voice_net`, `asr_net`,
+`image_net`, `web_net`), shared only with `portal-rs`. Third-party
 model code therefore has no L3 route to LiteLLM, Postgres or Traefik.
 
 Two host-level rules complete this, because a docker network does not isolate
@@ -160,7 +160,7 @@ kept out of the repository in `/etc/default/dgx-firewall` (template:
 `systemd/dgx-firewall.example`). The port to list is the CONTAINER port
 (`3000` for the web UI published as `5000→3000`): DOCKER-USER sees traffic
 after DNAT, so a rule on `5000` would match nothing. **LiteLLM is published on
-loopback only by default** (`DGX_LITELLM_PUBLISH`); public access goes through
+loopback only by default** (`DGX_LITELLM_PUBLISH`). Public access goes through
 `DGX_API`, which keeps the maintenance gate in the path.
 
 `GET /metrics` (Prometheus text: CPU, RAM, GPU, temperature, model online) is
@@ -176,11 +176,11 @@ scrape arrives without it. This matters because the frontend's catch-all rewrite
 - Cookies: `HttpOnly` + `SameSite=Lax` + `Secure` behind TLS.
 - CSRF token per session, compared on bytes with `hmac.compare_digest` (a exotic
   token yields a rejection, not a 500). The **session id is regenerated at every
-  login**; the CSRF token is deliberately **carried over** (it lives in a signed,
+  login**. The CSRF token is deliberately **carried over** (it lives in a signed,
   HttpOnly cookie and is reused so that a session opened by SSO does not break
   every POST of the browser that already holds the old one — see the 2026-09-14
   note in `CLAUDE.md`). This paragraph said "session and CSRF token are
-  regenerated at login" until 2026-10-02; only the session is.
+  regenerated at login" until 2026-10-02. Only the session is.
 - Brute-force lockout persisted in SQLite — so it is shared across gunicorn
   workers and survives a redeploy. Two classic bypasses closed at once.
 - `Cf-Connecting-Ip` is validated as a real IP address before being used as the
@@ -199,25 +199,25 @@ scrape arrives without it. This matters because the frontend's catch-all rewrite
   departed user kept portal access, and a demoted admin kept admin rights. A
   stale session is now dropped on its next request and the event is written to
   the audit log. The role is authoritative for a local account (the portal owns
-  `local_users`) and follows the last recorded directory login for LDAP/SSO;
+  `local_users`) and follows the last recorded directory login for LDAP/SSO.
   the code deliberately never *infers* a revocation from an absent record,
   because a missing row is not evidence that an account is gone.
 - **Blocking an account works whatever its authentication source**
-  (`blocked_users`). Local accounts have `enabled`; LDAP/SSO accounts have no
+  (`blocked_users`). Local accounts have `enabled`. LDAP/SSO accounts have no
   local row at all, so the only previous option was revoking their sessions —
   which they simply re-established by logging in again. The refusal is evaluated
   *after* the credentials are verified, so a blocked account cannot be used to
   enumerate accounts, and it is also enforced in the WebAuthn second step: a
   passkey proves identity, it does not grant authorisation.
 - **Deleting an account revokes its API access, not just its row.** Deleting a
-  local user used to run one `DELETE` on `local_users`; the account's LiteLLM
+  local user used to run one `DELETE` on `local_users`. The account's LiteLLM
   keys stayed valid (LiteLLM validates them itself, the portal is not in the API
   path) and its browser session survived up to 12 h. Deletion now revokes the
   sessions, revokes every key, deletes the LiteLLM user envelope and purges the
   personal data (memory, conversations, share links, preferences, passkeys),
   requires an explicit `confirm=DELETE`, refuses self-deletion and refuses to
   remove the last local administrator. If LiteLLM is unreachable the deletion
-  still completes — a stuck account is worse — but the response and the audit
+  still completes (a stuck account is worse), but the response and the audit
   entry name the keys that could **not** be revoked: a silent security failure
   was the defect being fixed. `audit_log` itself is retained on purpose. An
   LDAP/SSO account has no local row at all, so that route cannot reach it:
@@ -238,19 +238,19 @@ scrape arrives without it. This matters because the frontend's catch-all rewrite
   no character-class requirement — they push users towards predictable passwords
   without adding entropy. Changing a password (self-service, or by an admin)
   closes every **other** session of that account, which is the point of changing
-  it after a compromise; a failure of the current-password check is logged, since
+  it after a compromise. A failure of the current-password check is logged, since
   a burst of those on a live session is a signal, not a typo.
 
 ### 2.5 Input validation
 
 - `MAX_CONTENT_LENGTH` (16 MB) is enforced **before** multipart parsing, so an
   unauthenticated POST cannot stream gigabytes to disk ahead of the auth checks.
-- LDAP: `escape_rdn` + `escape_filter_chars` + a username regex; empty-password
+- LDAP: `escape_rdn` + `escape_filter_chars` + a username regex. Empty-password
   binds are rejected (some directories treat them as successful "unauthenticated"
   binds).
 - Audio sidecars read the **header before decoding** (`sf.info()`), bounding
-  duration, sample rate and channel count. A small crafted FLAC can otherwise
-  decompress into tens of gigabytes — on a shared unified-memory pool that takes
+  duration, sample rate and channel count. A small deliberately built FLAC can
+  otherwise decompress into tens of gigabytes — on a shared unified-memory pool that takes
   down the whole box, not just the sidecar.
 - Web search resolves every URL and checks it is public **before** the crawler
   sees it (`websearch.public_url`). The network cannot do this on its own: a
@@ -283,14 +283,14 @@ call the tool on its own. The chat loop now refuses to execute them: it records 
 pending action and the interface renders a Confirmer/Annuler button, with
 `/support/confirm` as the only execution path. The token is opaque, bound to the
 account, single-use (a conditional `UPDATE ... WHERE status='pending'` decides
-which of two concurrent clicks wins) and expires after 10 minutes; critically it is
+which of two concurrent clicks wins) and expires after 10 minutes. Critically it is
 **never placed in the model's context**, so an indirect prompt injection (an MCP
 result, a crawled page, a skill's text) cannot replay it. The pre-existing rule
 still stands on top: once third-party tool output has entered a turn, the guarded
 tools are refused for the rest of that turn.
 
 Two residual facts about the feedback channel: `support_feedback` has **no
-retention** — rows accumulate until someone prunes them — and its only visibility
+retention** (rows accumulate until someone prunes them), and its only visibility
 is the admin-only aggregate `GET /admin/support/feedback` (per-user counts plus
 the last 50 entries), so a 👎 comment must be treated as operator-readable data,
 not as a private message.
@@ -316,7 +316,7 @@ its original ones: `next` 16.3.5 (16.3.0 carried the AVIF-decoding RCE
 advisories), `sharp` 0.35.4 and `js-yaml` 4.3.2 — `npm audit` reports **0
 vulnerabilities** (2026-09-13). Those three were proven unreachable in this
 deployment anyway (remote image URLs are rejected, local ones are replayed
-in-process without visitor cookies, and every file route is `@login_required`;
+in-process without visitor cookies, and every file route is `@login_required`.
 output is negotiated as `image/webp`), but the upgrade removes the question.
 
 > **Never set `--memory` on a sidecar.** On unified memory a container memory cap
@@ -327,8 +327,8 @@ output is negotiated as `image/webp`), but the upgrade removes the question.
 One host path is mounted into `portal-rs` **read-only**: `/var/lib/dgx-monitor`,
 the host monitor's state file, which holds current incidents and the backup figures
 the Admin card displays. The backup directory itself (`/var/backups/dgx`, `0700
-root`, dumps `0600`) is deliberately **not** mounted, and the monitor — which runs as
-root — copies only the file name, age and count into its world-readable state. So the
+root`, dumps `0600`) is deliberately **not** mounted, and the monitor (which runs as
+root) copies only the file name, age and count into its world-readable state. So the
 container can report *that* a backup exists and how old it is without ever being able
 to read one. If the mount is missing the API answers `readable: false`, which the
 interface renders as "unreadable" — never as "fine".
@@ -364,9 +364,9 @@ The OCR container is the only place where `--trust-remote-code` is allowed: the
 OCR models that need it genuinely require it. It is therefore the one surface
 running arbitrary Python from a Hugging Face repository.
 
-Mitigations: only an admin can point the catalogue at a repo; the container is
-alone on `ocr_net`; it has a dedicated HF cache isolated from the runner's;
-`cap-drop ALL` and `no-new-privileges` apply; and `dgx-ocr-restrict.service`
+Mitigations: only an admin can point the catalogue at a repo. The container is
+alone on `ocr_net`. It has a dedicated HF cache isolated from the runner's.
+`cap-drop ALL` and `no-new-privileges` apply. `dgx-ocr-restrict.service`
 prevents it from opening a connection to the portal — *when armed*, which it
 currently is not (see the caveat in [§2.3](#23-network-isolation)).
 
@@ -394,7 +394,7 @@ accounts is a security parameter — keep it small.
   ever travels in a URL, so there is no ongoing leak. LiteLLM's uvicorn access
   log is baked into the digest-pinned image and has no config/env switch, so
   it is *not* silenced (doing so would mean forgoing digest-pinning). The
-  residual risk is only keys that already hit the log — rotate them; the
+  residual risk is only keys that already hit the log — rotate them. The
   portal never puts a key in a URL again.
 - **HSTS: in place on the portal, still missing on the API (measured
   2026-09-13).** `dgx.example.org` answers
@@ -402,13 +402,13 @@ accounts is a security parameter — keep it small.
   `api.example.org` sends **no HSTS header at all** — the previous claim that
   HSTS was "resolved" only ever covered the portal. The fix belongs in the
   **Cloudflare zone setting** (SSL/TLS → Edge Certificates → HSTS), which covers
-  both hostnames in one toggle; it must *not* be done by adding a Traefik
+  both hostnames in one toggle. It must *not* be done by adding a Traefik
   middleware to Traefik's dynamic routing file, since that file is rewritten by
   an external Traefik configuration agent and a hand edit would silently
   disappear.
 - **Two third-party administration containers run from a floating `:latest`
   tag.** Neither is started from `docker-compose.yml` (both are `docker run`,
-  `unless-stopped`), so no declarative file pins them; one is a generic
+  `unless-stopped`), so no declarative file pins them. One is a generic
   container-management agent, the other an external Traefik configuration agent.
   A `:latest` tag only moves when someone pulls, so the exposure is not a silent
   auto-update but an unpinned rebuild: pinning means recreating both containers
@@ -417,8 +417,8 @@ accounts is a security parameter — keep it small.
 - **The account-lifecycle gaps, closed on 2026-09-13.** Reviewing user management
   turned up four holes that had been there from the start, all of the same shape —
   a security-relevant action that only *looked* complete: deleting an account left
-  its API keys valid and its session alive; an LDAP/SSO account could not be
-  blocked at all; demoting an admin took effect only at cookie expiry; and a quota
+  its API keys valid and its session alive. An LDAP/SSO account could not be
+  blocked at all. Demoting an admin took effect only at cookie expiry. A quota
   that failed to reach LiteLLM was swallowed silently, leaving an uncapped account
   reported as created. §2.4 describes what replaced each. What remains open by
   choice: the lockout stays a fixed 15-minute window on both the IP and the
@@ -426,33 +426,33 @@ accounts is a security parameter — keep it small.
   anyone extend a known account's outage, so the active lockout is surfaced to the
   admin instead.
 - **The historical monolith.** `dgx-portal/app.py` (removed, see git history at `3d7b8aa`) was a single 7 200-line file
-  holding auth, budgets, admin and media proxying, which made it hard to
+  holding auth, budgets, admin, media proxying, which made it hard to
   guarantee no route had lost a guard. It was then a wiring facade over a shared
-  core and route blueprints; the Rust backend now plays that role (see [README → Repository layout](README.md#repository-layout)),
+  core and route blueprints. The Rust backend now plays that role (see [README → Repository layout](README.md#repository-layout)),
   and the route-guard test above makes the invariant explicit rather than
   assumed.
 
 ### 3.4 Audit of 2026-10-02 — fixed, and what is left to decide
 
 A full audit (portal code, runner, sidecars, images, host, live system) produced
-the fixes below. They live in the repository, so they take effect on redeploy;
+the fixes below. They live in the repository, so they take effect on redeploy.
 the "to decide" items need operator action and are listed so they do not get
 lost.
 
 **Fixed in the portal.** Blocking *or* disabling an account now revokes its API
-keys (LiteLLM validates keys itself: one survived offboarding); the quota cap now
+keys (LiteLLM validates keys itself: one survived offboarding). The quota cap now
 has a HIGH bound on *all* routes — accounts, groups and global settings included
-(the 6.7e12 typo was rejected only on approvals); changing an account's **group**
+(the 6.7e12 typo was rejected only on approvals). Changing an account's **group**
 goes through the "last local admin" guard, and a **blocked** account no longer
-counts as a fallback administrator; the password re-check in
+counts as a fallback administrator. The password re-check in
 `/api/account/password` goes through the lock shared with `/login` (it was the
-only site without a counter, so testable at network speed); passkey `DELETE` is
-scoped per account (it could carry off another account's key and lock its 2FA);
+only site without a counter, so testable at network speed). Passkey `DELETE` is
+scoped per account (it could carry off another account's key and lock its 2FA).
 the SSO fallback to the email address is refused when the IdP declares
-`email_verified: false`; write bounds on `reason`/`model_id` and on memory
-import; `lire_pages` now opens only URLs actually returned by a search from the
-same turn (exfiltration channel closed); rate limiter made atomic;
-decompression-bomb guard on images; video files actually deleted (the table was
+`email_verified: false`. Write bounds on `reason`/`model_id` and on memory
+import. `lire_pages` now opens only URLs actually returned by a search from the
+same turn (exfiltration channel closed). Rate limiter made atomic.
+Decompression-bomb guard on images. Video files actually deleted (the table was
 purged, not the disk).
 
 **Fixed in the declarative infrastructure.** Docker log rotation on the six
@@ -477,7 +477,7 @@ of `/ocr/launch`, `..` refused in absolute paths.
    `-i wt0 -j ACCEPT` at the head of `INPUT` *after* the unit, so the `DROP` on
    ports 8000/8001/8188 is never evaluated (`iptables -L INPUT -n -v`: 281 K
    packets on the ACCEPT, 0 on the DROP). Fix with an `After=netbird.service` (or
-   a netbird `PostUp`). `:8000` with no key from the VPN is an *accepted* risk;
+   a netbird `PostUp`). `:8000` with no key from the VPN is an *accepted* risk.
    `:8188` (ComfyUI, unauthenticated) is not part of it.
 3. **Cleartext LDAP** (port 389, no TLS) for portal authentication, combined with
    `sudoers` `NOPASSWD: ALL` rules for administration accounts and groups: the
@@ -489,20 +489,20 @@ of `/ocr/launch`, `..` refused in absolute paths.
    clear), and the Traefik dashboard shares a single apr1 basicAuth across the
    whole Netbird plane.
 6. **`install.sh` runs `get.docker.com` without signature verification.**
-7. **No automatic security updates** (`unattended-upgrades` absent; machine up to
+7. **No automatic security updates** (`unattended-upgrades` absent, machine up to
    date on 2026-10-02).
 
 ---
 
 ### 3.5 Pen test of 2026-10-06 — three audits, two HIGH closed
 
-A full white-box + black-box pass in three parallel tracks: authentication,
-sessions and access control; injection and unsafe input handling; SSRF,
-network exposure, secrets and supply chain. **No critical finding.** The core
+A full white-box + black-box pass in three parallel tracks. Authentication,
+sessions, access control. Injection and unsafe input handling. SSRF,
+network exposure, secrets, supply chain. **No critical finding.** The core
 was already solid — global CSRF with `hmac.compare_digest`, scrypt with a
 dummy-hash timing equalizer, revocable session ids, parameterized SQL
-everywhere, no Jinja, argv-only subprocess behind per-engine allowlists, and
-per-account SQL scoping on every id-bearing route (locked in by
+everywhere, no Jinja. Subprocess calls are argv-only behind per-engine allowlists,
+and per-account SQL scoping covers every route that carries an id (locked in by
 `tests/test_cross_authorization.py`).
 
 **Closed the same day (v0.2.0):**
@@ -510,7 +510,7 @@ per-account SQL scoping on every id-bearing route (locked in by
 - **HIGH — ComfyUI was reachable by every container on the docker bridge,
   without authentication.** The engine executes workflow graphs as the runner
   user (who owns the HF token) and the relay installed that day exposed it to
-  `litellm` — internet-reachable — postgres and the agents. The firewall now
+  `litellm` (internet-reachable), postgres and the agents. The firewall now
   accepts 8188 from the portal only (verified: `litellm → 8188` refused), and
   the relay unit is the repository one (`BindsTo`/`PartOf` the on-demand
   sidecar, not enabled at boot).
@@ -527,15 +527,15 @@ per-account SQL scoping on every id-bearing route (locked in by
   *Withdrawn on 2026-10-11:* the per-request LDAP lookup cost a 3.6–5 s bind
   per account, per worker, per minute and stalled the first page load for up
   to 10 s. The role now comes from the last login only (SSO token group or
-  directory entry); a directory demotion lands at the next login, and blocking
+  directory entry). A directory demotion lands at the next login, and blocking
   the account in the portal cuts its sessions and API keys immediately.
 - `_client_ip` takes the last `X-Forwarded-For` element (ours), not the
   client-controlled first one.
 - The HTML preview sends `default-src 'none'` (a generated page could make the
   viewer's browser fetch arbitrary URLs).
-- The math renderer no longer crashes on crafted markers (prompt-injectable,
-  persisted); the Markdown export escapes HTML; account purge no longer resets
-  other accounts' brute-force counters (`_` is a LIKE wildcard); the video
+- The math renderer no longer crashes on deliberately built markers
+  (prompt-injectable, persisted). The Markdown export escapes HTML. Account purge no longer resets
+  other accounts' brute-force counters (`_` is a LIKE wildcard). The video
   download no longer splices a ComfyUI-controlled filename into a header.
 - `npm audit`: 0 vulnerability.
 
@@ -550,6 +550,6 @@ allowlists, and `litellm` still running as root on the shared bridge.
 
 ## 4. Reporting a vulnerability
 
-This is a personal, self-hosted deployment; there is no bug-bounty programme.
+This is a personal, self-hosted deployment. There is no bug-bounty programme.
 Open a GitHub issue for anything non-sensitive, and contact the repository owner
 directly for anything that should not be public.

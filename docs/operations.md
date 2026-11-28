@@ -329,8 +329,8 @@ Current configuration (model `qwen38-40b-turbo-brilliance-q4`, 2026-11-14):
 Two measurements shape this. The replacement is a **dense 40B**: its KV cache
 costs ~125 KiB/token, so six 256k sessions would need 192 GiB of f16 cache and
 cannot exist on 121.6 GiB. Quantizing the cache (`q4_0` both sides) divides it by
-four, to ~48 GiB. On the previous model that would have been suicidal — the 2026-09
-measurement showed 0.2 tok/s with a quantized cache — but here decode stays at
+four, to ~48 GiB. On the previous model that would have been suicidal (the 2026-09
+measurement showed 0.2 tok/s with a quantized cache), but here decode stays at
 7.0 tok/s, so the trade is memory for nothing. Re-measure before copying this to
 another model.
 
@@ -524,8 +524,8 @@ root** on the host (access to the docker socket + the 600 `.env`).
   The portal also writes a `.db_initialized` marker: marker present + empty
   database at startup → infra alert. Restoration: download the archive, then
   `docker cp` of the `.db`/SQL dump and `pg_restore`/`psql`.
-  **Timeout trap, measured 2026-10-29**: the S3 client used ONE 60 s timeout for
-  every operation, uploads included. The archive grew from 38 to 65 MB, the
+  **Timeout trap, measured 2026-10-29**: the client used ONE 60 s timeout for every call to S3,
+  uploads included. The archive grew from 38 to 65 MB, the
   upload took longer than a minute, and the backup failed with the useless
   message « error sending request ». Transfers now get **900 s**, metadata calls
   keep 60 s, and the error names the cause (timeout with its budget, unreachable
@@ -592,7 +592,7 @@ it answers "engine not installed".
 
 The playground searches for itself when the request is explicit (see the chat
 section), which is what a model without function calling needs. Outside the
-portal — OpenCode, the harness, any MCP client — the same two sidecars are
+portal (OpenCode, the harness, any MCP client), the same two sidecars are
 exposed by a small stdio server:
 
 ```sh

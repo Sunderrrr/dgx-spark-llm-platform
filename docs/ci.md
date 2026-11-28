@@ -1,8 +1,8 @@
 # CI — what runs, where, and why
 
 Four workflows live in `.github/workflows/`. They are split by **what they
-need**, not by what they test: GitHub-hosted runners can compile, lint and build
-images; only the box can run the platform.
+need**, not by what they test: GitHub-hosted runners can compile, lint, build
+images. Only the box can run the platform.
 
 | Workflow | Trigger | Needs | Cost |
 |---|---|---|---|
@@ -22,8 +22,8 @@ stack. No GitHub-hosted runner has any of that, so:
 
 - they run **unattended on the box**: `dgx-validation.path` watches
   `runtime/validation/demande.txt`, written when an admin starts a validation
-  from the panel, and a change to that file starts `validate.sh`;
-- and on demand through `hardware.yml` (manual, self-hosted);
+  from the panel, and a change to that file starts `validate.sh`.
+- and on demand through `hardware.yml` (manual, self-hosted).
 - they are **not** required checks of a pull request. Making them required
   would mean a public GPU runner we do not have, or a permanently red pipeline
   whenever the box is busy — and a permanent red is no longer read.
@@ -37,7 +37,7 @@ checked; what ships as *behaviour* is checked where it runs.
 | Job | Why it exists |
 |---|---|
 | `version` | `package.json`, the lockfile and the newest CHANGELOG entry must agree. A disagreement breaks no test, it just makes production unidentifiable. |
-| `secrets` | Two hooks run locally; this is the net for a `--no-verify` push, including **commit messages** (incident of 2026-10-06). |
+| `secrets` | Two hooks run locally. This is the net for a `--no-verify` push, including **commit messages** (incident of 2026-10-06). |
 | `backend` | `cargo test --locked` + clippy (errors only: the codebase carries accepted warnings, and a gate nobody can pass is not read). |
 | `runner-rs` | The second shipped binary — the GPU supervisor. Until 2026-10-24 it had no CI at all. |
 | `frontend` | `next typegen` → `tsc` → `eslint --max-warnings 0` → i18n coverage → `node --test`. |
@@ -56,7 +56,7 @@ checked; what ships as *behaviour* is checked where it runs.
 - **`cargo fmt --check` is NOT a gate.** Measured on 2026-10-28: 1722 hunks in
   `portal-rs`, 130 in `vllm-runner-rs`. Enforcing it means a reformat of every
   file, which would rewrite the diff history rather than gate quality, and the project
-  keeps a deliberately compact Rust style. clippy covers the lint part; the
+  keeps a deliberately compact Rust style. clippy covers the lint part. The
   choice is recorded here so nobody re-discovers it as an oversight.
 - **bandit blocks on HIGH only.** Today: 0 high, 2 medium (a `torch.load` in
   `image-gen`, try/except/pass in the same server), 10 low. Same reasoning as
@@ -67,16 +67,16 @@ checked; what ships as *behaviour* is checked where it runs.
   (`rustls-webpki 0.103.16`, `webpki-roots 1.0.11` — both patch-level, tests
   green). Three cannot be fixed in this tree today, and each says why in
   `check-deps.py`'s `IGNORES`:
-  - `crypto-bigint` needs `p256 >=0.14`, i.e. a major bump of the JWT stack;
+  - `crypto-bigint` needs `p256 >=0.14`, i.e. a major bump of the JWT stack.
   - `rsa` has no fixed release upstream (and is used for signature
-    verification, not decryption);
+    verification, not decryption).
   - `libsqlite3-sys`: `sqlx-sqlite` caps it at `<0.38` while the advisory wants
     `>=0.39` — no released `sqlx` allows it.
   The gate **fails on any advisory that is not in that list and has a patch**,
   and **also fails when an ignored advisory disappears** (a stale entry must be
   removed) — the list cannot rot silently.
   Note the trap this closed: the patched range lives at
-  `vulnerability.versions.patched`, not under `advisory`; reading the wrong key
+  `vulnerability.versions.patched`, not under `advisory`. Reading the wrong key
   marked everything "no fix", a gate that could never fail.
 - **Concurrency** groups cancel superseded runs per ref, except for
   `hardware.yml` (never two at once — the journeys stop and restart the served
@@ -88,10 +88,10 @@ checked; what ships as *behaviour* is checked where it runs.
 
 1. Does it need the box, a GPU, a model, or the served platform? → it belongs
    in `hardware.yml` (manual), not in `ci.yml`.
-2. Does it need a secret? → it cannot run on a fork; say so and keep it out of
+2. Does it need a secret? → it cannot run on a fork. Say so and keep it out of
    the pull-request path.
 3. Does it fail on something nobody will fix today? → make it **advisory**
    (summary + `::warning::`) and block only on what has a fix.
 4. Does it need a new action? → prefer a pinned binary the runner already has
-   (go, cargo, python); a new action must be pinned by SHA with its version in
+   (go, cargo, python). A new action must be pinned by SHA with its version in
    a comment, like the three already in use.

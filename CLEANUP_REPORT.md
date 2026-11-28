@@ -1,7 +1,8 @@
 # Cleanup, simplification, dependency update and security — final report
 
-Six stacked pull requests, one per phase. Nothing was merged by the agent: each PR is
-open, reviewed, and waits for you. The branch chain is
+Six stacked branches, one per phase. **Five pull requests are open (#19–#23)**; the sixth
+is this branch, `cleanup/06-report`, which carries this report and is opened last. Nothing
+has been merged by the agent: the five PRs wait for you. The chain is
 `master → cleanup/01-dead-code → … → cleanup/06-report`, and every PR targets the previous
 phase, so they must be merged **in order**.
 
@@ -12,32 +13,39 @@ from (or stacks on) it.
 
 | | before (`master`, `c0c190c`) | after (this branch) | delta |
 |---|---:|---:|---:|
-| tracked files | 497 | 518 | **+21** (18 i18n modules, 7 playground modules, 1 doc, 1 report; minus 13 deleted) |
-| lines | 149 373 | 152 711 | **+3 338** (the dictionary split duplicates nothing, but the new modules carry their own headers) |
+| tracked files | 497 | 519 | **+22** (29 added, 7 deleted, 1 renamed) |
+| lines | 152 049 | 152 928 | **+879** |
+| files changed | — | 132 | +5 294 / −4 420 |
 
-The line count went **up** overall and that is expected: phase 1 removed 936 lines of dead
-code, but phases 2 and 6 *add* structure (module boundaries, comments, this report). The
+The 29 additions are the 18 modules of `lib/i18n/`, the 7 modules extracted from
+`PlaygroundPage.tsx`, `lib/shared-types.ts`, `portal-rs/src/clock.rs`,
+`docs/security-review-webapp.md`, `CLEANUP_REPORT.md` and the relocated TabbyAPI patch.
+
+The line count went **up** overall and that is expected: phase 1 deletes 1 053 lines and adds 468
+(net −585) of dead code, while phases 2 and 6 *add* structure (module boundaries, comments,
+this report). The
 number that matters for maintenance is per component:
 
 | component | files changed | added | removed | what moved |
 |---|---:|---:|---:|---|
 | `portal-rs` | 47 | 404 | **582** | 1 dead function, 1 dead field, 12 duplicated helpers collapsed, 4 crates dropped, blanket lint exemptions removed |
 | `vllm-runner-rs` | 11 | 111 | **404** | 8 unused crates, 7 dead items, one route removed, `CRITICAL_FREE_GIB` wired |
-| `dgx-portal-frontend` | 46 | 4 157 | 2 914 | `lib/i18n.tsx` 2 313 → 16 lines + 18 modules; `PlaygroundPage.tsx` 2 570 → 2 198; 2 npm packages dropped, 5 bumped |
-| `docs` | 10 | 208 | 366 | one dead doc deleted, stale paths fixed, one new security note |
+| `dgx-portal-frontend` | 46 | 4 157 | 2 914 | `lib/i18n.tsx` 2 313 → 16 lines + 18 modules; `PlaygroundPage.tsx` 2 570 → 2 193; 2 npm packages dropped, 7 bumped |
+| `docs` | 11 | 210 | 368 | one dead doc deleted, stale paths fixed, one new security note |
 | `scripts` | 3 | 49 | 101 | the one-shot favicon generator deleted |
-| others | 8 | 79 | 40 | sidecar comment/log fixes, the patch moved out of `vllm-runner/` |
+| sidecars + patch | 8 | 79 | 40 | `image-gen` / `voice-qwen` / `voice` fixes, the patch moved out of `vllm-runner/` |
+| root files | 5 | 95 | 11 | `README`, `CHANGELOG`, `.dockerignore`, `.github` (`ci.yml`, `dependabot.yml`) |
 
-Largest files after the work: `PlaygroundPage.tsx` 2 198, `docs/rust-migration.md` 802,
-`portal-rs/src/ranking.rs` 1 011 — all below their previous size, all still under the
-frozen ceilings (`scripts/check-structure.py`).
+Largest files after the work: `PlaygroundPage.tsx` 2 193, `portal-rs/src/ranking.rs` 1 011
+(unchanged), `dgx-portal-frontend/app/(app)/admin/_components/ModelsTab.tsx` 926 — all under
+the frozen ceilings (`scripts/check-structure.py`).
 
 ## 2. Dependencies
 
 | ecosystem | removed | updated | deliberately not touched |
 |---|---:|---:|---|
-| npm (frontend) | **2** (`sharp`, `@types/katex`) | **5** (design system 0.7.17, `@types/node`, `@types/react`, `eslint`, `eslint-config-next` 16.4.6) | `next`, `react`/`react-dom` (modified Next.js), `katex` 0.19 (0.x = breaking), `typescript` 7 (major), `voice-glow` 0.5 (0.x visual) |
-| Cargo | **12 crates** (4 in `portal-rs`, 8 in `vllm-runner-rs`), all with zero references | **71 packages** moved by `cargo update` (46 + 25), one direct one: `zip` 9.1.3 → 9.9.0 | every newer **major** (`cargo upgrade`), because each needs its own migration |
+| npm (frontend) | **2** (`sharp`, `@types/katex`) | **7** (the three `@astryxdesign` packages 0.7.17, `@types/node`, `@types/react`, `eslint`, `eslint-config-next` 16.4.6) | `next`, `react`/`react-dom` (modified Next.js), `katex` 0.19 (0.x = breaking), `typescript` 7 (major), `voice-glow` 0.5 (0.x visual) |
+| Cargo | **11 crates** (4 in `portal-rs`, 7 in `vllm-runner-rs`) — `tower` stayed, as a `[dev-dependencies]` entry a test uses | **69 packages** moved by `cargo update` (45 + 24), one direct one: `zip` 9.1.3 → 9.9.0 | every newer **major** (`cargo upgrade`), because each needs its own migration |
 | pip (sidecars) | none | none | `torch`, `transformers`, `accelerate`, `fastapi`, `onnx`… — a bump means rebuilding a CUDA image and re-running a GPU smoke test (see §4) |
 | Docker images | none | none | every base is digest-pinned; CUDA 13.0.3 / vLLM / node 20 must not move without a hardware check. `dependabot.yml` now also watches `decisions-d1/Dockerfile` |
 | GitHub Actions | none | **1** (`actions/setup-node` 7.0.0 → 7.1.0, same major, SHA+comment kept) | `actions/checkout` is already the newest release of its major |
@@ -86,7 +94,7 @@ disk but not in effect**.
 | npm dev-only `minimatch` chain | 7 moderate, dev-only, production bundle clean; `npm audit fix` on a transitive lint dependency |
 | `portal-rs` cargo advisories (`libsqlite3-sys`, `rsa`, `crypto-bigint`) | already in the repository's documented exception list; `rsa` is verification-only |
 
-Secrets: **no real credential in the tree or in 1 654 commits** (the 26 `.env` values were
+Secrets: **no real credential in the tree or in the 1 654 commits reachable at the audit's base `c317131`** (the 26 `.env` values were
 matched against every commit, zero hits). The only real site value ever committed is an
 SMTP hostname in a deleted Flask test — not a credential, and rewriting history would not
 make readers forget it.
@@ -121,9 +129,11 @@ Run these **after merging the six PRs**, on the machine, in this order.
 
 ### Installation and units
 
-- [ ] `./scripts/install.sh` on a copy first — it rewrites units and installs scripts. Then
-      check that `vllm-runner.sh`, `ocr-restrict.sh`, `model-files-rm.sh` and
-      `nvidia-cdi-refresh.path.d/dgx-driver-libs.conf` are installed.
+- [ ] `./install.sh` on a copy first — it rewrites units and installs scripts. Then check
+      that `/usr/local/bin/vllm-runner` is the rebuilt binary, that the `/usr/local/sbin`
+      wrappers (`ocr-restrict.sh`, `model-files-rm.sh`, `asr-recreate.sh`,
+      `image-recreate.sh`, `dgx-docker-restrict.sh`) are installed, and that
+      `nvidia-cdi-refresh.path.d/dgx-driver-libs.conf` exists.
 - [ ] `systemctl status vllm-restrict` → **active**, and `iptables -S INPUT` shows the
       8000/8001 drops; `iptables -t raw -S` shows `DGX-PERIMETER`.
 - [ ] `systemctl restart netbird` then `systemctl status vllm-restrict` → **the unit must
@@ -178,9 +188,9 @@ Run these **after merging the six PRs**, on the machine, in this order.
 
 | # | branch | title | one line |
 |---|---|---|---|
-| 1 | `cleanup/01-dead-code` | remove dead code, unused dependencies and stale docs | 60 files, −936 lines: dead functions, 6 unused crates/packages, a Flask-era doc, and the `.dockerignore` that was shipping secrets to the builder |
-| 2 | `cleanup/02-simplify` | remove the real duplications and split the two giant files | 14 epoch helpers → 1, `i18n.tsx` 2 313 → 16 + modules, `PlaygroundPage` −372 lines without moving state |
-| 3 | `cleanup/03-deps-update` | dependency updates within their major versions | 5 npm bumps, 71 cargo packages, setup-node 7.1.0, `decisions-d1` added to dependabot |
+| 1 | `cleanup/01-dead-code` | remove dead code, unused dependencies and stale docs | 62 files, +468 / −1 053: dead functions, **14** unused crates/packages, a Flask-era doc, and the `.dockerignore` that was shipping secrets to the builder |
+| 2 | `cleanup/02-simplify` | remove the real duplications and split the two giant files | 14 epoch helpers → 1, `i18n.tsx` 2 313 → 16 + modules, `PlaygroundPage` 2 570 → 2 193 without moving state |
+| 3 | `cleanup/03-deps-update` | dependency updates within their major versions | 7 npm packages, 69 cargo packages, setup-node 7.1.0, `decisions-d1` added to dependabot |
 | 4 | `cleanup/04-security-code` | security audit of the code | 4 findings closed **and** 4 live-host holes repaired (gateway token, perimeter firewall, log dir, OCR filter) |
 | 5 | `cleanup/05-security-webapp` | security posture of the running application | measured on an isolated instance: headers, cookies, CSRF, access control, CORS — all in order |
 | 6 | `cleanup/06-report` | this report, the docs update and the checklist | — |

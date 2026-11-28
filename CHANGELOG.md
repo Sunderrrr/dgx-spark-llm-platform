@@ -6,16 +6,16 @@ Six pull requests empilées, une par phase, **aucune fusionnée automatiquement*
 complet et la checklist de test manuel sont dans [`CLEANUP_REPORT.md`](CLEANUP_REPORT.md).
 
 - **Code mort** : 14 copies d'un même helper d'epoch → une, six `take()` → une, quatre
-  handlers d'historique média → un, douze crates et deux paquets npm retirés, un fichier
+  handlers d'historique média → un, onze crates et deux paquets npm retirés, un fichier
   `docs/rust-routes.md` qui décrivait l'application Flask supprimée, cinq SVG de démarrage
   Next, un générateur de favicon jetable. Les **seize `#![allow(unused_imports)]`** qui
   masquaient cette accumulation sont partis aussi.
 - **Doublons** : `lib/i18n.tsx` (2 313 lignes) éclaté en 14 modules de domaine + une entrée
-  de 16 lignes ; `PlaygroundPage.tsx` 2 570 → 2 198 lignes, sans déplacer un seul état ni
+  de 16 lignes ; `PlaygroundPage.tsx` 2 570 → 2 193 lignes, sans déplacer un seul état ni
   effet ; `AskQ`, `JobStatus` et la base de `RunningModel` réunis dans `lib/shared-types.ts`
   — sans élargir l'union d'aucune page.
-- **Dépendances** : cinq mises à jour npm dans leur majeure (dont le design system 0.7.17),
-  71 paquets Cargo, `actions/setup-node` 7.1.0, et `decisions-d1` ajouté à la surveillance
+- **Dépendances** : sept paquets npm mis à jour dans leur majeure (dont les trois du design system 0.7.17),
+  69 paquets Cargo, `actions/setup-node` 7.1.0, et `decisions-d1` ajouté à la surveillance
   Dependabot. Ce qui n'a pas été touché, et pourquoi, est dans le rapport (Next.js modifié,
   React, katex, TypeScript 7, images CUDA/GPU, épingles Python).
 - **Sécurité** : audit scopé sur le code qui avait changé depuis le précédent, artefacts

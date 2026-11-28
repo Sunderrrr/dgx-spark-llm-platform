@@ -18,3 +18,12 @@ __pycache__
 .pytest_cache
 .venv
 venv
+# Never ship these to a builder. The portal image (context `.`) only COPYs
+# portal-rs/Cargo.*, portal-rs/src and portal-rs/workflows; the Next build output,
+# the runtime state and the generated credentials are pure dead weight — and the
+# last two must not leave the machine at all.
+dgx-portal-frontend/.next
+dgx-portal-frontend/node_modules
+secrets
+runtime
+searxng

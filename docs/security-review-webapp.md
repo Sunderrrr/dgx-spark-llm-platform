@@ -17,7 +17,7 @@ production instance or to any remote service.
 | **Account enumeration** | wrong password vs unknown user | **same 400**, same page, no difference |
 | **Error disclosure** | unknown route, malformed JSON, `/api/csrf` on an empty database | **generic** pages (400/500, no stack trace, no path) |
 | **Session from a failed login** | wrong password | **no cookie set**, `401` on protected routes |
-| **Login lockout** | 12 wrong passwords | verified **in source** (`LOGIN_MAX_FAILS = 6`, then a lock); the local exercise could not populate `login_attempts` on the cloned schema — see below |
+| **Login lockout** | 12 wrong passwords | **partially verified**: the insert columns (`key`, `fails`, `first_at`, `locked_until`) do match the shipped table, checked against the live database, but the local exercise recorded no failure row, so the end-to-end lockout is **not** proven — the failure path needs a dedicated test |
 | **Traefik** | `/opt/traefik/dynamic/routes.yml` | TLS per router, `ipallowlist-public` on the public routers, no dashboard exposed in that file |
 
 Notable: the CSP is **per request with a nonce** (`proxy.ts:92-122`), and HSTS and
@@ -35,9 +35,11 @@ Permissions-Policy are set there too (`proxy.ts:129-136`) — not only by Traefi
    user-supplied filename reaching a path).
 4. **Stored XSS**: already covered by the phase-4 source review and the katex/markdown
    probes.
-5. **Login rate limiting**: the logic is read and pinned by unit tests (`cargo test`),
-   but the cloned `login_attempts` table does not have the shape the insert expects, so
-   the local exercise recorded nothing. Production behaviour is source-verified only.
+5. **Login rate limiting**: the logic is read and pinned by unit tests (`cargo test`), but the
+   cloned `login_attempts` table does not have the shape the insert expects, so the local
+   exercise recorded nothing. The lockout is therefore **unverified**, not source-verified:
+   the columns (`key`, `fails`, `first_at`, `locked_until`) must be compared against the
+   shipped migration before anyone relies on it.
 
 ## What was fixed
 

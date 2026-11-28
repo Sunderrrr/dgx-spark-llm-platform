@@ -9,23 +9,6 @@ use crate::chat::support_tools::grouped;
 /// Above this, an amount is a typo that makes the account unlimited in effect.
 const MAX_AMOUNT: f64 = 1_000_000_000_000.0;
 
-/// `get_setting('default_key_duration', KEY_DURATION)`.
-pub(crate) async fn key_duration(state: &AppState) -> String {
-    match state.db.get_setting("default_key_duration").await.ok().flatten() {
-        Some(v) => v,
-        None => super::admin_routes::key_duration_default().as_str().unwrap_or("7d").to_string(),
-    }
-}
-
-/// `litellm_update_user_budget(username, amount, budget_duration)`.
-pub(crate) async fn update_envelope(username: &str, amount: f64, duration: &str) -> bool {
-    let mut payload = json!({"user_id": username, "max_budget": amount});
-    if !duration.is_empty() {
-        payload["budget_duration"] = json!(duration);
-    }
-    super::key_routes::litellm_post("/user/update", payload, 5).await.is_some_and(|r| r.status().is_success())
-}
-
 /// POST /admin/users/<username>/budget/set - the account's cap, exactly.
 pub async fn admin_budget_set(State(state): State<AppState>, Path(username): Path<String>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
     let (s, form) = match admin_form(&state, &headers, &body, "/admin/users/x/budget/set").await {

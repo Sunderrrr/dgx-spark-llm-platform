@@ -47,6 +47,29 @@ pub(crate) fn key_duration_default() -> Value {
     json!(std::env::var("KEY_BUDGET_DURATION").unwrap_or_else(|_| "7d".to_string()))
 }
 
+/// `get_setting('default_key_duration', KEY_DURATION)`.
+///
+/// Written once here: the budget page and the groups page both read the same
+/// setting, and each used to carry its own identical copy.
+pub(crate) async fn key_duration(state: &AppState) -> String {
+    match state.db.get_setting("default_key_duration").await.ok().flatten() {
+        Some(v) => v,
+        None => key_duration_default().as_str().unwrap_or("7d").to_string(),
+    }
+}
+
+/// `litellm_update_user_budget(username, amount, budget_duration)`.
+///
+/// The LiteLLM envelope is written by the budget page and by the groups page;
+/// one body, one retry budget (5 s).
+pub(crate) async fn update_envelope(username: &str, amount: f64, duration: &str) -> bool {
+    let mut payload = json!({"user_id": username, "max_budget": amount});
+    if !duration.is_empty() {
+        payload["budget_duration"] = json!(duration);
+    }
+    super::key_routes::litellm_post("/user/update", payload, 5).await.is_some_and(|r| r.status().is_success())
+}
+
 /// `runner_logs(n)`: the runner's buffer without the probe noise, last `n` lines.
 pub(crate) async fn runner_logs(n: usize) -> Vec<Value> {
     static NOISE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();

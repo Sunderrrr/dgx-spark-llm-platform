@@ -58,13 +58,14 @@ test("les trois types passent, dans la forme System One", () => {
   assert.equal(built.body.state, "Client facturé deux fois.");
 });
 
-test("les images jointes partent en data URLs, à côté de l'état", () => {
+test("une pièce jointe est refusée localement, avant tout appel", () => {
+  // The server refuses attachments (the old direct hop to the engine skipped the
+  // key, the budget and the spend log). The helper must say so without a round trip.
   const built = validatePayload("s", QUESTIONS, ["data:image/png;base64,AAA"]);
-  assert.equal(built.ok, true);
-  if (built.ok) assert.deepEqual(built.body.files, ["data:image/png;base64,AAA"]);
+  assert.equal(built.ok, false);
+  if (!built.ok) assert.match(built.error, /réservée au texte/);
   const textOnly = validatePayload("s", QUESTIONS);
   assert.equal(textOnly.ok, true);
-  if (textOnly.ok) assert.equal(textOnly.body.files, undefined);
 });
 
 test("un state JSON imbriqué est accepté", () => {

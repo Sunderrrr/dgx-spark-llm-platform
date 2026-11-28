@@ -29,10 +29,18 @@ done
 
 [ "$ACTION" = del ] && exit 0
 # The OCR sidecar is started on demand: between two launches there is nothing to
-# contain, so an absent container is NOT a failure — the rule is re-applied by
-# ocr-recreate.sh at every launch. Only an absent NETWORK or a failed ebtables call
-# is an error (the last command's status is what the unit reports).
-[ -n "$SRC" ] || { echo "ocr is not running on $NET — nothing to contain (rule is re-applied on launch)"; exit 0; }
+# contain, so an ABSENT container is not a failure — the rule is re-applied by
+# ocr-recreate.sh at every launch. But a container that EXISTS without an address on
+# this network is a real problem (not yet attached, or attached elsewhere): the L2
+# containment of a --trust-remote-code sidecar would silently not be laid.
+if [ -z "$SRC" ]; then
+  if docker inspect ocr >/dev/null 2>&1; then
+    echo "ocr exists but has no address on $NET — filter NOT laid down" >&2
+    exit 1
+  fi
+  echo "ocr is not running on $NET — nothing to contain (rule is re-applied on launch)"
+  exit 0
+fi
 
 # 5100 is the Rust portal's port (main.rs binds PORTAL_RUST_PORT, 5100 in compose).
 # The Flask port 5100 is only the FRONTEND's host publish, and the frontend is not
@@ -44,6 +52,9 @@ done
 # OCR recreation, so a deploy left the rule matching nothing (audit 2026-11-26).
 # Matching the whole ocr_net bridge keeps the containment across every
 # recreation: the only other member of that network is the portal.
+# The status of THIS call is what the unit reports: the echo below would otherwise
+# swallow a failed insertion and the unit would stay green with no rule (review F2).
 ebtables -A FORWARD --logical-in "$BR" -p IPv4 --ip-src "$SRC" \
-         --ip-proto tcp --ip-dport 5100 -j DROP
+         --ip-proto tcp --ip-dport 5100 -j DROP \
+  || { echo "ebtables: adding the ocr->5100 rule failed" >&2; exit 1; }
 echo "filtre pose : $SRC -> :5100 sur $BR"

@@ -39,7 +39,9 @@ case "$KIND" in
       # Folders another SERVICE mounts: deleting one through the chat catalog takes
       # that service down (the weights are not in the chat catalog's gift).
       #   clef-q4km / clef*  legacy decision model still seeded in the catalog
-      #   d1-3b              the decision model that replaced it (d1-decisions.service)
+      #   d1-*               reserved prefix of the decision service (d1-3b today,
+      #                      d1-decisions.service mounts it); a chat model must not
+      #                      take a d1-* folder name
       #   templates/esrgan   image sidecar assets
       templates|esrgan|flux2-klein-4b|clef-q4km|clef*|d1-3b|d1-*)         echo "protected folder: $ID" >&2; exit 4 ;;
     esac

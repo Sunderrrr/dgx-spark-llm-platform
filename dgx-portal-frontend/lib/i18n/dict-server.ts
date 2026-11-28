@@ -222,4 +222,6 @@ export const dictServer: Record<string, string> = {
   "Réponse de l'autre assistant": "The other assistant's answer",
   "Les informations sont fusionnées avec ta mémoire actuelle ; les doublons sont ignorés.": "The information is merged with your current memory; duplicates are skipped.",
   "recherche dans tes conversations : {q}": "searching your conversations: {q}",
+  "Les pièces jointes ne sont pas prises en charge : cette route est réservée au texte. Retire le fichier pour envoyer la demande.":
+    "Attachments are not supported: this route is text-only. Remove the file to send the request.",
 };

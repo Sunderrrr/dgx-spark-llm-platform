@@ -287,14 +287,19 @@ pub async fn run(pool: &sqlx::SqlitePool, username: &str, body: &Value) -> Resul
     // System One provider, so the request went straight to the engine — with no
     // API key, no spend row and no budget check, which defeats the platform's
     // accounting control for every other GPU route (audit run-4, medium).
-    // The direct hop also could not work: the engine reads `images` and hands raw
-    // base64 to the model, which fails with `AttributeError` (measured). Until the
-    // gateway carries image input, an attachment is refused BEFORE any GPU work.
-    let has_files = payload
-        .get("files")
-        .or_else(|| payload.get("images"))
-        .and_then(Value::as_array)
-        .is_some_and(|f| !f.is_empty());
+    // That path cannot work either (the engine's image handling fails), so until
+    // the gateway carries image input an attachment is refused BEFORE any GPU work:
+    // one route, the gateway, so the key is always required and the spend row
+    // always written.
+    // ANY non-empty attachment field counts: `or_else` short-circuited on an empty
+    // `files`, letting `{"files": [], "images": [...]}` through to the gateway with
+    // its images intact (review F3).
+    let has_files = ["files", "images"].iter().any(|k| {
+        payload
+            .get(*k)
+            .and_then(Value::as_array)
+            .is_some_and(|f| !f.is_empty())
+    });
     if has_files {
         return Err((
             400,

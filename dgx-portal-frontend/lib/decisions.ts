@@ -13,7 +13,7 @@ export const MAX_CHOICES = 255;
 export const MAX_LEVELS = 10;
 
 export type Validated =
-  | { ok: true; body: { state: unknown; questions: Record<string, unknown>; files?: string[] } }
+  | { ok: true; body: { state: unknown; questions: Record<string, unknown> } }
   | { ok: false; error: string };
 
 /** The state as the API wants it: a JSON value, or the text as it was typed. */
@@ -101,10 +101,18 @@ export function validatePayload(stateText: string, questionsText: string, files:
     if (!built.ok) return built;
     questions[id] = built.question;
   }
-  const body: { state: unknown; questions: Record<string, unknown>; files?: string[] } = { state: state.value, questions };
-  // Images ride alongside the state, as data URLs: llama.cpp reads them, the
-  // portal relays them to the engine (LiteLLM refuses image parts on System One).
-  if (files.length > 0) body.files = files;
+  // Attachments are refused by the portal until the gateway carries image input:
+  // the old direct hop to the engine skipped the key, the budget and the spend log
+  // (audit run-4). Refusing here shows the same sentence without a round trip.
+  if (files.length > 0) {
+    return {
+      ok: false,
+      error:
+        "Les pièces jointes ne sont pas prises en charge : cette route est réservée au texte. " +
+        "Retire le fichier pour envoyer la demande.",
+    };
+  }
+  const body: { state: unknown; questions: Record<string, unknown> } = { state: state.value, questions };
   return { ok: true, body };
 }
 

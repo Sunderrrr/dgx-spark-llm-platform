@@ -2,6 +2,7 @@
 //! title and the summary of a conversation. Billed on the viewer's own key,
 //! behind the same guards as the chat (maintenance, then a per-route bucket).
 use super::*;
+use crate::memory::py_take;
 
 /// Python's `repr()` of a JSON value — what `str(x)` gives for a list or dict.
 pub(crate) fn py_repr(v: &Value) -> String {
@@ -39,16 +40,11 @@ pub(crate) fn py_repr(v: &Value) -> String {
 }
 
 /// `str(m.get('content', ''))`: a string as is, anything else as its repr.
+///
+/// The same mapping as `chat::history::py_str`, plus the absent key: it is that
+/// function, not a fourth copy of it.
 fn py_str(v: Option<&Value>) -> String {
-    match v {
-        None => String::new(),
-        Some(Value::String(s)) => s.clone(),
-        Some(other) => py_repr(other),
-    }
-}
-
-fn take(s: &str, n: usize) -> String {
-    s.chars().take(n).collect()
+    v.map(crate::chat::history::py_str).unwrap_or_default()
 }
 
 /// The messages of the body kept for the model: user and assistant turns, content capped.
@@ -67,7 +63,7 @@ fn conversation(data: &serde_json::Map<String, Value>, cap: usize) -> Option<Vec
         let m = m.as_object()?;
         let role = m.get("role").and_then(Value::as_str).unwrap_or("");
         if role == "user" || role == "assistant" {
-            out.push((role.to_string(), take(&py_str(m.get("content")), cap)));
+            out.push((role.to_string(), py_take(&py_str(m.get("content")), cap)));
         }
     }
     Some(out)
@@ -143,7 +139,7 @@ pub async fn api_playground_title(State(state): State<AppState>, headers: Header
         return Json(json!({"title": ""})).into_response();
     }
     let tail = &msgs[msgs.len().saturating_sub(6)..];
-    let user = tail.iter().map(|(r, c)| format!("{r}: {}", take(c, 200))).collect::<Vec<_>>().join("\n");
+    let user = tail.iter().map(|(r, c)| format!("{r}: {}", py_take(c, 200))).collect::<Vec<_>>().join("\n");
     let prompt = json!([
         {"role": "system", "content": "Résume en 3 à 8 mots le sujet de cette conversation. Réponds UNIQUEMENT avec le titre, en français, sans guillemets ni point final."},
         {"role": "user", "content": user},

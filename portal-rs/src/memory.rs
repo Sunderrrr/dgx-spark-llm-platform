@@ -39,8 +39,11 @@ pub fn py_strip(s: &str) -> &str {
     s.trim_matches(py_is_space)
 }
 
-/// The first `n` characters (Python slicing counts code points).
-fn take(s: &str, n: usize) -> String {
+/// The first `n` characters of a string.
+///
+/// Python's slicing counts code points, not bytes, and six modules needed
+/// exactly that (`take` in each of them): this is the one definition.
+pub fn py_take(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
 }
 
@@ -165,7 +168,7 @@ pub async fn node(db: &SqlitePool, username: &str, name: &str, kind: &str, creat
     let kind = if KINDS.contains(&kind) { kind } else { "subject" };
     sqlx::query("INSERT INTO memory_nodes (username, name, name_norm, kind, created_at) VALUES (?, ?, ?, ?, ?)")
         .bind(username)
-        .bind(take(py_strip(name), MEM_MAX_NAME_LEN))
+        .bind(py_take(py_strip(name), MEM_MAX_NAME_LEN))
         .bind(&norm)
         .bind(kind)
         .bind(now_iso())
@@ -180,7 +183,7 @@ pub async fn node(db: &SqlitePool, username: &str, name: &str, kind: &str, creat
 
 /// A JSON field as Python's `x.strip()[:n] if isinstance(x, str) else default`.
 fn str_field(v: Option<&Value>, n: usize) -> Option<String> {
-    v.and_then(Value::as_str).map(|s| take(py_strip(s), n))
+    v.and_then(Value::as_str).map(|s| py_take(py_strip(s), n))
 }
 
 /// `_mem_add_fact`: writes a fact; an equivalent one (same subject, explicit
@@ -277,11 +280,11 @@ pub async fn update_fact(db: &SqlitePool, username: &str, edge_id: i64, fact: Op
     let (Some(new_fact), Some(new_rel)) = (pick(fact, &old_fact), pick(relation, &old_rel)) else {
         return Ok(Update::Malformed);
     };
-    let new_fact = take(py_strip(&new_fact), MEM_MAX_FACT_LEN);
+    let new_fact = py_take(py_strip(&new_fact), MEM_MAX_FACT_LEN);
     if new_fact.is_empty() {
         return Ok(Update::Refused("Le texte ne peut pas être vide.".into()));
     }
-    let new_rel = take(py_strip(&new_rel), 80);
+    let new_rel = py_take(py_strip(&new_rel), 80);
     let new_rel = if new_rel.is_empty() { old_rel } else { new_rel };
     sqlx::query("UPDATE memory_edges SET fact = ?, relation = ? WHERE username = ? AND id = ?")
         .bind(&new_fact)
@@ -404,7 +407,7 @@ pub fn export_markdown(doc: &Value, platform: &str) -> String {
     let s = |v: &Value| v.as_str().unwrap_or_default().to_string();
     let edges = doc["edges"].as_array().cloned().unwrap_or_default();
     let nodes = doc["nodes"].as_array().cloned().unwrap_or_default();
-    let exported: String = take(&s(&doc["exported_at"]), 19).replace('T', " ");
+    let exported: String = py_take(&s(&doc["exported_at"]), 19).replace('T', " ");
     let mut lines = vec![
         format!("# Ce que {platform} sait de moi"),
         String::new(),

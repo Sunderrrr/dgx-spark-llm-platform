@@ -178,12 +178,19 @@ _SENTENCE_SPLIT = re.compile(r"(?<=[.!?…:;])\s+|\n+")
 _CHUNK_HARD_MAX = 400
 
 
-def _hard_split(part: str) -> list[str]:
+def _hard_split(part: str, max_len: int = _CHUNK_HARD_MAX, min_head: int = 0) -> list[str]:
+    """Cut `part` into pieces of at most `max_len`, at the last space inside.
+
+    `min_head` is the shortest leading fragment a space may leave behind: a cut
+    point closer to the start than that is refused and the piece is cut hard on
+    `max_len` instead. `_chunk_text` only needs a bound and accepts any space
+    (0); `_split_clauses` wants uniform pieces and asks for half a piece.
+    """
     out = []
-    while len(part) > _CHUNK_HARD_MAX:
-        cut = part.rfind(" ", 0, _CHUNK_HARD_MAX)
-        if cut <= 0:
-            cut = _CHUNK_HARD_MAX  # a single oversized word: hard cut
+    while len(part) > max_len:
+        cut = part.rfind(" ", 0, max_len)
+        if cut <= min_head:
+            cut = max_len  # no usable space: hard cut
         out.append(part[:cut].strip())
         part = part[cut:].strip()
     if part:
@@ -406,18 +413,13 @@ def _split_clauses(text: str) -> list[str]:
 
     Splitting at punctuation alone is not enough: a clause can be 8 s long, and
     the model needs 8 s to generate it. Every piece is therefore capped at
-    PIECE_MAX_CHARS, cut at a space when possible.
+    PIECE_MAX_CHARS by `_hard_split`, which only takes a space past half a piece
+    so the pieces stay uniform.
     """
     rough = [p.strip() for p in re.split(r"(?<=[,;:!?])\s+", text) if p.strip()]
     out: list[str] = []
     for part in rough:
-        while len(part) > PIECE_MAX_CHARS:
-            cut = part.rfind(" ", 0, PIECE_MAX_CHARS)
-            cut = cut if cut > PIECE_MAX_CHARS // 2 else PIECE_MAX_CHARS
-            out.append(part[:cut].strip())
-            part = part[cut:].strip()
-        if part:
-            out.append(part)
+        out.extend(_hard_split(part, PIECE_MAX_CHARS, PIECE_MAX_CHARS // 2))
     # A very short tail glued to the previous piece costs nothing and sounds
     # better than a two-word burst.
     if len(out) >= 2 and len(out[-1]) < 12:

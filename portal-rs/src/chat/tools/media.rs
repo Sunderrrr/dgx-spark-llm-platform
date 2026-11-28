@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use crate::chat::history::py_str;
 use crate::chat::Out;
 use crate::AppState;
+use crate::memory::py_take;
 
 const POLL: Duration = Duration::from_secs(2);
 const HEARTBEAT: Duration = Duration::from_secs(15);
@@ -18,10 +19,6 @@ const VIDEO_TIMEOUT: Duration = Duration::from_secs(900);
 const VIDEO_JOB_MAX: Duration = Duration::from_secs(3600);
 const DOC_TIMEOUT: Duration = Duration::from_secs(210);
 const TEXT_MAX: usize = 20000;
-
-fn take(s: &str, n: usize) -> String {
-    s.chars().take(n).collect()
-}
 
 /// `_SIDECAR_MEM_NEED_GB`: what a sidecar must find free to load.
 fn mem_need_gb(kind: &str) -> Option<f64> {
@@ -139,12 +136,12 @@ pub fn image_tools() -> Vec<Value> {
 
 pub fn announce_image(args: &Value) -> Value {
     let count = int_or(args, "count", 1).unwrap_or(1).clamp(1, 4);
-    json!({"step": "generation", "tool": "diffusers", "count": count, "question": take(&args.get("prompt").map(py_str).unwrap_or_default(), 200)})
+    json!({"step": "generation", "tool": "diffusers", "count": count, "question": py_take(&args.get("prompt").map(py_str).unwrap_or_default(), 200)})
 }
 
 /// `_exec_image_tool`.
 pub async fn exec_image(state: &AppState, args: &Value, username: &str, step_log: &mut Vec<Value>, out: &Out) -> String {
-    let prompt = take(crate::memory::py_strip(&args.get("prompt").map(py_str).unwrap_or_default()), 10000);
+    let prompt = py_take(crate::memory::py_strip(&args.get("prompt").map(py_str).unwrap_or_default()), 10000);
     if prompt.is_empty() {
         return "Aucun prompt fourni : impossible de générer une image.".into();
     }
@@ -160,7 +157,7 @@ pub async fn exec_image(state: &AppState, args: &Value, username: &str, step_log
     let _ = getrandom::getrandom(&mut b);
     let pid = hex::encode(b);
     let inserted = sqlx::query("INSERT INTO image_jobs (username, prompt_id, prompt, status, count, done_count, format, created_at) VALUES (?,?,?,?,?,?,?,?)")
-        .bind(username).bind(&pid).bind(take(&prompt, 2000)).bind("running").bind(count).bind(0).bind(fmt)
+        .bind(username).bind(&pid).bind(py_take(&prompt, 2000)).bind("running").bind(count).bind(0).bind(fmt)
         .bind(crate::keys::iso(&chrono::Local::now().naive_local()))
         .execute(state.db.pool()).await;
     if inserted.is_err() {
@@ -170,7 +167,7 @@ pub async fn exec_image(state: &AppState, args: &Value, username: &str, step_log
     crate::handlers::spawn_image_worker(state.db.clone(), username.to_string(), pid.clone(), prompt.clone(), count, fmt, (dim("width"), dim("height")), (out_dim("output_width"), out_dim("output_height")));
     let (status, done) = wait_job(state, "image_jobs", &pid, username, IMAGE_TIMEOUT, out).await.unwrap_or(("running".into(), 0));
     let urls: Vec<String> = if status == "done" { (0..done).map(|i| format!("/image/file/{pid}/{i}")).collect() } else { Vec::new() };
-    step_log.push(json!({"step": "generation_done", "tool": "diffusers", "question": take(&prompt, 200), "prompt_id": pid, "images": urls,
+    step_log.push(json!({"step": "generation_done", "tool": "diffusers", "question": py_take(&prompt, 200), "prompt_id": pid, "images": urls,
         "error": if urls.is_empty() { json!("La génération a échoué.") } else { Value::Null }}));
     if urls.is_empty() {
         return "La génération d'image a échoué (sidecar indisponible ou surchargé). Dis-le tel quel à l'utilisateur.".into();
@@ -190,12 +187,12 @@ pub fn video_tools() -> Vec<Value> {
 }
 
 pub fn announce_video(args: &Value) -> Value {
-    json!({"step": "generation_video", "tool": "comfyui", "question": take(&args.get("prompt").map(py_str).unwrap_or_default(), 200)})
+    json!({"step": "generation_video", "tool": "comfyui", "question": py_take(&args.get("prompt").map(py_str).unwrap_or_default(), 200)})
 }
 
 /// `_exec_video_tool`.
 pub async fn exec_video(state: &AppState, args: &Value, username: &str, step_log: &mut Vec<Value>, out: &Out) -> String {
-    let prompt = take(crate::memory::py_strip(&args.get("prompt").map(py_str).unwrap_or_default()), 10000);
+    let prompt = py_take(crate::memory::py_strip(&args.get("prompt").map(py_str).unwrap_or_default()), 10000);
     if prompt.is_empty() {
         return "Aucune description fournie : impossible de générer une vidéo.".into();
     }
@@ -210,7 +207,7 @@ pub async fn exec_video(state: &AppState, args: &Value, username: &str, step_log
     }
     .clamp(2.0, 15.0);
     if let Err(reason) = autostart(state, "video", crate::sidecars::comfyui_up, out, Duration::from_secs(240)).await {
-        step_log.push(json!({"step": "generation_video_done", "tool": "comfyui", "question": take(&prompt, 200), "videos": [], "error": reason}));
+        step_log.push(json!({"step": "generation_video_done", "tool": "comfyui", "question": py_take(&prompt, 200), "videos": [], "error": reason}));
         return format!("Le service vidéo est indisponible : {reason}. Dis-le tel quel à l'utilisateur.");
     }
     if !crate::guards::job_slot(username) {
@@ -218,12 +215,12 @@ pub async fn exec_video(state: &AppState, args: &Value, username: &str, step_log
     }
     let Some(pid) = crate::handlers::comfyui_generate(None, &prompt, duration).await else {
         crate::guards::job_done(username);
-        step_log.push(json!({"step": "generation_video_done", "tool": "comfyui", "question": take(&prompt, 200), "videos": [], "error": "ComfyUI inaccessible ou requête refusée."}));
+        step_log.push(json!({"step": "generation_video_done", "tool": "comfyui", "question": py_take(&prompt, 200), "videos": [], "error": "ComfyUI inaccessible ou requête refusée."}));
         return "La génération vidéo a échoué (sidecar indisponible ou surchargé). Dis-le tel quel à l'utilisateur.".into();
     };
     let created = crate::keys::iso(&chrono::Local::now().naive_local());
     let _ = sqlx::query("INSERT INTO video_jobs (username, prompt_id, prompt, status, created_at, req_duration_s) VALUES (?,?,?,?,?,?)")
-        .bind(username).bind(&pid).bind(take(&prompt, 2000)).bind("running").bind(&created).bind(duration.trunc() as i64)
+        .bind(username).bind(&pid).bind(py_take(&prompt, 2000)).bind("running").bind(&created).bind(duration.trunc() as i64)
         .execute(state.db.pool()).await;
     // `_video_worker`: somebody must close the job, even when the chat client left.
     let (st, user, job, created2) = (state.clone(), username.to_string(), pid.clone(), created.clone());
@@ -243,11 +240,11 @@ pub async fn exec_video(state: &AppState, args: &Value, username: &str, step_log
     });
     let status = wait_job(state, "video_jobs", &pid, username, VIDEO_TIMEOUT, out).await.map(|(s, _)| s).unwrap_or_else(|| "running".into());
     if status == "running" {
-        step_log.push(json!({"step": "generation_video_done", "tool": "comfyui", "question": take(&prompt, 200), "videos": [], "error": "Génération toujours en cours."}));
+        step_log.push(json!({"step": "generation_video_done", "tool": "comfyui", "question": py_take(&prompt, 200), "videos": [], "error": "Génération toujours en cours."}));
         return "La vidéo est encore en cours de génération (elle apparaîtra dans l'historique de la page Vidéo). Ne donne PAS d'adresse pour l'instant ; dis simplement que la génération continue.".into();
     }
     let urls: Vec<String> = if status == "done" { vec![format!("/video/file/{pid}")] } else { Vec::new() };
-    step_log.push(json!({"step": "generation_video_done", "tool": "comfyui", "question": take(&prompt, 200), "videos": urls,
+    step_log.push(json!({"step": "generation_video_done", "tool": "comfyui", "question": py_take(&prompt, 200), "videos": urls,
         "error": if urls.is_empty() { json!("La génération a échoué.") } else { Value::Null }}));
     if urls.is_empty() {
         return "La génération vidéo a échoué (sidecar indisponible ou surchargé). Dis-le tel quel à l'utilisateur.".into();
@@ -266,7 +263,7 @@ pub fn document_tools() -> Vec<Value> {
 }
 
 pub fn announce_document(args: &Value) -> Value {
-    json!({"step": "ocr", "tool": "unlimited-ocr", "question": take(&args.get("fichier").map(py_str).unwrap_or_default(), 200)})
+    json!({"step": "ocr", "tool": "unlimited-ocr", "question": py_take(&args.get("fichier").map(py_str).unwrap_or_default(), 200)})
 }
 
 /// `_attachment`: the attachment a name points to (its LAST number), else the newest.
@@ -320,8 +317,8 @@ pub async fn exec_document(state: &AppState, args: &Value, step_log: &mut Vec<Va
     };
     let (text, err) = match res {
         Ok(Ok(t)) => (crate::memory::py_strip(&t).to_string(), None),
-        Ok(Err(e)) => (String::new(), Some(take(&e, 120))),
-        Err(e) => (String::new(), Some(take(&e.to_string(), 120))),
+        Ok(Err(e)) => (String::new(), Some(py_take(&e, 120))),
+        Err(e) => (String::new(), Some(py_take(&e.to_string(), 120))),
     };
     if text.is_empty() {
         let reason = err.unwrap_or_else(|| "service en difficulté ou image illisible".into());
@@ -329,7 +326,7 @@ pub async fn exec_document(state: &AppState, args: &Value, step_log: &mut Vec<Va
         return format!("Aucun texte n'a pu être extrait de ce document ({reason}). Dis-le tel quel à l'utilisateur.");
     }
     step_log.push(json!({"step": "ocr_done", "tool": "unlimited-ocr", "question": name, "chars": text.chars().count(), "error": null}));
-    format!("Texte extrait du document par OCR (brut, dactylographié ou manuscrit — cite-le, ne le réécris pas) :\n\n{}", take(&text, TEXT_MAX))
+    format!("Texte extrait du document par OCR (brut, dactylographié ou manuscrit — cite-le, ne le réécris pas) :\n\n{}", py_take(&text, TEXT_MAX))
 }
 
 #[cfg(test)]

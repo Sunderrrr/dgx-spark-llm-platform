@@ -18,15 +18,6 @@ fn json_or_form(headers: &HeaderMap, body: &axum::body::Bytes) -> std::collectio
     form_of(headers, body).into_iter().map(|(k, v)| (k, Value::String(v))).collect()
 }
 
-/// `login_required` on a page path: signed out → the login page.
-async fn page_viewer(state: &AppState, headers: &HeaderMap, path: &str) -> Result<auth::SessionData, Response> {
-    match auth::require_session(headers, &state.db).await {
-        Ok(s) => Ok(s),
-        Err(auth::AuthError::Unauthorized) => Err(auth::login_redirect(path)),
-        Err(e) => Err(e.into_response()),
-    }
-}
-
 /// POST /request - ask for a model to be added to the platform.
 pub async fn request_model(State(state): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
     let form = form_of(&headers, &body);

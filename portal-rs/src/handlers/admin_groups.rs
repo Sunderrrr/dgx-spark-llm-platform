@@ -58,23 +58,6 @@ pub(crate) async fn default_budget(state: &AppState) -> f64 {
     state.db.get_setting("default_key_budget").await.ok().flatten().and_then(|v| parse_py_float(&v)).unwrap_or(fallback)
 }
 
-/// `get_setting('default_key_duration', KEY_DURATION)`.
-pub(crate) async fn default_duration(state: &AppState) -> String {
-    match state.db.get_setting("default_key_duration").await.ok().flatten() {
-        Some(v) => v,
-        None => super::admin_routes::key_duration_default().as_str().unwrap_or("7d").to_string(),
-    }
-}
-
-/// `litellm_update_user_budget(username, amount, budget_duration)`.
-async fn update_envelope(username: &str, amount: f64, duration: &str) -> bool {
-    let mut payload = json!({"user_id": username, "max_budget": amount});
-    if !duration.is_empty() {
-        payload["budget_duration"] = json!(duration);
-    }
-    super::key_routes::litellm_post("/user/update", payload, 5).await.is_some_and(|r| r.status().is_success())
-}
-
 /// `_sync_local_user_budget(username, row)`: the account's effective quota
 /// (its own, else its group's, else the default) written at LiteLLM.
 pub(crate) async fn sync_local_budget(state: &AppState, row: &Local) -> bool {
@@ -86,7 +69,7 @@ pub(crate) async fn sync_local_budget(state: &AppState, row: &Local) -> bool {
             None => default_budget(state).await,
         },
     };
-    let duration = default_duration(state).await;
+    let duration = key_duration(state).await;
     super::key_routes::ensure_user(&row.username, eff, &duration).await;
     update_envelope(&row.username, eff, &duration).await
 }
@@ -140,7 +123,7 @@ pub(crate) async fn apply_group_quota(state: &AppState, username: &str) {
     if previous == Some(target) {
         return;
     }
-    let duration = default_duration(state).await;
+    let duration = key_duration(state).await;
     super::key_routes::ensure_user(username, target, &duration).await;
     if !update_envelope(username, target, &duration).await {
         return;

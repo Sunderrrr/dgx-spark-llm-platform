@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
+use crate::clock::now_s;
 
 /// `latency.WINDOW`: about a busy day of API calls.
 const WINDOW: usize = 10_000;
@@ -18,14 +19,10 @@ const WINDOW: usize = 10_000;
 /// (unix time, seconds, route)
 static SAMPLES: Mutex<Vec<(f64, f64, String)>> = Mutex::new(Vec::new());
 
-fn now() -> f64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
-}
-
 /// `latency.record(route, duration)`.
 pub fn record(route: &str, secs: f64) {
     let mut s = SAMPLES.lock().unwrap_or_else(|e| e.into_inner());
-    s.push((now(), secs, route.to_string()));
+    s.push((now_s(), secs, route.to_string()));
     if s.len() > WINDOW {
         let extra = s.len() - WINDOW;
         s.drain(..extra);
@@ -51,7 +48,7 @@ pub async fn layer(req: Request, next: Next) -> Response {
 
 /// `latency_summary(window_s)`: percentiles over the window, the slowest route.
 pub fn summary(window_s: Option<f64>) -> Value {
-    let t = now();
+    let t = now_s();
     let taken: Vec<(f64, f64, String)> = {
         let s = SAMPLES.lock().unwrap_or_else(|e| e.into_inner());
         s.iter().filter(|e| window_s.is_none_or(|w| t - e.0 <= w)).cloned().collect()
@@ -105,7 +102,7 @@ mod tests {
 
     #[test]
     fn percentiles_and_slowest_route() {
-        *SAMPLES.lock().unwrap() = vec![(now(), 0.010, "/api/a".into()), (now(), 0.300, "/api/b".into()), (now(), 0.020, "/api/a".into())];
+        *SAMPLES.lock().unwrap() = vec![(now_s(), 0.010, "/api/a".into()), (now_s(), 0.300, "/api/b".into()), (now_s(), 0.020, "/api/a".into())];
         let s = summary(None);
         assert_eq!(s["n"], 3);
         assert_eq!(s["max_ms"], 300);

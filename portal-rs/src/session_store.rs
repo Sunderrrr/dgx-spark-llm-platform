@@ -5,6 +5,7 @@
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
+use crate::clock::now_s;
 
 /// A visitor who never logs in gets a short-lived row (the login page fetches a token).
 pub const ANONYMOUS_LIFETIME_S: f64 = 2.0 * 3600.0;
@@ -23,10 +24,6 @@ pub fn new_token() -> Option<String> {
 
 fn lifetime() -> f64 {
     std::env::var("SESSION_MAX_AGE").ok().and_then(|v| v.parse().ok()).unwrap_or(12.0 * 3600.0)
-}
-
-fn now() -> f64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
 }
 
 /// Flask's `TaggedJSONSerializer.dumps` for plain values: keys sorted at every level.
@@ -48,7 +45,7 @@ pub fn dumps(v: &Value) -> String {
 /// `save_session` for a non-empty session: upsert the row (12 h with an
 /// account, 2 h without), sweep expired rows now and then.
 pub async fn save(pool: &SqlitePool, token: &str, data: &Map<String, Value>) -> Result<(), sqlx::Error> {
-    let now = now();
+    let now = now_s();
     let ttl = if data.contains_key("username") { lifetime() } else { ANONYMOUS_LIFETIME_S };
     sqlx::query(
         "INSERT INTO web_sessions (token_hash, data, expires_at, updated_at) VALUES (?,?,?,?) \

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use sqlx::SqlitePool;
+use crate::clock::now_s;
 
 /// Media calls allowed per window and account (`CHAT_RATE_MAX` / `_WINDOW`).
 /// Zip/skill imports per minute, per account: a decompression budget alone still
@@ -16,14 +17,10 @@ pub const MEDIA_RATE_WINDOW_S: f64 = 60.0;
 /// In-flight async jobs per account (`MEDIA_MAX_CONCURRENT`).
 pub const MEDIA_MAX_CONCURRENT: u32 = 3;
 
-fn now() -> f64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
-}
-
 /// `_chat_rate_limited`: seconds to wait, or 0 when the request is counted.
 /// The acquisition is one conditional UPSERT: the database decides.
 pub async fn rate_limited(pool: &SqlitePool, username: &str, bucket: &str, max: i64, window: f64) -> Result<i64, sqlx::Error> {
-    let now = now();
+    let now = now_s();
     let key = format!("{bucket}|{username}");
     let counted = sqlx::query(
         "INSERT INTO login_attempts (key, fails, first_at, locked_until) VALUES (?,1,?,0) \

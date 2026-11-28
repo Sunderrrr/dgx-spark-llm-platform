@@ -12,6 +12,7 @@ use crate::chat::history::Msg;
 use crate::chat::tools::{files, library, media, websearch};
 use crate::chat::{data_frame, Out};
 use crate::AppState;
+use crate::memory::py_take;
 
 const MAX_TOOL_ROUNDS: usize = 3;
 const FILE_TOOL_ROUNDS: usize = 10;
@@ -25,10 +26,6 @@ const TOOLS_LAST: usize = 6;
 const TOOLS_RESULT_PROMPT: usize = 6000;
 const TOOLS_PROMPT_MAX: usize = 40000;
 const HEARTBEAT: Duration = Duration::from_secs(8);
-
-fn take(s: &str, n: usize) -> String {
-    s.chars().take(n).collect()
-}
 
 /// What the phase may use.
 pub struct Armed<'a> {
@@ -62,7 +59,7 @@ pub fn tools_context(msgs: &[Msg]) -> Vec<Value> {
         let n = c.chars().count();
         if n > TOOLS_MSG_MAX {
             let half = TOOLS_MSG_MAX / 2;
-            c = format!("{}\n…\n{}", take(&c, half), c.chars().skip(n - half).collect::<String>());
+            c = format!("{}\n…\n{}", py_take(&c, half), c.chars().skip(n - half).collect::<String>());
         }
         let cn = c.chars().count();
         if total + cn > TOOLS_TOTAL_MAX && !short.is_empty() {
@@ -72,7 +69,7 @@ pub fn tools_context(msgs: &[Msg]) -> Vec<Value> {
         short.push(json!({"role": m.role, "content": c}));
     }
     short.reverse();
-    system.iter().map(|m| json!({"role": m.role, "content": take(&m.content, TOOLS_MSG_MAX)})).chain(short).collect()
+    system.iter().map(|m| json!({"role": m.role, "content": py_take(&m.content, TOOLS_MSG_MAX)})).chain(short).collect()
 }
 
 fn content_len(m: &Value) -> usize {
@@ -167,7 +164,7 @@ pub async fn run(state: &AppState, model: &str, msgs: &[Msg], user_key: &str, us
                     "et cite AU MOINS DEUX sources en recopiant leur adresse complète (https://…) ",
                     "telle quelle dans ta réponse.]\n"
                 ),
-                take(&text, TOOLS_RESULT_PROMPT)
+                py_take(&text, TOOLS_RESULT_PROMPT)
             ),
             Err(()) => {
                 eprintln!("[chat] web prefetch: the search tool failed");
@@ -186,7 +183,7 @@ pub async fn run(state: &AppState, model: &str, msgs: &[Msg], user_key: &str, us
         if !injected.contains("échoué") {
             if let Some(last) = short.iter().rev().find(|m| m.get("role").and_then(Value::as_str) == Some("user")) {
                 if let Some(c) = last.get("content").and_then(Value::as_str) {
-                    o.findings.push(("recherche_web".into(), take(c, 20000)));
+                    o.findings.push(("recherche_web".into(), py_take(c, 20000)));
                 }
             }
         }
@@ -286,7 +283,7 @@ pub async fn run(state: &AppState, model: &str, msgs: &[Msg], user_key: &str, us
             if armed.history && (name == "search_conversations" || name == "recent_conversations") {
                 let (result, _) = library::execute_history(state.db.pool(), &name, &args, username).await;
                 o.history_notes.push(result.clone());
-                web_step(out, json!({"step": "history", "tool": "history", "question": take(&args_obj.get("query").filter(|v| crate::keys::truthy(v)).map(crate::chat::history::py_str).unwrap_or_default(), 120)})).await;
+                web_step(out, json!({"step": "history", "tool": "history", "question": py_take(&args_obj.get("query").filter(|v| crate::keys::truthy(v)).map(crate::chat::history::py_str).unwrap_or_default(), 120)})).await;
                 short.push(tool_msg(result));
                 bound_tools_prompt(&mut short);
                 continue;
@@ -299,14 +296,14 @@ pub async fn run(state: &AppState, model: &str, msgs: &[Msg], user_key: &str, us
                     library::read_skill_file(state.db.pool(), username, &arg("name"), &arg("path")).await
                 };
                 let path = args_obj.get("path").filter(|v| crate::keys::truthy(v)).map(crate::chat::history::py_str);
-                let mut step = json!({"step": "skill", "tool": "skills", "question": format!("{}{}", take(&args_obj.get("name").filter(|v| crate::keys::truthy(v)).map(crate::chat::history::py_str).unwrap_or_default(), 80), path.map(|p| format!(" · {p}")).unwrap_or_default())});
+                let mut step = json!({"step": "skill", "tool": "skills", "question": format!("{}{}", py_take(&args_obj.get("name").filter(|v| crate::keys::truthy(v)).map(crate::chat::history::py_str).unwrap_or_default(), 80), path.map(|p| format!(" · {p}")).unwrap_or_default())});
                 if !ok {
                     step["error"] = json!("not found");
                 } else {
                     o.skills_loaded.push(result.clone());
                 }
                 web_step(out, step).await;
-                short.push(tool_msg(take(&result, FILE_TOOL_RESULT_MAX)));
+                short.push(tool_msg(py_take(&result, FILE_TOOL_RESULT_MAX)));
                 bound_tools_prompt(&mut short);
                 continue;
             }
@@ -318,7 +315,7 @@ pub async fn run(state: &AppState, model: &str, msgs: &[Msg], user_key: &str, us
                     step["error"] = json!(e);
                 }
                 web_step(out, step).await;
-                short.push(tool_msg(take(&result, FILE_TOOL_RESULT_MAX)));
+                short.push(tool_msg(py_take(&result, FILE_TOOL_RESULT_MAX)));
                 bound_tools_prompt(&mut short);
                 continue;
             }
@@ -366,8 +363,8 @@ pub async fn run(state: &AppState, model: &str, msgs: &[Msg], user_key: &str, us
                 }
             };
             web_step(out, o.step_log.last().cloned().unwrap_or_else(|| json!({}))).await;
-            short.push(tool_msg(take(&result, TOOLS_RESULT_PROMPT)));
-            o.findings.push((name.clone(), take(&result, 20000)));
+            short.push(tool_msg(py_take(&result, TOOLS_RESULT_PROMPT)));
+            o.findings.push((name.clone(), py_take(&result, 20000)));
             bound_tools_prompt(&mut short);
         }
     }
@@ -381,10 +378,10 @@ pub fn reinjection(o: &Outcome, files: Option<&files::Files>) -> String {
         txt.push_str(&files::edits_note(f, &o.changes));
     }
     if !o.skills_loaded.is_empty() {
-        txt.push_str(&take(&format!("\n\n---\n[Skill content loaded for this request — follow it:]\n\n{}", o.skills_loaded.join("\n\n")), 60000));
+        txt.push_str(&py_take(&format!("\n\n---\n[Skill content loaded for this request — follow it:]\n\n{}", o.skills_loaded.join("\n\n")), 60000));
     }
     if !o.history_notes.is_empty() {
-        txt.push_str(&take(&format!("\n\n---\n[From the user's past conversations — use it as context, cite the conversation title when you rely on it:]\n\n{}", o.history_notes.join("\n\n")), 30000));
+        txt.push_str(&py_take(&format!("\n\n---\n[From the user's past conversations — use it as context, cite the conversation title when you rely on it:]\n\n{}", o.history_notes.join("\n\n")), 30000));
     }
     txt
 }

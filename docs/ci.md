@@ -20,8 +20,9 @@ containers, the Playwright journeys (login, chat, search, image, admin), health
 and resources. They need a GPU, the served model, the SSO and the real compose
 stack. No GitHub-hosted runner has any of that, so:
 
-- they run **unattended on the box** (`dgx-validation.path` triggers
-  `validate.sh` on every push);
+- they run **unattended on the box**: `dgx-validation.path` watches
+  `runtime/validation/demande.txt`, written when an admin starts a validation
+  from the panel, and a change to that file starts `validate.sh`;
 - and on demand through `hardware.yml` (manual, self-hosted);
 - they are **not** required checks of a pull request. Making them required
   would mean a public GPU runner we do not have, or a permanently red pipeline
@@ -40,7 +41,7 @@ checked; what ships as *behaviour* is checked where it runs.
 | `backend` | `cargo test --locked` + clippy (errors only: the codebase carries accepted warnings, and a gate nobody can pass is not read). |
 | `runner-rs` | The second shipped binary — the GPU supervisor. Until 2026-10-24 it had no CI at all. |
 | `frontend` | `next typegen` → `tsc` → `eslint --max-warnings 0` → i18n coverage → `node --test`. |
-| `python` | The LiteLLM callbacks are mounted **into the proxy** and run on every chat request. 14 stdlib tests + bandit (high-only blocking). |
+| `python` | The LiteLLM callbacks are mounted **into the proxy** and run on every chat request. 17 stdlib tests + bandit (high-only blocking). |
 | `images` | Builds the two images the deploy builds. Recipe rot (a `next build`, a base image) is caught here, not at deploy. |
 | `static` | ruff, shellcheck, **actionlint**, YAML parse, English-only code, no monolith, compose parse, sudoers parse. |
 | `dependencies` | `npm audit` (advisory) + `check-deps.py` (**blocking** on fixable CVEs, npm **and both Rust lockfiles**). |
@@ -64,14 +65,13 @@ checked; what ships as *behaviour* is checked where it runs.
 - **Rust advisories: a gate with a justified ignore list.** Measured on
   2026-10-28: `cargo-audit` found 7 in `portal-rs`. Two were fixed outright
   (`rustls-webpki 0.103.16`, `webpki-roots 1.0.11` — both patch-level, tests
-  green). Five cannot be fixed in this tree, and each says why in
+  green). Three cannot be fixed in this tree today, and each says why in
   `check-deps.py`'s `IGNORES`:
   - `crypto-bigint` needs `p256 >=0.14`, i.e. a major bump of the JWT stack;
-  - `zip` is fixed only in `>=9.0.0`, another API — and the portal never calls
-    `ZipArchive::extract()`, it walks entries with `by_index_raw` into memory,
-    which is what those advisories are about;
   - `rsa` has no fixed release upstream (and is used for signature
-    verification, not decryption).
+    verification, not decryption);
+  - `libsqlite3-sys`: `sqlx-sqlite` caps it at `<0.38` while the advisory wants
+    `>=0.39` — no released `sqlx` allows it.
   The gate **fails on any advisory that is not in that list and has a patch**,
   and **also fails when an ignored advisory disappears** (a stale entry must be
   removed) — the list cannot rot silently.

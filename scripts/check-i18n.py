@@ -56,7 +56,7 @@ def _is_i18n_module(path_):
     if full == os.path.abspath(I18N):
         return True
     rel = os.path.relpath(full, os.path.abspath(I18N_DIR)).replace(os.sep, "/")
-    return rel in ("dictionary.ts", "dict-common.ts") or rel.startswith("dict-") or rel == "context.tsx"
+    return rel == "dictionary.ts" or rel.startswith("dict-") or rel == "context.tsx"
 
 
 def _en_sources():

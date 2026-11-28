@@ -48,11 +48,17 @@ GEN_TIMEOUT_S = float(os.environ.get("QWEN_TTS_GEN_TIMEOUT", "240"))
 # that local checkpoint instead of the catalog repo id and speaks with SPEAKER —
 # no reference clip at inference. Trained with the official finetuning/ recipe.
 FINETUNE_DIR = os.environ.get("QWEN_TTS_FINETUNE_DIR", "").strip()
+# Voice cloning without a fine-tune: a reference clip of the same speaker. The
+# 0.6B base + this clip reproduces the voice for a fraction of the memory
+# (~3 GiB against ~10 for the 1.7B fine-tune).
+REFERENCE_WAV = os.environ.get("QWEN_TTS_REFERENCE_WAV", "").strip()
 SPEAKER = os.environ.get("QWEN_TTS_SPEAKER", "").strip() or "speaker"
 
 app = FastAPI(title="DGX Qwen3-TTS", docs_url=None, redoc_url=None, openapi_url=None)
 
 _model = None
+# (samples, sample_rate) of the reference clip, None when not configured.
+_ref_audio: tuple | None = None
 _languages: dict[str, str] = {}
 _load_error: str | None = None
 # One model on one GPU: two simultaneous generations would step on each other.
@@ -120,7 +126,20 @@ def _load() -> None:
         if skipped:
             log.warning("Languages without a known ISO code, skipped: %s", skipped)
         log.info("Loaded. %d languages: %s", len(_languages), ", ".join(sorted(_languages)))
-        if FINETUNE_DIR:
+        if not FINETUNE_DIR and REFERENCE_WAV and not os.path.isfile(REFERENCE_WAV):
+            # A configured clip that is absent is a BAD MOUNT, not a reason to lose
+            # the whole voice: say it loudly and serve without the clone.
+            log.error("Voice reference %s is missing — serving without clone", REFERENCE_WAV)
+        elif not FINETUNE_DIR and REFERENCE_WAV:
+            # Read the clip ONCE: it is the voice prompt of every generation, and
+            # re-decoding it per sentence would add ~50 ms to each.
+            global _ref_audio
+            import soundfile as _sf
+
+            data, sr = _sf.read(REFERENCE_WAV, dtype="float32", always_2d=True)
+            _ref_audio = (data.mean(axis=1), sr)
+            log.info("Voice reference: %s (%.1f s)", REFERENCE_WAV, len(_ref_audio[0]) / sr)
+        if FINETUNE_DIR or _ref_audio:
             # Warm-up: the first generation of a process pays CUDA/cudnn kernel
             # setup (seconds). Paying it HERE means the first sentence of a
             # conversation starts like the others.
@@ -217,6 +236,19 @@ def _speak(text: str, language: str | None):
     """Audio for one sentence: the fine-tuned speaker, or the clone path."""
     if FINETUNE_DIR:
         wavs, sr = _model.generate_custom_voice(text=text, speaker=SPEAKER, language=language)
+    elif _ref_audio:
+        # Clone path with a stored clip: same timbre, a lighter model. The prompt
+        # is rebuilt per sentence (it is cheap for a short clip) because it holds
+        # no state between calls.
+        #
+        # The language must be a NAME ("french"), never the ISO code and never
+        # None: passed raw, the model generated blind and spent MINUTES on one
+        # sentence (measured 2026-11-28 on the 0.6B).
+        lang_name = _languages.get(language or "auto") or _languages.get("auto") or "english"
+        prompt = _model.create_voice_clone_prompt(
+            ref_audio=_ref_audio, ref_text=None, x_vector_only_mode=True)
+        wavs, sr = _model.generate_voice_clone(
+            text=text, language=lang_name, voice_clone_prompt=prompt)
     else:  # pragma: no cover - the clone path is exercised through /clone
         raise HTTPException(status_code=400, detail="no fine-tuned speaker loaded")
     return _trim_silence(wavs[0], sr), sr
@@ -230,13 +262,15 @@ def model_info() -> JSONResponse:
         # the runner map and the voice catalog use, and it is the only one that
         # speaks the operator's voice. Reporting the base id here made the admin
         # card announce "Qwen3-TTS-12Hz-1.7B-Base" while a fine-tune was loaded.
-        "type": "custom-qwen-tts" if FINETUNE_DIR else MODEL_ID.rsplit("/", 1)[-1],
+        "type": ("custom-qwen-tts" if FINETUNE_DIR
+                 else f"{MODEL_ID.rsplit('/', 1)[-1]}+clone" if _ref_audio
+                 else MODEL_ID.rsplit("/", 1)[-1]),
         "engine": "qwen3-tts",
         # Only a fine-tuned checkpoint can answer a sentence on its own, which is
         # what the playground voice mode needs (/api/speak).
-        "conversation": bool(FINETUNE_DIR),
-        "voices": [SPEAKER] if (FINETUNE_DIR and _model is not None) else [],
-        "default_voice": SPEAKER if (FINETUNE_DIR and _model is not None) else None,
+        "conversation": bool(FINETUNE_DIR or _ref_audio),
+        "voices": [SPEAKER] if ((FINETUNE_DIR or _ref_audio) and _model is not None) else [],
+        "default_voice": SPEAKER if ((FINETUNE_DIR or _ref_audio) and _model is not None) else None,
         "sample_rate": 24000,
         "device": "cuda" if torch.cuda.is_available() else "cpu",
         "supported_languages": _languages,
@@ -396,7 +430,7 @@ async def speak(body: dict) -> Response:
     current one plays, so answering clause by clause is what keeps the voice
     close to the text on screen (RTF ~1.2 for the 1.7B fine-tune).
     """
-    if not FINETUNE_DIR:
+    if not (FINETUNE_DIR or _ref_audio):
         raise HTTPException(status_code=404, detail="no fine-tuned speaker loaded")
     text = " ".join(str(body.get("text", "")).split())
     if not text:

@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-11-28 — une voix légère : le 0.6B cloné à partir d'une référence
+
+L'opérateur juge le 1.7B fine-tuné trop lourd. Le sidecar accepte maintenant un
+**échantillon de référence** (`QWEN_TTS_REFERENCE_WAV`) : le modèle de base clone le
+timbre sans fine-tune, et `/api/speak` (le mode vocal du playground) marche avec lui.
+
+Mesuré sur cette machine, même phrase :
+
+| | 1.7B fine-tuné | **0.6B + clonage** |
+|---|---|---|
+| mémoire du conteneur | 2,9 Gio | **1,9 Gio** (GPU ~6,3 Gio contre ~10) |
+| « Me revoilà » | 2,1 s | 3,4 s |
+| RTF | ~0,85 | ~1,0 |
+
+Trois pièges rencontrés, tous dans le code :
+
+1. **La langue du clonage doit être un NOM** (« french »), jamais un code ISO ni
+   `None` : passée telle quelle, la génération partait à l'aveugle et mettait
+   **plusieurs minutes** sur une phrase (mesuré). Le chemin de clonage mappe
+   désormais comme `/clone`.
+2. **L'échantillon de référence doit être COURT.** 18,2 s faisaient 6,9 s par phrase ;
+   6 s donnent 3,4 s pour le même timbre. Le script préfère `ref6.wav` à `ref24.wav`.
+3. **Mettre le prompt de clonage en cache bloque la génération** (4 min, CPU à 100 %) :
+   construire le prompt par phrase coûte ~2 s et marche toujours — ce chemin reste.
+
+Le catalogue sème les **deux** voix (« 0.6B, clonée » et « fine-tuné 1.7B »), chacune
+avec son bouton **Lancer**. Le 0.6B passe par une correspondance que le runner installé
+connaît déjà : il se lance donc **sans redémarrer le runner** (le fine-tuné, lui, attend
+le binaire recompilé).
 ## 2026-11-27 — la voix ne se lançait plus : CDI NVIDIA périmée + catalogue voix vide
 
 Signalé par l'opérateur : « je n'arrive plus à lancer le modèle de voice avec ma

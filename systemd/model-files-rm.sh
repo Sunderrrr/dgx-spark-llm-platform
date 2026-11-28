@@ -36,9 +36,12 @@ case "$KIND" in
       echo "invalid id: $ID" >&2; exit 2
     fi
     case "$ID" in
-      # clef-q4km is the DECISION model (decisions_configs): deleting it through
-      # the chat catalog removed another service's weights.
-      templates|esrgan|flux2-klein-4b|clef-q4km|clef*) echo "protected folder: $ID" >&2; exit 4 ;;
+      # Folders another SERVICE mounts: deleting one through the chat catalog takes
+      # that service down (the weights are not in the chat catalog's gift).
+      #   clef-q4km / clef*  legacy decision model still seeded in the catalog
+      #   d1-3b              the decision model that replaced it (d1-decisions.service)
+      #   templates/esrgan   image sidecar assets
+      templates|esrgan|flux2-klein-4b|clef-q4km|clef*|d1-3b|d1-*)         echo "protected folder: $ID" >&2; exit 4 ;;
     esac
     T="${HOME}/models/$ID"
     if [ -L "$T" ] || [ ! -d "$T" ]; then

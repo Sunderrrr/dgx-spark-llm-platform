@@ -28,7 +28,11 @@ for i in $(ebtables -L FORWARD --Ln 2>/dev/null \
 done
 
 [ "$ACTION" = del ] && exit 0
-[ -n "$SRC" ] || { echo "ocr missing from $NET — nothing to set" >&2; exit 1; }
+# The OCR sidecar is started on demand: between two launches there is nothing to
+# contain, so an absent container is NOT a failure — the rule is re-applied by
+# ocr-recreate.sh at every launch. Only an absent NETWORK or a failed ebtables call
+# is an error (the last command's status is what the unit reports).
+[ -n "$SRC" ] || { echo "ocr is not running on $NET — nothing to contain (rule is re-applied on launch)"; exit 0; }
 
 # 5100 is the Rust portal's port (main.rs binds PORTAL_RUST_PORT, 5100 in compose).
 # The Flask port 5100 is only the FRONTEND's host publish, and the frontend is not

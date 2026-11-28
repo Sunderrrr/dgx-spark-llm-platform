@@ -49,21 +49,21 @@ Four groups, each with its own verdict:
 
 1. **Code gates** (13 checks, ~1.5 min):
    - backend suite, frontend tests, `tsc`, eslint with **zero warnings** (a
-     deliberate exception is an `eslint-disable-next-line` with its reason);
-   - i18n coverage (`scripts/check-i18n.py`);
+     deliberate exception is an `eslint-disable-next-line` with its reason).
+   - i18n coverage (`scripts/check-i18n.py`).
    - secrets over the **whole tracked tree** — the range scan of the pre-push
-     gate inspects nothing once the work is pushed;
+     gate inspects nothing once the work is pushed.
    - Python static analysis (`ruff`, rules in `ruff.toml`) and shell
      (`shellcheck`), with pinned tools in their own venv
-     (`scripts/check-tools.sh`);
+     (`scripts/check-tools.sh`).
    - dependencies: fails on a high/critical advisory that **has a fix**,
-     reports the others (`scripts/check-deps.py`);
-   - config files: `docker compose config`, `visudo -c` on every sudoers rule;
+     reports the others (`scripts/check-deps.py`).
+   - config files: `docker compose config`, `visudo -c` on every sudoers rule.
    - **code is English** (`scripts/check-english.py`): comments, docstrings,
      logs and identifiers — the UI msgids, server messages and prompts stay
-     French by design;
+     French by design.
    - **no monolith** (`scripts/check-structure.py`): a source file stays under
-     1200 lines; the few above are frozen at their size and may only shrink.
+     1200 lines. The few above are frozen at their size and may only shrink.
 2. **Service in operation** — `scripts/smoke.sh` against the DEPLOYED service.
 3. **User journeys** in `tests/e2e/`: Playwright journeys that do what a user
    does (chat, reasoning, image, web search, skills, conversations, export,
@@ -147,13 +147,13 @@ Shell traps that cost real time:
 ## Code conventions
 
 - **i18n contract**: UI strings are **French-as-msgid**. English lives in
-  `lib/i18n/dict-*.ts` (the dictionary moved out of `lib/i18n.tsx` in the cleanup; the entry re-exports the same surface). A missing EN key silently falls back to French. When you add a
+  `lib/i18n/dict-*.ts` (the dictionary moved out of `lib/i18n.tsx` in the cleanup, and the entry re-exports the same surface). A missing EN key silently falls back to French. When you add a
   `t("…")` string, add its EN translation in the same commit. Don't add a
   duplicate key (TS error). Formatting follows the language, not just the text
-  (`useLocale()` → `fr-FR` / `en-US`; in a helper outside a component the locale
+  (`useLocale()` → `fr-FR` / `en-US`. In a helper outside a component the locale
   is a parameter). A displayed label is a French msgid — labels written in
   English in the code were untranslatable. `python3 scripts/check-i18n.py` (run
-  by CI) fails on a `t("…")` without translation and on a frozen locale; it
+  by CI) fails on a `t("…")` without translation and on a frozen locale. It
   *reports* keys it never sees used (`t(variable)`), and that list holds false
   positives — **do not use it to delete keys**. Server messages are in French,
   including in English mode (the platform is FR-first); a stable refusal carries
@@ -194,7 +194,7 @@ Shell traps that cost real time:
 - **Chat SSE errors are structured notices** (`dgx_notice` ids, FR msgids in
   `lib/notices.ts`, EN in `lib/i18n/dict-*.ts`): the server writes no sentence.
 - **Conventions for commits and pull requests** are in
-  [`CONTRIBUTING.md`](../CONTRIBUTING.md); participation is covered by the
+  [`CONTRIBUTING.md`](../CONTRIBUTING.md). Participation is covered by the
   [Code of Conduct](../CODE_OF_CONDUCT.md).
 
 ## Screenshots
@@ -259,7 +259,7 @@ Shell traps that cost real time:
 > needed the chatterbox image built *and* a permission fix on the HF token
 > (`docs/troubleshooting.md`), so the empty state could never be mistaken for the
 > feature again. `--verify` refuses that state by name — it is what found the
-> problem, and it is what keeps OCR, video, image and voice honest.
+> problem, and it is what keeps OCR, video, image, voice honest.
 >
 > | Page | Route | File |
 > |---|---|---|
@@ -292,7 +292,7 @@ that does not match its entry cannot be published.
 While the major version is `0`, the **minor** carries breaking changes: anything
 that forces an operator to act (a service or volume in `docker-compose.yml`, a
 key in `.env`, an HTTP contract, the model/sidecar catalog format) bumps minor
-(`0.1.0` → `0.2.0`); everything else bumps patch. The major stays `0` while the
+(`0.1.0` → `0.2.0`). Everything else bumps patch. The major stays `0` while the
 deployment contract is still moving.
 
 ```bash

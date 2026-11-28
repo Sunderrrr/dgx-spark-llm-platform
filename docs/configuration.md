@@ -38,16 +38,16 @@ admin right). Then Admin → Config for the rest.
 ## `.env` keys
 
 `docker-compose.yml` injects these into `portal-rs` / `litellm`. `install.sh`
-(via `setup.sh`) generates the random secrets; fill in the rest. See [`.env.example`](../.env.example).
+(via `setup.sh`) generates the random secrets. Fill in the rest. See [`.env.example`](../.env.example).
 The backend (`portal-rs`) reads each setting where it is used (`std::env::var` in
 `portal-rs/src/`), with two exceptions worth knowing: `WEBUI_SECRET_KEY` is read by
-nothing since the Flask backend was removed (it was Flask's `SECRET_KEY`; sessions
+nothing since the Flask backend was removed (it was Flask's `SECRET_KEY`, and sessions
 are random server-side ids), and `POSTGRES_PASSWORD` is never read by the backend at all —
 it belongs to Postgres and LiteLLM.
 
 | Variable | Purpose |
 |---|---|
-| `DGX_WEB` / `DGX_API` | **required** — the public web origin and API origin of this deployment. `docker compose` refuses to start without them; e-mail links, the passkey origin, the API URL shown to users and the validation pipeline all derive from them |
+| `DGX_WEB` / `DGX_API` | **required** — the public web origin and API origin of this deployment. `docker compose` refuses to start without them. E-mail links, the passkey origin, the API URL shown to users and the validation pipeline all derive from them |
 | `WEBUI_SECRET_KEY` | Unused since the Flask backend was removed (still written by `setup.sh`) |
 | `LITELLM_MASTER_KEY` | LiteLLM master key (gateway admin) |
 | `POSTGRES_PASSWORD` | LiteLLM database password |
@@ -58,14 +58,14 @@ it belongs to Postgres and LiteLLM.
 | `IMAGE_URL` | Internal URL of the text-to-image container (default `http://image:8007`) |
 | `COMFYUI_URL` | Internal URL of the ComfyUI video backend (default `http://host.docker.internal:8188`) |
 | `PUBLIC_API_URL` | Public API URL shown to users (default `https://api.example.org/v1`) |
-| `DECISIONS_API_BASE` | Where **LiteLLM** and the portal reach the decision engine (default `http://172.19.0.1:8002/v1`), i.e. the `d1-decisions` container. Used as the route's `api_base` when the LiteLLM route is (re)registered (`hosted_vllm`, `mode: decisions`), and by the page's direct call for image requests. **This is the setting that matters** for the served model: the container takes its weights, port and behaviour from `systemd/d1-decisions.service`, not from here |
-| `DECISIONS_NAME` | Public name of the decision route in LiteLLM and in the page. **It must be the name LiteLLM actually knows** — the default is the legacy catalog name `clef-q4km`, while the route served here is `d1-3b`; on a mismatch the page's requests are refused with `Invalid model name`. Never `auto-model`: that alias follows the *chat* model |
-| `DECISIONS_MODEL`, `DECISIONS_PORT`, `DECISIONS_ARGS`, `LLAMA_BIN_DECISIONS` | **Legacy runner-process settings.** They configure the old on-demand `llama-server` path still present in `vllm-runner-rs/src/decisions.rs` (and the portal's status fallback); the d1 container ignores them — its weights path, port and request handling are fixed by the unit and `decisions-d1/server.py`. `DECISIONS_MODEL` empty (the default) disables that runner path, not d1 |
+| `DECISIONS_API_BASE` | Where **LiteLLM** and the portal reach the decision engine (default `http://172.19.0.1:8002/v1`), i.e. the `d1-decisions` container. Used as the route's `api_base` when the LiteLLM route is (re)registered (`hosted_vllm`, `mode: decisions`), and by the page's direct call for image requests. **This is the setting that matters** for the served model: the container takes its weights, port, behaviour from `systemd/d1-decisions.service`, not from here |
+| `DECISIONS_NAME` | Public name of the decision route in LiteLLM and in the page. **It must be the name LiteLLM actually knows** — the default is the legacy catalog name `clef-q4km`, while the route served here is `d1-3b`. On a mismatch the page's requests are refused with `Invalid model name`. Never `auto-model`: that alias follows the *chat* model |
+| `DECISIONS_MODEL`, `DECISIONS_PORT`, `DECISIONS_ARGS`, `LLAMA_BIN_DECISIONS` | **Legacy runner-process settings.** They configure the old on-demand `llama-server` path still present in `vllm-runner-rs/src/decisions.rs` (and the portal's status fallback). The d1 container ignores them — its weights path, port and request handling are fixed by the unit and `decisions-d1/server.py`. `DECISIONS_MODEL` empty (the default) disables that runner path, not d1 |
 
 | `SESSION_COOKIE_SECURE` | `1` behind an HTTPS proxy (Traefik), `0` for plain-HTTP LAN |
 | `KEY_MAX_BUDGET` / `KEY_BUDGET_DURATION` | Default per-account budget (default 200 M tokens / week) |
 
-> The frontend (`lib/backend.ts`) reads `BACKEND_URL` to reach the portal; the default
+> The frontend (`lib/backend.ts`) reads `BACKEND_URL` to reach the portal. The default
 > (`http://portal-rs:` plus the port) matches the compose service name
 > and rarely needs changing.
 > Note that `host.docker.internal` is **pinned to a fixed address** there rather than
@@ -73,7 +73,7 @@ it belongs to Postgres and LiteLLM.
 
 ### The rest of `.env.example`
 
-The keys above are the ones most deployments touch; `.env.example` carries the
+The keys above are the ones most deployments touch. `.env.example` carries the
 full annotated list. The remainder, by group:
 
 | Variable | Purpose |
@@ -86,7 +86,7 @@ full annotated list. The remainder, by group:
 | `WEBAUTHN_ORIGIN` / `WEBAUTHN_RP_ID` / `WEBAUTHN_RP_NAME` / `WEBAUTHN_REQUIRE_UV` | passkeys: the origin a key is bound to, and whether a PIN/biometrics is required (`0` accepts touch-only keys) |
 | `HF_TOKEN` | only required for **gated** repos (some GGUFs are): without an authorized token the download fails with « Access denied » |
 | `VLLM_RUNNER_URL` / `VLLM_API_URL` / `VLLM_API_BASE` | runner and engine endpoints, through the pinned `host.docker.internal:172.19.0.1` — **do not** replace it with `host-gateway` |
-| `LITELLM_URL` | `http://litellm:4001` — the port THIS stack runs LiteLLM on and the one Traefik uses; the code fallback (4000) does not answer here |
+| `LITELLM_URL` | `http://litellm:4001` — the port THIS stack runs LiteLLM on and the one Traefik uses. The code fallback (4000) does not answer here |
 | `SEARXNG_URL` / `CRAWL4AI_URL` | web-search sidecars on `web_net` |
 | `AUTO_MODEL_NAME` | the LiteLLM alias that always follows the current model (default `auto-model`) |
 | `TZ_DISPLAY` | timezone displayed by the portal (the server can stay on UTC) |
@@ -156,7 +156,7 @@ Runtime-adjustable settings, no restart needed:
 |---|---|---|
 | Default token limit | **Admin → token limit** | writes `KEY_MAX_BUDGET` / `KEY_BUDGET_DURATION` for new and existing accounts |
 | Per-user / per-group quotas | **Users** | precedence: user override → group → global default |
-| Model catalog | **Admin** | add/edit/remove chat, OCR and voice models; launch and stop the served model |
+| Model catalog | **Admin** | add/edit/remove chat, OCR and voice models. Launch and stop the served model |
 | Media sidecars | **Admin** | start/stop each sidecar independently of the chat model |
 | Maintenance mode | **Admin** | blocks non-admin traffic everywhere without stopping any backend — see [operations](operations.md#maintenance-mode) |
 | Email config & test | **Admin** | `GET /admin/email/config` (never returns the password) and `POST /admin/email/test` |

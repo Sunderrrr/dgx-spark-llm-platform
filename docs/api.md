@@ -74,7 +74,7 @@ curl -s http://127.0.0.1:4001/v1/audio/speech \
 
 **Why it goes through the portal.** The four media services live on their own
 docker networks (`image_net`, `asr_net`, `voice_net`) and behind the loopback
-relay for ComfyUI; `litellm` is alone on the default network and can reach none
+relay for ComfyUI. `litellm` is alone on the default network and can reach none
 of them. `portal-rs` is the only process on all of them, so it carries the
 OpenAI-shaped routes (`/v1/images/generations`, `/v1/audio/transcriptions`,
 `/v1/audio/speech`) and LiteLLM calls it as an `openai/...` model with
@@ -86,7 +86,7 @@ authenticate the caller's key — but they also require
 available for LiteLLM Enterprise users »* (measured). Registered models use the
 normal key RBAC instead, so no enterprise feature is needed.
 
-**OpenAI names, not the sidecars'.** Clients send `file`; the ASR service wants
+**OpenAI names, not the sidecars'.** Clients send `file`. The ASR service wants
 `audio`. The portal rewrites the multipart **field name** in place (the boundary
 and the filename are untouched, `tests` covers it) rather than forcing every
 client to know our shape.
@@ -97,8 +97,8 @@ non-zero cost. `image` and `voice` are **authenticated and logged but currently
 recorded at cost 0**: this LiteLLM build drops `input_cost_per_image` /
 `output_cost_per_second` from `model_info` on `/model/new` (verified in
 `/model/info`). They still consume the key's *rate* limits and are visible in the
-logs; pricing them needs either a LiteLLM version that keeps those fields, or a
-custom cost map. Do not read « spend 0 » as « free access »: the key is
+logs. Pricing them needs either a LiteLLM version that keeps those fields, or a
+custom cost map. Do not read « spend 0 » as « free access »: an API key is
 required, and a revoked key stops the service as it stops chat.
 
 ### Video — asynchronous, like OpenAI's
@@ -128,7 +128,7 @@ Three details worth knowing, all found by testing:
   validation with « Input should be a valid string ».
 - **ComfyUI is only reachable through `comfyui-relay.service`** (socat
   172.19.0.1:8188 → 127.0.0.1:8188). That relay was stopped and DISABLED on
-  2026-10-15, which silently broke video for everyone until 2026-10-29; it is
+  2026-10-15, which silently broke video for everyone until 2026-10-29. It is
   enabled again. If video answers « service média injoignable », check
   `systemctl status comfyui-relay` first.
 
@@ -143,7 +143,7 @@ budgets as chat. It is **not** a chat model: `/v1/chat/completions` does not
 exist for it. The engine is the `d1-decisions` container
 (`systemd/d1-decisions.service`), which serves `/v1/systemone` itself — there is
 no llama.cpp and no GGUF in this path. The admin catalog still carries a legacy
-`clef-q4km` name; it is a catalog label, not the served model.
+`clef-q4km` name. It is a catalog label, not the served model.
 
 ### Images
 
@@ -154,8 +154,8 @@ path is **closed**, not merely unwired:
   /api/decisions/run` now answers **400** as soon as a request carries a non-empty
   `files` or `images` array. Attachments used to be relayed straight to the engine,
   which took them out of the gateway: no API key, no spend row, no budget check —
-  the accounting control every other GPU route obeys. That bypass is gone; the
-  portal only reaches the engine through LiteLLM, with the caller's key;
+  the accounting control every other GPU route obeys. That bypass is gone. The
+  portal only reaches the engine through LiteLLM, with the caller's key.
 - the engine side was never working anyway: the page sends `files` while the d1
   server reads `images`, and it passes raw `data:` URLs where decoded images are
   expected. Measured 2026-11-28: `files` is silently ignored (text-only answer),
@@ -203,23 +203,23 @@ curl https://api.example.org/v1/decisions \
 ```
 
 The answer carries, per question, the decision and its probabilities
-(`noul` → `noul`; `choice` → `choice` + `probabilities` + `confidence`;
+(`noul` → `noul`, `choice` → `choice` + `probabilities` + `confidence`,
 `score` → `score` + `legend` + `probabilities` + `confidence`), plus `usage`.
 Facts worth knowing before writing a client:
 
-- **No streaming.** A decision is one forward pass; LiteLLM documents the
+- **No streaming.** A decision is one forward pass. LiteLLM documents the
   decision routes as non-streamed, and there is no `stream` field to send.
 - **`state` may be text or JSON.** JSON is sent to the model as JSON text.
 - **`choice` takes 2 to 255 options, `score` 2 to 10 levels, 128 questions at
-  most** (the System One API); the portal's own page caps at 32 questions and a
+  most** (the System One API). The portal's own page caps at 32 questions and a
   64 KiB state.
-- **Keys, budgets and spend apply**: the call goes through LiteLLM like chat, so
-  a spent budget answers **429**. The model has no vendor price; the route is
+- **Keys, budgets, spend apply**: the call goes through LiteLLM like chat, so
+  a spent budget answers **429**. The model has no vendor price. The route is
   stamped at 1 like the other self-hosted models.
 - The engine is the **`d1-decisions` service**: it comes up with its systemd
   unit, stays warm (5.9 GiB of bf16 weights) and never replaces the chat model.
   `systemctl status d1-decisions` or `curl http://172.19.0.1:8002/health` tells
-  you whether it answers; a 503 from the API means the container is loading or
+  you whether it answers. A 503 from the API means the container is loading or
   down.
 
 ## Thinking over the API
@@ -263,7 +263,7 @@ engine accepts. Two facts measured on 2026-11-26:
 - LiteLLM forwards `reasoning_effort` **as told when the model_info advertises the exact
   levels of the engine** (`low`, `medium`, `xhigh`, read from
   `/props → chat_template_caps`). Advertising a wider list made the template refuse
-  `high` with a 400;
+  `high` with a 400.
 - the whole standard scale works through the alias: `none` → 0 characters of reasoning,
   `low` → 107, `medium` → 140, `high` → 98 (clamped to the nearest supported level).
 

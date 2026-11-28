@@ -1,11 +1,11 @@
 # Rust migration of the portal
 
-The portal backend (Flask, `dgx-portal/`, removed 2026-10-17; now `portal-rs/`) and the model runner
+The portal backend (Flask, `dgx-portal/`, removed 2026-10-17, now `portal-rs/`) and the model runner
 (`vllm-runner-rs/`) move to Rust **route by route**, with no cut-over day. This
 file is the plan and its rules.
 
 > **Historical.** The Flask backend (`dgx-portal/`) was removed from the working tree on
-> 2026-10-17; `portal-rs` serves every route. The plan and the phase log below are kept as
+> 2026-10-17. `portal-rs` serves every route. The plan and the phase log below are kept as
 > the record of the migration. The comparison tools they mention (`scripts/compare-backends.py`,
 > `scripts/parity-bench/`) compare against that Flask backend: they need the git history at
 > commit `3d7b8aa` and cannot run on the current tree.
@@ -23,7 +23,7 @@ file is the plan and its rules.
 
 Expected resource gain, measured before starting (2026-10-14): about 0.25 GB
 of RAM and 1-2 % of one core — the model engines hold the memory. The aims are
-a single static binary, strict typing and fewer runtime dependencies; each
+a single static binary, strict typing and fewer runtime dependencies. Each
 phase is measured against them (RSS, CPU, p50/p95 latency of its routes).
 
 ## Rules of the cohabitation
@@ -34,13 +34,13 @@ phase is measured against them (RSS, CPU, p50/p95 latency of its routes).
 - **Same data.** Both services use the portal's SQLite database (WAL mode,
   busy timeout) and LiteLLM's Postgres read-only. One side owns the schema
   migrations at a time: Python until phase 8, then Rust (`sqlx migrate`).
-- **Same sessions.** The `session` cookie is an opaque token; the session
+- **Same sessions.** The `session` cookie is an opaque token. The session
   data is the JSON in `web_sessions`, keyed by `sha256(token)` hex, with
   `expires_at` in epoch seconds (`dgx-portal/session_store.py`). Rust reads
-  and writes that row; it never needs Flask's cookie format. The CSRF token is
+  and writes that row. It never needs Flask's cookie format. The CSRF token is
   the session's `csrf` value, sent back in the `X-CSRFToken` header.
 - **Switch by prefix.** `migration/rust-routes.txt` lists the URL prefixes
-  served by Rust; the frontend's proxy routes them there, everything else to
+  served by Rust. The frontend's proxy routes them there, everything else to
   Flask. Going back is removing a line and redeploying.
 - **The tests are the arbiter.** The end-to-end journeys (`tests/e2e/`) and
   `scripts/validate.sh` do not change: a phase is done when the validation is
@@ -50,7 +50,7 @@ phase is measured against them (RSS, CPU, p50/p95 latency of its routes).
 
 ## Moving a prefix to Rust
 
-1. Run the comparison bench on the prefix's routes (Flask as A, Rust as B; historical, needs the Flask tree at `3d7b8aa`):
+1. Run the comparison bench on the prefix's routes (Flask as A, Rust as B, historical, needs the Flask tree at `3d7b8aa`):
    `python3 scripts/compare-backends.py --a <flask> --b <rust> --phase N --user … --password-file …`.
    It replays only GET routes without side effects, and confirms a difference
    on a second call before reporting it.
@@ -73,23 +73,23 @@ it, a look-alike path and the rest of the portal stayed on Flask.
 
 ## Phase 1 — the runner (vllm-runner-rs): in service since 2026-10-16
 
-`vllm-runner-rs/` is the whole of the former Python runner (removed; see git
+`vllm-runner-rs/` is the whole of the former Python runner (removed, see git
 history): the argument rules, the command construction, the launch environment,
 the supervisor (process group, output, readiness, memory guard, stop), the
 watchdog (auto-resume, memory floor, persisted failure counter), and the HTTP
 surface on :8001.
 
 Verified, against runner.py itself:
-- allow-lists copied from runner.py, then frozen (the generator is removed);
-- 1 156 argument cases, 1 584 command cases, 32 environment cases: identical;
-- the process stop takes the whole group down (real processes in the tests);
+- allow-lists copied from runner.py, then frozen (the generator is removed).
+- 1 156 argument cases, 1 584 command cases, 32 environment cases: identical.
+- the process stop takes the whole group down (real processes in the tests).
 - the HTTP surface: 61 steps identical (parity tool, removed with runner.py), the watchdog's
-  auto-resume and the memory-floor refusal identical (parity tool, removed with runner.py);
+  auto-resume and the memory-floor refusal identical (parity tool, removed with runner.py).
 - the harness runs in an isolated network namespace (removed with the parity tools):
   the production runner listens on :8001 and must never be reached from a test.
 
 Cutover (2026-10-16, in a maintenance window): the release binary is
-installed as `/usr/local/bin/vllm-runner`; the unit's `ExecStart` points at it
+installed as `/usr/local/bin/vllm-runner`. The unit's `ExecStart` points at it
 and its `WorkingDirectory` is `/var/lib/vllm-runner` (the service user cannot
 traverse `/root`). The watchdog resumed the served model on its own. Rollback:
 restore the Python unit, `systemctl daemon-reload`, restart — a restart stops
@@ -100,15 +100,15 @@ the served model (`KillMode=control-group`).
 Every route is served by portal-rs. What still tied the stack to the Flask
 container, and what replaced it:
 - the host monitor read its data counters and the SMTP settings by running
-  Python inside `dgx-portal`; it now asks `portal-rs` (`portal monitor-counters`,
+  Python inside `dgx-portal`. It now asks `portal-rs` (`portal monitor-counters`,
   `portal monitor-smtp`, `src/monitor_read.rs`, read-only) and probes the
-  `portal-rs` container instead;
+  `portal-rs` container instead.
 - the frontend's default backend (`BACKEND_URL`, set in `docker-compose.yml`)
-  is the Rust portal, so a path no migrated prefix covers is answered there;
+  is the Rust portal, so a path no migrated prefix covers is answered there.
   the build-time fallback rewrite of `next.config.ts` is gone (an unknown path
-  gets Next's 404);
+  gets Next's 404).
 - `dgx-portal` was kept behind the compose profile `flask` as a rollback until
-  2026-10-17; that service and profile are gone. A rollback to Flask now means
+  2026-10-17. That service and profile are gone. A rollback to Flask now means
   checking out commit `3d7b8aa`.
 The Flask source was removed from the working tree on 2026-10-17 (history at
 `3d7b8aa`). The LiteLLM in-flight callback it used to hold now lives in
@@ -118,9 +118,9 @@ The Flask source was removed from the working tree on 2026-10-17 (history at
 
 | # | Phase | Scope | Notes |
 |---|---|---|---|
-| 0 | Preparation | server-side sessions, route inventory, comparison bench, proxy switch | done in Python; useful on its own |
-| 1 | Runner | `vllm-runner` (process lifecycle, scoped sudo) | isolated; restarting it stops the served model — maintenance window |
-| 2 | Stateless reads | health, home, leaderboard, statistics | first portal routes; shadow-compared |
+| 0 | Preparation | server-side sessions, route inventory, comparison bench, proxy switch | done in Python, useful on its own |
+| 1 | Runner | `vllm-runner` (process lifecycle, scoped sudo) | isolated, restarting it stops the served model — maintenance window |
+| 2 | Stateless reads | health, home, leaderboard, statistics | first portal routes, shadow-compared |
 | 3 | Media | image, video, OCR, voice, object storage | file and S3 paths (`media_store`) |
 | 4 | User data | settings, conversations, skills, memory, keys, MCP | |
 | 5 | Admin | models, accounts, configuration, storage | |
@@ -137,7 +137,7 @@ Identical on every case replayed: `/api/config`, `/.well-known/security.txt`,
 `/api/session`, `/api/whoami`, `/api/ranking` over the 5 periods × 5
 metrics, by group, with a model filter and with invalid parameters, and the
 rest of the leaderboard — `activity` (3 periods × 2 scopes), `records`,
-`user/<name>` (own detail; someone else's is 404), `export.csv` (404 for a
+`user/<name>` (own detail, someone else's is 404), `export.csv` (404 for a
 non-admin) and `POST privacy` (the CSRF check runs first: 400 without a
 valid token, even with no session, as in Flask), `/api/modelhealth`, and
 `/api/home` and `/api/running-models` with the media sidecars (portal-rs
@@ -149,7 +149,7 @@ outage answered 503, unknown task 400), `/docs` (byte-identical to Flask's
 page) and the root page (302 to the login
 page when signed out, 204 when signed in). The
 `login_required` guard is ported whole (max age, `user_sessions` registry,
-account state re-read, owner rule); a database error answers 503, never a
+account state re-read, owner rule). A database error answers 503, never a
 logout. The security headers (`nosniff`, CSP, HSTS…) match Flask's.
 
 Not routable yet, and why:
@@ -161,23 +161,23 @@ Not routable yet, and why:
   the Rust side.
 - **`/api/latency` is not ported on purpose**: it is an in-memory ring of this
   process's own request durations. A Rust port would report the Rust
-  process's latencies under the same name, which is a different measurement;
+  process's latencies under the same name, which is a different measurement.
   the Rust route answers 501 until the routes move and the measurement moves
   with them.
 - **Flask-only writes**: `vllm_health` archives the engine's token counter
   (`model_counters`) and `_active_users` sweeps stale `inflight_requests`.
-  The Rust side computes the same figures READ-ONLY — two probers writing one
-  row would take a later reading for a counter reset and archive it twice —
+  The Rust side computes the same figures READ-ONLY (two probers writing one
+  row would take a later reading for a counter reset and archive it twice),
   so these writes must move to Rust together with the routes, not before.
 - **Dropped sessions**: Flask writes a `session.invalidee` audit line and
-  clears the cookie; the Rust portal only refuses the request.
+  clears the cookie. The Rust portal only refuses the request.
 
 **Routed to Rust since 2026-10-14** (`migration/rust-routes.txt`): `/api/config`,
 `/healthz`, `/api/session`, `/api/whoami`, `/api/health`, `/api/modelhealth`,
 `/api/running-models`, `/api/search`, `/.well-known/security.txt`,
 `/api/branding/logo`, `/usage/hourly`, `/metrics`, `/docs`, and the phase 3
 read-only media routes (see below). Each prefix covers
-only itself. Checked from the frontend's own traffic: these reach `portal-rs`;
+only itself. Checked from the frontend's own traffic: these reach `portal-rs`.
 `/api/home`, `/api/ranking`, `/api/latency` and look-alike paths stay on Flask.
 Held back: `/api/home`, `/system/stats` and `/api/ranking`, whose ADMIN
 branches are ported but not compared (the bench account is not an admin).
@@ -189,7 +189,7 @@ recreate it when only the file changed).
 
 Routed: the histories of image, OCR, video and voice, the image job status
 (404 for another account's job), `/api/voice/info` and
-`/api/transcribe/available`. Identical to Flask on the bench; the image
+`/api/transcribe/available`. Identical to Flask on the bench. The image
 history was compared on 56 real jobs, OCR, video and voice on empty
 histories only (the demo account owns none), so their content is unverified.
 
@@ -206,7 +206,7 @@ Sessions are server-side since phase 0, so Rust can write them:
 `dgx-portal/session_store.py` (token `token_urlsafe(32)`, row keyed by its
 SHA-256, data as sorted compact JSON, 12 h with an account and 2 h without,
 the 2 % sweep) and Flask's cookie attributes (`Secure; HttpOnly; Path=/;
-SameSite=Lax`, no Expires; the deletion with `Max-Age=0`).
+SameSite=Lax`, no Expires, the deletion with `Max-Age=0`).
 - `/api/csrf` creates the token lazily, as Flask does: an existing token
   comes back with no write and no cookie.
 - `/logout` checks CSRF, revokes the `sid` in `user_sessions`, deletes the
@@ -220,11 +220,11 @@ The session guard now drops what Flask drops: an expired or revoked
 session loses its row at the first refused request, and an account found
 blocked or disabled leaves the `session.invalidee` audit line (checked: a
 demo session revoked from another one gets 401 and its row is gone). The
-Set-Cookie that deletes the cookie itself is not sent; the token then names
+Set-Cookie that deletes the cookie itself is not sent. The token then names
 nothing.
 
 Not ported: the conversion of a legacy signed cookie (a `.` in the value).
-Those predate phase 0 and are past their 12 h; `/api/csrf` opens a new
+Those predate phase 0 and are past their 12 h. `/api/csrf` opens a new
 session for one.
 
 The login itself (`/login`, local + LDAP + SSO, WebAuthn, the lockout
@@ -234,8 +234,8 @@ counter, the setup token) stays on Flask.
 
 The job runs in a tokio task: one sidecar call per variation, the
 cancellation checked before each, each image saved through
-`media_store::save` (the bucket when Admin → Stockage says so — S3 PUT
-signed like the reads — else the local volume, and the local volume when the
+`media_store::save` (the bucket when Admin → Stockage says so, S3 PUT
+signed like the reads, else the local volume, and the local volume when the
 bucket refuses). Guards in the same order as Flask: CSRF, session,
 maintenance (admins pass), the `rl-media` bucket (the same SQL row as
 Flask's, so both count against one window), then the in-flight bound of 3
@@ -251,7 +251,7 @@ Two Flask defects found on the way:
 - `_image_cancelled` read `row['status']` on a bare tuple: the exception was
   swallowed, so « Arrêter » never stopped a batch and the final status
   overwrote « cancelled ». Fixed on both sides (test in
-  `test_image_tools.CancelFlagTest`); Flask still runs the playground image
+  `test_image_tools.CancelFlagTest`). Flask still runs the playground image
   tool's jobs.
 - a refused job slot (429) left its row « running » forever: Rust takes the
   slot before inserting the row.
@@ -261,7 +261,7 @@ Two Flask defects found on the way:
 A routing entry may now name ONE method (`POST /keys` in
 `migration/rust-routes.txt`): the proxy (`lib/backend.ts`) then moves that
 method only, so a path that also answers GET elsewhere can move its writes
-alone; the inventory shows « Rust (POST) ».
+alone. The inventory shows « Rust (POST) ».
 
 Create (the account envelope ensured first, then `/key/generate` with the
 account's `user_id`), revoke and rename (LiteLLM first, the key in the body,
@@ -282,20 +282,20 @@ Compared on the demo account, which has no passkey: identical.
 modules it drives, one file per concern:
 - `history.rs` — messages parsed and bounded, images kept for a model that
   sees, outdated versions of long files replaced by a line, whole oldest turns
-  dropped to fit the window, `<think>` stripped from replayed turns, API shape;
-- `reasoning.rs` — the « should it think » heuristic;
+  dropped to fit the window, `<think>` stripped from replayed turns, API shape.
+- `reasoning.rs` — the « should it think » heuristic.
 - `triggers.rs` — when a tool is offered (search, image, video, document,
-  edit, past conversations), the Python regexes verbatim with their guards;
+  edit, past conversations), the Python regexes verbatim with their guards.
 - `gauges.rs` — the in-flight row, live decode gauge, TTFT average,
-  chars/token calibration, prefill rate, the SpendLogs quota guard;
-- `memory_turn.rs` — memory injected as data, facts extracted after a turn;
+  chars/token calibration, prefill rate, the SpendLogs quota guard.
+- `memory_turn.rs` — memory injected as data, facts extracted after a turn.
 - `tools/` — web search (SearXNG + crawl4ai behind the public-address guard,
   page reads restricted to the round's own results), image / video / document
   tools (on-demand start under the memory guard, heartbeats while waiting),
   file edits (with a port of `difflib.SequenceMatcher` for the disguised
-  rewrite refusal), skills and past-conversation search;
+  rewrite refusal), skills and past-conversation search.
 - `phase.rs` — the non-streamed tool rounds, every step told to the client,
-  findings re-injected as text;
+  findings re-injected as text.
 - `playground.rs` — the route: `: ouverture` before any work, notices, the
   reader task (retry without `reasoning_effort` on a template 500), the relay
   with `: attente` and `dgx_queue` while waiting, the end-of-turn checks
@@ -313,7 +313,7 @@ image generated by the tool, a joined document read by OCR started on demand
 request (engine slot freed) and the in-flight row.
 
 portal-rs joined `web_net` and mounts the crawl4ai token (read-only), as
-dgx-portal; the runner and engine stay reachable from it (checked).
+dgx-portal. The runner and engine stay reachable from it (checked).
 
 ### The admin relay
 
@@ -321,10 +321,10 @@ Some routes have an admin branch that cannot be compared with Flask: no
 admin session may be used for tests. The admin relay (removed with the Flask
 backend) served them for every other account and handed an ADMIN
 session's request to Flask unchanged (method, path, query, cookie, CSRF, body),
-streaming Flask's answer back (SSE included; checked against a fake upstream).
+streaming Flask's answer back (SSE included, checked against a fake upstream).
 Covered: `/api/home`, `/system/stats`, `/api/ranking*`, `/support/chat`,
 `/support/confirm`. The first three were already ported and compared for the
-demo account (identical); they are now routed, admins staying on Flask.
+demo account (identical). They are now routed, admins staying on Flask.
 
 ### The parity bench: admin routes and writes
 
@@ -332,10 +332,10 @@ No real admin session may be used for tests, and a write compared live would
 change real data. `scripts/parity-bench/` runs the stack's two images side by
 side on an internal Docker network (`up.sh`): a synthetic database made by
 Flask's own schema plus `seed.py` (an owner, an admin through a group, plain,
-disabled and directory accounts, sessions with known tokens), and a fake
-upstream (`fake.py`) standing in for the runner, the engines, LiteLLM and the
+disabled, directory accounts, sessions with known tokens), and a fake
+upstream (`fake.py`) standing in for the runner, the engines, LiteLLM, the
 sidecars. Each backend has its own copy of the database. `bench.py` sends the
-same request to both and compares status, redirect and JSON; for a write it
+same request to both and compares status, redirect and JSON. For a write it
 first restores both databases from the seed, then diffs every table
 (timestamps masked). Nothing leaves the bench network.
 
@@ -343,7 +343,7 @@ Routed after the bench found them identical:
 
 - admin reads: `/api/admin`, `/admin/audit`, `/admin/support/feedback`,
   `/admin/email/config`, `/admin/consumption`, `/admin/runner/logs`,
-  `/admin/sidecar-logs/<kind>`;
+  `/admin/sidecar-logs/<kind>`.
 - admin writes on the database only: `/admin/announce` (the card, then the
   Discord DMs of `portal-rs/src/discord.rs`), `/admin/settings` (the global
   key cap), the OCR and voice catalogs (add, delete),
@@ -357,15 +357,15 @@ Routed after the bench found them identical:
 
 - groups: `/admin/groups/create` and `/delete/<name>` (case-insensitive
   merge, the last-local-admin refusals, the local members' quota sync and the
-  directory members' right and group quota recomputed);
+  directory members' right and group quota recomputed).
 - local accounts: `/admin/users/create`, `/update/<id>`, `/delete/<id>` and
   `/admin/users/<u>/purge` (keys, sessions, LiteLLM envelope, then every
   attached table). An update that sets a password is handed to Flask, which
-  e-mails the account about it; Rust hashes new passwords as werkzeug does
+  e-mails the account about it. Rust hashes new passwords as werkzeug does
   (scrypt, N=32768, r=8, p=1).
 
 - e-mail: `portal-rs/src/mailer.rs` sends notify.py's template (HTML and the
-  plain-text part) through the Admin → Config SMTP account with STARTTLS;
+  plain-text part) through the Admin → Config SMTP account with STARTTLS.
   `/admin/maintenance/toggle` (the operator's e-mail, the warning when it
   fails) and `/admin/email/test` use it. Unlike Python's `smtplib`, it
   verifies the server certificate (system roots, or `SSL_CERT_FILE`). The
@@ -386,12 +386,12 @@ Routed after the bench found them identical:
 - the chat models' catalog: `/admin/model/add`, `/edit/<id>` and
   `/delete/<id>` (`portal-rs/src/litellm_models.rs` creates or refreshes the
   LiteLLM route with the context split of the engine args, and puts the
-  previous route back when LiteLLM refuses the new one; the delete refuses
+  previous route back when LiteLLM refuses the new one. The delete refuses
   the served model and keeps weights another entry shares).
 
 - the launches (`portal-rs/src/launches.rs`): `/admin/model/launch` and
-  `/stop` (a refusal carries the runner's reason; a timeout is a doubt —
-  202, no alert, never retried; the LiteLLM route and `auto-model` follow an
+  `/stop` (a refusal carries the runner's reason. A timeout is a doubt —
+  202, no alert, never retried. The LiteLLM route and `auto-model` follow an
   accepted launch, and a background follow-up announces the model once it
   serves or alerts when it never does), `/admin/ocr/catalog/launch`,
   `/admin/voice/catalog/launch` and `/admin/image/launch` (memory guard,
@@ -399,7 +399,7 @@ Routed after the bench found them identical:
   message carries reqwest's error text, not Python's.
 
 - `/admin/branding` (the instance's name and logo) and `/admin/runner/stream`
-  (the runner's SSE log stream, relayed without its routine access lines);
+  (the runner's SSE log stream, relayed without its routine access lines).
 - `POST /admin/storage$` (where new media go, the backups' destination and
   retention). Reading the storage page (an S3 listing, the host's backup
   state file, mounted in Flask only) and the media migration (a Flask
@@ -412,14 +412,14 @@ Routed after the bench found them identical:
 
 - `/api/account/delete` (one's own account: a local account goes entirely on
   its password, checked under the account's failure counter shared with
-  `/login`; a directory account's data is purged). An LDAP account's
+  `/login`. A directory account's data is purged). An LDAP account's
   password can only be checked by Flask: that request is handed over.
 
 - the directory (`portal-rs/src/ldap.rs`, the `ldap3` crate): an LDAP
   account's password check (sign-in, account deletion), its e-mail address
   (the password-change notice, a model request's « available » e-mail), and
   the background snapshot of every account's state and groups (read at start,
-  then every two minutes when asked; the LDAP groups synced with it). Routed
+  then every two minutes when asked, the LDAP groups synced with it). Routed
   with it: `POST /login` for LDAP accounts (only a blocked account and the
   passkey second factor are still relayed), `/api/admin/users`,
   `/admin/users/<u>/detail`, `/admin/platform` (portal-rs now mounts the
@@ -438,16 +438,16 @@ Routed after the bench found them identical:
 - the SSO sign-in, `/login/sso` and `/api/oauth2-redirect`
   (`portal-rs/src/sso.rs`: the authorization-code flow, the id_token checked
   against the provider's JWKS (signature, issuer, audience, expiry, nonce)
-  then the identity resolved by the directory); `/api/setup` (the owner of a
-  fresh instance); `/admin/storage/migrate` (its lock is the same flock as
+  then the identity resolved by the directory). `/api/setup` (the owner of a
+  fresh instance). `/admin/storage/migrate` (its lock is the same flock as
   Flask's, on the data volume). The bench's fake plays an OIDC provider
-  (authlib signs its RS256 id_tokens) and a minimal S3;
+  (authlib signs its RS256 id_tokens) and a minimal S3.
   `scripts/parity-bench/sso_check.py` and `migrate_check.py` run the flows
   bench.py cannot (random state and nonce, a background move).
 
 Passkeys (`portal-rs/src/webauthn.rs`, `handlers/passkeys.rs`): the five
 `/api/security/*` writes and the second factor of `POST /login` (a password
-that passes answers `webauthn_required` and the challenge; the session opens
+that passes answers `webauthn_required` and the challenge. The session opens
 on `verify-login`). Verified with a software authenticator
 (`scripts/parity-bench/wa_driver.py`, run inside the Flask image for cbor2
 and cryptography): 20 steps identical on both backends, the database
@@ -455,7 +455,7 @@ identical after each run, and a key created by Flask verified by Rust (the
 production case) with the replay and a forged signature refused.
 
 Scope, on purpose: the algorithms are the ones py_webauthn accepts by default
-(ES256, RS256, EdDSA); the attestations are `none`, `packed` (self, or with
+(ES256, RS256, EdDSA). The attestations are `none`, `packed` (self, or with
 an `x5c` certificate, not chain-checked — Flask does not check it either
 without configured roots) and `fido-u2f`. tpm, apple and android-key are
 refused with a message: a key of those formats must be re-enrolled on a
@@ -470,10 +470,10 @@ repository): the switch is a Traefik configuration change, not made here.
 `/api/latency` is ported (`portal-rs/src/latency.rs`): the same window and
 percentiles, measured on the backend that serves the traffic (portal-rs, as
 the Flask probe measured Flask). Status and shape match the Flask answer on the
-bench; the values are timings, so they are not compared.
+bench. The values are timings, so they are not compared.
 
 Left on Flask (1 route): `/`. It is the Next page, which the frontend serves
-itself; Flask's answer (204 when signed in, 302 otherwise) is only a redirect
+itself. Flask's answer (204 when signed in, 302 otherwise) is only a redirect
 target of Flask's own pages. portal-rs has its handler too, but routing `GET /`
 to it would hand the home page to the backend, so the route stays Flask's
 until the frontend stops asking for it. `/internal/authcheck` is served by
@@ -488,15 +488,15 @@ Found by the bench and fixed:
 - A session whose role changed (a group granted or withdrew the admin right)
   was read with the new role by Rust, but the session was not rewritten and
   the `session.role_rafraichi` audit line not written, as Flask does.
-- The router's own 405 had an empty body; it now carries werkzeug's page.
+- The router's own 405 had an empty body. It now carries werkzeug's page.
 - The Rust connection enforces foreign keys (sqlx's default), Flask's does
   not: forgetting a memory fact removed the orphan node's aliases in Rust
   (cascade) and left them in Flask, where they kept their
   `(username, alias_norm)` key from any later node. Flask now deletes them.
 - `/admin/branding` checked the logo's format before its `-` (remove)
-  value, so the removal always answered 400; both now let it through.
+  value, so the removal always answered 400. Both now let it through.
 - Flask accepted `nan` as a budget amount (`nan <= 0` and `nan > 1e12` are
-  both false) and sent it to LiteLLM as the account's cap; both backends now
+  both false) and sent it to LiteLLM as the account's cap. Both backends now
   refuse it (`not v > 0`).
 - The sidecar probes (0.3 s) timed out on a cold start: they built an HTTP
   client per call. They now share one, built before serving.
@@ -518,7 +518,7 @@ password (Flask tries the directory and counts the failure once), a blocked
 account (its refusal and audit line), an account with a passkey (the second
 factor). An unknown account still pays a scrypt round in Rust, so the
 response time tells nothing either way. Compared with Flask on the demo
-account, directly and through the proxy: success, CSRF kept, old token
+account, both directly and through the proxy: success, CSRF kept, old token
 dead, `next` honoured and an open redirect refused, wrong password and
 unknown account (same 401 and counter), malformed name, a success resetting
 the counters. `GET /login` stays the Next page.
@@ -529,11 +529,11 @@ the counters. `GET /login` stays the Next page.
 system prompt and FAQ with the instance name, the account context (budget,
 masked keys, today's use, catalogue, runner, services, requests, last
 actions), memory as data, the self-service tools plus the user's MCP tools,
-past-conversation search and skills. Each turn streams; a `<think>` written
-into the content is held back until it closes; tool calls are gathered from
+past-conversation search and skills. Each turn streams. A `<think>` written
+into the content is held back until it closes. Tool calls are gathered from
 the deltas, four rounds at most, then a last turn without tools. Sensitive
 actions are only proposed (`dgx_confirm`, single-use token, executed by
-`/support/confirm`); after an MCP or skill result, they and key creation are
+`/support/confirm`). After an MCP or skill result, they and key creation are
 refused for the turn. The budget and model requests go through Flask's own
 forms (`/keys`, `/request`) with the user's cookie, so the admin
 notifications (Discord, e-mail) stay where they live. A completed turn is
@@ -556,7 +556,7 @@ address public, the first one pinned for the connection, no redirect. The
 `rl-mcp` bucket bounds the outbound connections. Compared with Flask on the
 demo account: every refusal identical (missing fields, name, http, internal
 host, private address, unknown host, a server answering 405), and a real
-key-less server (DeepWiki) registered through both, 3 tools each; update,
+key-less server (DeepWiki) registered through both, 3 tools each. Update,
 key set then cleared, toggle and delete behave as Flask's. Flask keeps a
 120 s per-process tools cache that a Rust update does not clear — the same
 staleness Flask's other workers already have.
@@ -565,7 +565,7 @@ staleness Flask's other workers already have.
 
 The image is stored first, then the OCR container's SSE answer is relayed
 line by line from a tokio task (a `: ouverture` comment goes out before any
-work, as in Flask, for the proxy's 15 s connect delay); the job is written
+work, as in Flask, for the proxy's 15 s connect delay). The job is written
 at the end — with the partial text if the client left, the image dropped if
 nothing came. chandra's layout prompt is compiled in verbatim. Tested on the
 demo account with chandra-ocr-2 started for the test: the same invoice image
@@ -592,7 +592,7 @@ mode's start returns the same body as Flask.
 
 The ComfyUI client is ported: the two MiniMax H3 graphs (compiled in from
 `dgx-portal/workflows/`, text-only or with a reference image uploaded
-first), the history/queue reading, the cancel (queued: deleted by id;
+first), the history/queue reading, the cancel (queued: deleted by id,
 running: interrupt), and the result chain of `/video/file` — the stored
 copy, else ComfyUI's output directory (now mounted read-only into portal-rs
 too, traversal refused), else pulled from ComfyUI and cached. Local files
@@ -601,7 +601,7 @@ the earlier media routes lacked for the volume.
 
 Tested end to end on the demo account: a real 2 s text-to-video generated
 through Rust (151 s), cached to the bucket, served identically to Flask with
-and without `Range`; a second job cancelled while running (ComfyUI's queue
+and without `Range`. A second job cancelled while running (ComfyUI's queue
 emptied). Refusals compared with Flask: identical.
 
 Found on the way:
@@ -610,7 +610,7 @@ Found on the way:
   answered « Ce job n'est plus actif. ». Fixed on both sides, tested.
 - `comfyui-relay.service` (172.19.0.1:8188 → ComfyUI) was disabled and
   stopped on the host: the portal could not reach ComfyUI at all. Started
-  for the test; enabling it at boot is the operator's call.
+  for the test. Enabling it at boot is the operator's call.
 
 ### Phase 3 — voice cloning, routed (`/api/voice/generate`)
 
@@ -620,11 +620,11 @@ that name, the refusal read from the upload's body whatever its status),
 the language fallback, the WAV duration (`wave`'s rules: PCM only) and the
 history trim that removes the evicted clips' files. Live, the loaded engine
 is Kyutai, which cannot clone: only the refusals were compared with Flask
-(identical); the two protocols are covered by a test against fake sidecars.
+(identical). The two protocols are covered by a test against fake sidecars.
 
 ### Phase 3 — stored files, routed (`/image/file`, `/ocr/image`, `/voice/audio`)
 
-`portal-rs/src/s3.rs` is a minimal S3 reader (SigV4, path-style GET only):
+`portal-rs/src/s3.rs` is a minimal reader for S3 (SigV4, path-style GET only):
 the files are read from the local volume first, then from the bucket with
 the browser's `Range` passed through (206 + `Content-Range`, streamed).
 Compared with Flask on the demo account: 4 jobs × 3 indexes × 4 Range forms
@@ -634,7 +634,7 @@ refusals were compared.
 
 Two things botocore does silently, and a bare client must do itself:
 - **the region redirect**: with the region setting empty, the signature
-  scope says `us-east-1`; Garage refuses it with `AuthorizationHeaderMalformed`
+  scope says `us-east-1`. Garage refuses it with `AuthorizationHeaderMalformed`
   and names the region it expects. The client re-signs once with that
   region and remembers it per endpoint.
 - **a User-Agent**: the proxy in front of the bucket rejects anonymous
@@ -663,14 +663,14 @@ reproduced. Compared with Flask on the deterministic cases (identical) and
 against the served model (both answer, e.g. « Tarte aux pommes »).
 
 `/api/voice/chat/status` (can the voice mode speak: Kyutai engine loaded,
-its voices, the ASR state) is routed with them; the voice chat's start and
+its voices, the ASR state) is routed with them. The voice chat's start and
 speak calls drive sidecars and stay on Flask. `/api/security` cannot move
 alone: routing is by prefix, and its sub-paths are the WebAuthn writes.
 
 The HTML preview (`/playground/preview`, create + show) is routed too: the
 page goes out with its own `sandbox` policy (opaque origin, `default-src
 'none'`, `form-action 'none'`), the error spy grafted after `<head>`, and
-`nosniff` / `no-store`; per-account and global caps purged in the same
+`nosniff` / `no-store`. Per-account and global caps purged in the same
 transaction as the insert. Byte-identical to Flask on the bench, headers
 included.
 
@@ -680,7 +680,7 @@ invalide. »), on every Rust write route.
 ### Phase 4 — the small writes, routed
 
 `/api/onboarding/done`, `/discord/unlink` (302 to `/?discord=unlinked`) and
-`/skills` (a skill written in the interface: create, update, delete; refusals
+`/skills` (a skill written in the interface: create, update, delete. Refusals
 answer 200 with `ok: false` and the delete 204, as Flask does). Compared on
 the demo account, its state restored afterwards.
 
@@ -704,8 +704,8 @@ itself (`portal-rs/tests/fixtures/skills_ref.json`,
 `mcp_client._is_blocked_ip` on 6 947 addresses (Python 3.12's
 `ipaddress` ranges and exceptions, IPv4-mapped IPv6 included), the zip member
 path rule, the SKILL.md front matter, the Git URL forms, and the archive
-reading on trapped archives (path traversal, absolute and drive paths, `.git`,
-symlink, binary, oversized and non-UTF-8 members, wrapper folder, nested
+reading on trapped archives (path traversal, absolute, drive paths, `.git`,
+symlink, binary, oversized and non-UTF-8 entries, wrapper folder, nested
 skill, sub-folder, 52 skills, not-a-zip). A download resolves the host once,
 refuses it if ANY address is internal, and pins the first one (no DNS
 rebinding), with no redirect and a 25 MB cap. Compared on the demo account
@@ -723,14 +723,14 @@ JSON and Markdown export and import (`portal-rs/src/memory.rs`). Three
 pieces are checked against outputs of the Python functions themselves:
 `_mem_norm` (1 527 cases, `tests/fixtures/mem_norm.json`), `_md_parse` and
 `_split_sentences` (1 203 generated documents and 600 sentences,
-`tests/fixtures/memory_md.json`; the sentence split is written by hand, Rust's
-regex has no look-around; `str.splitlines()` is reproduced with its 11 line
+`tests/fixtures/memory_md.json`. The sentence split is written by hand, Rust's
+regex has no look-around. `str.splitlines()` is reproduced with its 11 line
 boundaries). The routes were compared on the demo account, whose memory was
 snapshotted raw and restored exactly afterwards: reads, both exports, every
 write and its error paths, the expiry of a fact on an explicit relation, both
 imports, the switches and the purge. One deliberate difference: Flask sends
 `text/markdown; charset=utf-8; charset=utf-8` for the Markdown export (a
-duplicated parameter); the Rust side sends it once. The chat keeps writing
+duplicated parameter). The Rust side sends it once. The chat keeps writing
 memory on the Flask side, on the same tables with the same normalization.
 
 ### Phase 4 — state (user data, read-only part)
@@ -739,8 +739,8 @@ Ported and compared (bench, demo account): `/api/pending-count` and the
 conversation reads `/api/conversations` and `/api/conversations/<id>` (routed:
 their prefix holds only GET routes, the writes live under `/conversations`).
 Also routed: `/api/keys` (the viewer's keys in clear, with LiteLLM's figures
-read from its database; the budget reset date of a key goes out as an HTTP
-date, as Flask's JSON encoding does; its only route is GET, the writes are
+read from its database, the budget reset date of a key going out as an HTTP
+date, as Flask's JSON encoding does, its only route being GET with the writes
 under `/keys`), and `/api/discord/status` (the configured branch is not exercised: no
 Discord is set up on the bench). Also routed: the conversation writes `POST /conversations` (save, delete) and
 `POST /conversations/share`. The save stores the SAME text as Flask: the
@@ -749,39 +749,39 @@ flags, file edits, image data URLs, the last 60) and serialized like Python's
 `json.dumps(..., ensure_ascii=False)` (`, ` and `: ` separators, insertion
 order — serde_json runs with `preserve_order`). Compared on the demo account:
 the stored text was byte-identical for a payload with Unicode, control
-characters, hidden messages, duplicate file names and a rejected image; every
-error identical; share tokens are 32-character `token_urlsafe(24)`; the test
+characters, hidden messages, duplicate file names and a rejected image. Every
+error identical. Share tokens are 32-character `token_urlsafe(24)`. The test
 data was removed afterwards. Also routed: the two preference writes `/settings/appearance` and
-`/settings/avatar` (CSRF first; allow-lists first, so a refusal writes nothing;
-compared on the demo account, values restored afterwards). Not routed: the
+`/settings/avatar` (CSRF first, allow-lists first so a refusal writes nothing,
+compared on the demo account with the values restored afterwards). Not routed: the
 account's password and deletion (phase 6, with its security review).
 Also routed: `/c/<token>`, a shared conversation (the page is byte-identical to
-Flask's for the demo account's share; unknown token 404; every view counts,
-as in Flask; signed-out visitors are sent to the login page). The share
+Flask's for the demo account's share. Unknown token 404. Every view counts,
+as in Flask. Signed-out visitors are sent to the login page). The share
 creation (`/conversations/share`) stays on Flask. Also routed:
-`/api/account/sessions` and its revoke POST (CSRF first; the
+`/api/account/sessions` and its revoke POST (CSRF first, the
 viewer's own sessions, the 12-character identifiers, the origin filled in only
-where missing; the audit line written in Flask's format, the 5 000-row
-trimming included; the error paths identical). Checked on two throwaway
+where missing, the audit line written in Flask's format with the 5 000-row
+trimming included, the error paths identical). Checked on two throwaway
 sessions of the demo account: each backend revoked one, both gone from the
 listing, both audit rows present. `/api/settings` (the settings page's data: MCP servers, skills,
-preferences, the account block, the 182-day activity and the real quotas;
-identical to Flask on the demo account, which has 13 MCP servers and activity
-to compare; the page's writes live under other prefixes), `/api/notifications`
+preferences, the account block, the 182-day activity and the real quotas.
+Identical to Flask on the demo account, which has 13 MCP servers and activity
+to compare. The page's writes live under other prefixes), `/api/notifications`
 and `/api/announcements`, with their
 mark-as-seen POSTs (CSRF checked first, as Flask does). Also ported:
 `/api/skills`. Not routed:
 `/api/notifications`, `/api/announcements` and `/api/skills` have write routes
 under the same prefix (`/seen` POST, skill import, sync, enable), which the
-Rust portal does not serve yet; a prefix would capture them. Verify before
+Rust portal does not serve yet. A prefix would capture them. Verify before
 routing any prefix: no route under it may need another method.
 
 Porting notes that cost a wrong first attempt: LiteLLM listens on 4001 inside
 the Docker network and `/health` needs a key since 1.102 (probe
-`/health/liveliness`); instance settings are stored as `cfg_<name>` with empty
-meaning unset; `password_managed_by` comes from the cumulative
-`user_sources.sources`; ties in the ranking follow Postgres' aggregation
-order, so the Rust side runs ranking.py's SQL verbatim as a subquery; and
+`/health/liveliness`). Instance settings are stored as `cfg_<name>` with empty
+meaning unset. `password_managed_by` comes from the cumulative
+`user_sources.sources`. Ties in the ranking follow Postgres' aggregation
+order, so the Rust side runs ranking.py's SQL verbatim as a subquery.
 Python's `round()` is ties-to-even on the exact binary value, which Rust's
 `{:.n}` formatting reproduces and a multiply-and-round does not. The
 instantaneous throughput and the age of the engine's tasks keep state per

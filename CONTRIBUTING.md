@@ -1,11 +1,11 @@
 # Contributing
 
-Thanks for looking. This is a **self-hosted, single-box platform** — one DGX
-Spark serving models to a small group of people — so the rules below are less
+Thanks for looking. This is a **self-hosted, single-box platform** (one DGX
+Spark serving models to a small group of people), so the rules below are less
 about process and more about not breaking a live service while improving it.
 
 The architecture, the feature tour and the deployment steps live in
-[`README.md`](README.md); the security posture lives in
+[`README.md`](README.md). The security posture lives in
 [`SECURITY.md`](SECURITY.md). Read the README once for the map, then come back
 here for how we work.
 
@@ -28,21 +28,21 @@ Two more that follow from the same principle:
   memory and makes CUDA model loading fail.
 - **Deploy by rebuilding the image** (`docker compose build <svc> &&
   docker compose up -d <svc>`). `docker compose restart` does **not** pick up new
-  code — it restarts the same container with the same image — and it hides the
+  code: it restarts the same container with the same image, and it hides the
   mistake behind a service that looks like it reloaded.
 
 ---
 
 ## Before you push or open a PR: nothing personal, nothing site-specific
 
-The repository is **public**. Before any push — and in the PR title, its body, its
-screenshots and the commit messages — re-read the diff and ask *who or what does this
+The repository is **public**. Before any push, and in the PR title, its body, its
+screenshots and the commit messages, re-read the diff and ask *who or what does this
 identify?* The answer must be nobody:
 
 - no real name, mail, phone, street, account id, avatar, voice sample, photo, or a path
-  carrying a first name (`/home/<name>/…`);
+  carrying a first name (`/home/<name>/…`).
 - no site value: real domain, VPN/LAN IP, hostname, SSID, token, database name, NFS
-  mount, port map, firewall rule;
+  mount, port map, firewall rule.
 - no screenshot or log paste containing any of it.
 
 Use the neutral placeholders the repo already uses (`DGX_` prefix, `example.org`,
@@ -57,7 +57,7 @@ not personal data: they are a backstop, not the rule.
 
 1. **Branch** (`git switch -c <topic>`) → commit → push the branch → open a pull
    request. One topic per PR.
-2. **Wait for the reviewer.** The Kodus bot (**Kody**) analyses the PR itself; a merge
+2. **Wait for the reviewer.** The Kodus bot (**Kody**) analyses the PR itself. A merge
    before its review defeats the point.
 3. **Fix what it reports**, or answer on the thread why a point does not apply.
 4. **Ask for the re-check** by commenting on the PR:
@@ -111,22 +111,22 @@ the cause, or say in the pull request why the check itself is wrong.
 - **Commits** — [Conventional Commits](https://www.conventionalcommits.org/), in
   French, scoped to the area: `fix(portail): …`, `fix(frontend): …`,
   `fix(runner): …`, `docs(securite): …`, `chore(infra): …`. The subject line says
-  what changed; the body says **why**, and includes the measurement that proves it
+  what changed. The body says **why**, and includes the measurement that proves it
   when the change is a fix. Small, reviewable commits beat one large one.
 - **Comments and code identifiers** — French, because the operators and the
   users are French-speaking. Comments explain the *why* and the non-obvious
   measurement, not the *what*.
 - **UI strings** — French first, then the English translation. A user-visible
-  string goes through the translation layer; `scripts/check-i18n.py` (run by the
+  string goes through the translation layer. `scripts/check-i18n.py` (run by the
   CI) fails when a `t()` key has no English entry, because a missing key silently
   falls back to French for English users.
 - **Components** — the frontend is built on Astryx Design. Use its components and
-  design tokens; a raw `<div>` with hand-written styles where a component exists,
+  design tokens. A raw `<div>` with hand-written styles where a component exists,
   or a hard-coded colour where a token exists, will be asked to change.
 - **Measure, don't guess** — for anything non-obvious (a performance fix, a
   rendering bug, a memory tradeoff), run the experiment and put the number in the
   commit message or the pull request. Several comments in this repository exist
-  only to record a measurement that contradicts the intuitive fix; please do not
+  only to record a measurement that contradicts the obvious fix. Please do not
   "simplify" those away without re-measuring.
 
 ## Repository layout
@@ -150,7 +150,7 @@ python scripts/screenshots.py --install  # copy the validated files into assets/
 
 If your change alters a page's layout, refresh the gallery in the same pull
 request. `--verify` reads the text back out of each PNG and fails on an email
-address, an API key or another account's name; that check is the only thing
+address, an API key or another account's name. That check is the only thing
 standing between a careless capture and a public repository, so never install a
 file it rejected.
 

@@ -38,11 +38,11 @@ flowchart LR
 | **litellm-postgres** | LiteLLM database (keys, spend logs) | `5432` (internal) | Docker container |
 | **dgx-portal-frontend** | The UI (Next.js + Astryx): login, home, playground, media pages, support, find-a-model, leaderboard, admin, users (keys and memory live in the Settings dialog) | `5000` | Docker container (non-root) |
 | **portal-rs** | Backend (Rust): LDAP/OIDC auth, sessions, JSON API, business logic, jobs | `5100` (loopback only) | Docker container (non-root) |
-| **vllm-runner** | Daemon driving **one** chat model process (start/stop/logs; engines `vllm` / `llamacpp` / `ds4`) with auto-resume, plus scoped start/stop/recreate of every media sidecar | `8001` | systemd service on the host |
+| **vllm-runner** | Daemon driving **one** chat model process (start/stop/logs and engines `vllm` / `llamacpp` / `ds4`) with auto-resume, plus scoped start/stop/recreate of every media sidecar | `8001` | systemd service on the host |
 | **vLLM** | OpenAI-compatible inference server (the main chat engine) | `8000` | process spawned by the runner |
 | **Decision engine** | `LiquidAI/d1-3B` behind the System One API (`d1-decisions.service`, a container): **bf16** weights from the models directory, serving `/v1/systemone` and nothing else. It is no longer spawned by the runner and never replaces the chat model | `8002`, docker bridge only | Docker container (`d1-decisions.service`, `decisions-d1/`) |
 | **OCR container** | vLLM serving an OCR-capable VLM (baidu/Unlimited-OCR by default, chandra-ocr-2 also supported), swappable via an admin catalog | internal only | Docker container, own network + GPU slice |
-| **ComfyUI** | Video generation graph engine (MiniMax H3 in **NVFP4** — the Blackwell-native 4-bit format the GB10 supports; measured on disk: 11.7 GiB ≈ 12.5 GB per UNET, two UNET variants) | `8188`, host-restricted | systemd service on the host |
+| **ComfyUI** | Video generation graph engine (MiniMax H3 in **NVFP4** — the Blackwell-native 4-bit format the GB10 supports. Measured on disk: 11.7 GiB ≈ 12.5 GB per UNET, two UNET variants) | `8188`, host-restricted | systemd service on the host |
 | **Image container** | Text-to-image (diffusers). FLUX.2 Klein 4B by default, 35 diffusion steps per image (`IMAGE_STEPS`) | internal only | Docker container, own network + GPU slice |
 | **ASR container** | Whisper (`large-v3-turbo` by default) for Playground dictation | internal only | Docker container, own network + GPU slice |
 | **Voice container** | Zero-shot voice cloning. Two interchangeable engines: **Qwen3-TTS** (default, Apache 2.0, 10 languages, 3 s cloning) or **Chatterbox** (MIT) | internal only | Docker container, own network + GPU slice |
@@ -88,7 +88,7 @@ used to sit behind it was removed on 2026-10-17.
 ### Backend (`portal-rs/`)
 
 One Rust crate: `portal-rs/src/` holds one module per concern (auth, sessions,
-LiteLLM and vLLM clients, the sidecars, media jobs, admin) and `handlers/` the
+the LiteLLM and vLLM clients, the sidecars, media jobs, admin) and `handlers/` the
 HTTP routes. The ComfyUI video graphs are compiled in from `portal-rs/workflows/`.
 Tests run with `cargo test --locked` in `portal-rs/`.
 
@@ -103,5 +103,5 @@ i18n dictionary, `proxy.ts` the per-request nonce CSP and method-based routing, 
 > live on the host (root-owned). Their tracked sources are `ocr/ocr-recreate.sh`,
 > `voice/voice-recreate.sh`, `asr/asr-recreate.sh`, `voice-qwen/voice-qwen-recreate.sh`,
 > `voice-kyutai/voice-kyutai-recreate.sh`,
-> `systemd/image-recreate.sh` and `systemd/ocr-restrict.sh`; install with e.g.
+> `systemd/image-recreate.sh` and `systemd/ocr-restrict.sh`. Install with e.g.
 > `install -o root -g root -m 0755 ocr/ocr-recreate.sh /usr/local/sbin/`.

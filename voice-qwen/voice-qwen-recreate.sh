@@ -30,8 +30,12 @@ if [ -z "$REF_WAV" ]; then
   # A 6 s clip clones as well as an 18 s one and cuts the per-sentence cost
   # (measured 2026-11-28: 6.9 s before, 3.4 s after on the same sentence).
   for cand in "$HOME/qwen-tts-ft/ref6.wav" "$HOME/qwen-tts-ft/ref24.wav"; do
-    [ -f "$cand" ] && REF_WAV="$cand" && break
+    if [ -f "$cand" ]; then REF_WAV="$cand"; break; fi
   done
+  # `set -e`: the loop's status is the last `[ -f ]`, which fails when the
+  # operator has no clip (the default). Without this no-op the script died
+  # before `docker run` and the voice never started (Kody, PR 18).
+  :
 fi
 REF_ARGS=""
 [ -f "$REF_WAV" ] && REF_ARGS="-v ${REF_WAV}:/app/ref.wav:ro -e QWEN_TTS_REFERENCE_WAV=/app/ref.wav"

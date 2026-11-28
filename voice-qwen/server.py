@@ -126,7 +126,11 @@ def _load() -> None:
         if skipped:
             log.warning("Languages without a known ISO code, skipped: %s", skipped)
         log.info("Loaded. %d languages: %s", len(_languages), ", ".join(sorted(_languages)))
-        if not FINETUNE_DIR and REFERENCE_WAV:
+        if not FINETUNE_DIR and REFERENCE_WAV and not os.path.isfile(REFERENCE_WAV):
+            # A configured clip that is absent is a BAD MOUNT, not a reason to lose
+            # the whole voice: say it loudly and serve without the clone.
+            log.error("Voice reference %s is missing — serving without clone", REFERENCE_WAV)
+        elif not FINETUNE_DIR and REFERENCE_WAV:
             # Read the clip ONCE: it is the voice prompt of every generation, and
             # re-decoding it per sentence would add ~50 ms to each.
             global _ref_audio

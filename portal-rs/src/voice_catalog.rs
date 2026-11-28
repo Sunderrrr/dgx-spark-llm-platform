@@ -38,22 +38,39 @@ pub async fn ensure_table(pool: &SqlitePool) {
         eprintln!("[voice_catalog] cannot create voice_configs: {e}");
         return;
     }
-    // Seed ONLY an empty catalog. `INSERT OR IGNORE` alone was not enough: a
-    // deleted entry came back on the next page load, because the unique name no
-    // longer existed — the operator's choice was undone every time (Kody, PR 17).
-    let empty: i64 = match sqlx::query_scalar("SELECT COUNT(*) FROM voice_configs").fetch_one(pool).await {
-        Ok(n) => n,
-        Err(e) => {
-            eprintln!("[voice_catalog] cannot count voice_configs: {e}");
-            return;
+    // Seed each default voice ONCE, and remember it in `settings`.
+    //
+    // Two constraints pull against each other: an existing install must receive a
+    // voice added by a later release (the empty-catalog check dropped it, Kody PR
+    // 18), and a voice the operator DELETED must not be resurrected (Kody PR 17).
+    // A per-voice flag settles both: absent flag -> insert (unless the row already
+    // exists), then set the flag; a row deleted later keeps its flag and stays
+    // deleted.
+    for (name, repo_id) in DEFAULT_VOICES {
+        let flag = format!("voice_catalog.seeded.{repo_id}");
+        let done: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+            .bind(&flag)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+        if done.is_some() {
+            continue;
         }
-    };
-    if empty == 0 {
-        for (name, repo_id) in DEFAULT_VOICES {
-            // OR IGNORE keeps it idempotent if two starts race on an empty table
-            // (the count check above narrows the window, it does not close it).
+        let exists: i64 = match sqlx::query_scalar("SELECT COUNT(*) FROM voice_configs WHERE repo_id = ?")
+            .bind(repo_id)
+            .fetch_one(pool)
+            .await
+        {
+            Ok(n) => n,
+            Err(e) => {
+                eprintln!("[voice_catalog] cannot read voice_configs: {e}");
+                continue;
+            }
+        };
+        if exists == 0 {
             if let Err(e) = sqlx::query(
-                "INSERT OR IGNORE INTO voice_configs (name, repo_id, added_at) \
+                "INSERT INTO voice_configs (name, repo_id, added_at) \
                  VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
             )
             .bind(name)
@@ -61,8 +78,14 @@ pub async fn ensure_table(pool: &SqlitePool) {
             .execute(pool)
             .await
             {
+                // A UNIQUE clash means a concurrent start won the race: the flag
+                // write below still records the decision.
                 eprintln!("[voice_catalog] cannot seed «{name}»: {e}");
             }
         }
+        let _ = sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, '1')")
+            .bind(&flag)
+            .execute(pool)
+            .await;
     }
 }

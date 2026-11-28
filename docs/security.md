@@ -32,7 +32,7 @@ Authentication itself is described in [authentication](authentication.md).
 
 Path: `api.example.org` (**Cloudflare, proxied**) → **Traefik** →
 `http://litellm:4001`. LiteLLM listens on **4001 inside the Docker network** and
-publishes **no host port at all**; Traefik is attached to the same compose network
+publishes only on loopback; Traefik is attached to the same compose network
 and reaches it by service name (the portal does the same, via `LITELLM_URL`). The
 host name `dgx.lan:4001` that this page used to give answers nothing — do
 not route to the host.

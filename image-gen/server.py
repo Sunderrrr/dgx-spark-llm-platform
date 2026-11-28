@@ -21,7 +21,7 @@ from PIL import Image, ImageFilter
 
 import esrgan
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(level=logging.WARNING, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("image-gen")
 
 MODEL_DIR = os.environ.get("MODEL_DIR", "/model")

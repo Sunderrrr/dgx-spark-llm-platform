@@ -126,7 +126,7 @@ nothing (`restart=unless-stopped`, so it never frees itself), the web UI
   `/proc/<pid>/cgroup`). Any change to the runner daemon that must take effect needs
   the same downtime window as a model relaunch — this is not a "zero-downtime"
   operation. New pseudo-flags (`--llama-prism` and friends) exist only after such
-  a restart (`_BIN_FLAGS` is built at import).
+  a restart (`BIN_FLAG_PATHS` is built at import).
 - **Switching llama.cpp binaries does NOT need a restart**: `LLAMA_BIN` is a
   symlink resolved at each spawn (the env variable only at import). Each
   `build*/bin/` folder is self-contained. On 2026-09-25 the path pointed for one

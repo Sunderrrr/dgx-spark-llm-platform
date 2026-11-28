@@ -59,7 +59,7 @@ bare repo id uses `-hf` (which can pick the wrong shard).
   `--llama-v080`, `--llama-v100`, **`--llama-master`**, `--vllm-032` and
   **`--vllm-034`** pick a specific binary for THAT launch
   (flag table in [`vllm-runner-rs/src/flags.rs`](../vllm-runner-rs/src/flags.rs),
-  split per engine into `LLAMA_BIN_FLAGS` / `VLLM_BIN_FLAGS`, so a llama.cpp
+  split per engine into `LLAMA_BOOL_FLAGS` / `BOOL_FLAGS` (+ `BIN_FLAG_PATHS`), so a llama.cpp
   launch cannot be pointed at a vLLM binary).
   The **superseded builds were deleted on 2026-10-29** (37 GB back):
   `atomic-llama`, `llama-cpp-upstream`, `llama-cpp-k2horizon`, `llama-prism`,
@@ -144,7 +144,7 @@ bare repo id uses `-hf` (which can pick the wrong shard).
   Three pitfalls: that build is older and ignores `--kv-unified-per-slot` (use
   `--ctx-size 1048576 --parallel 4` without `--kv-unified` for 4 private 256k
   slots). Its projector is the same as the Qwen3.8-27B one. The `--llama-prism`
-  pseudo-flag only exists for the runner **after a restart** (`_BIN_FLAGS` is
+  pseudo-flag only exists for the runner **after a restart** (`BIN_FLAG_PATHS` is
   built at import), and that restart kills the served model.
 - **K2-Horizon**: entry **removed from the catalog** and `Q8_0` weights (37.1 GiB)
   **deleted** on 2026-09-13. Serving it again requires re-downloading them, and

@@ -136,7 +136,7 @@ Three details worth knowing, all found by testing:
 
 A **decision model** answers typed questions about an input instead of writing
 text: a yes/no probability, a pick from a fixed list, a score on an ordered
-scale. The platform serves one, Cloudflare **Clef** `Q4_K_M`, under the name
+scale. The platform serves one, LiquidAI **d1-3B** `Q4_K_M`, under the name
 **`clef-q4km`**, on the same gateway and with the same keys and budgets as chat.
 It is **not** a chat model: `/v1/chat/completions` does not exist for it.
 

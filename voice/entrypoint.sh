@@ -1,5 +1,5 @@
 #!/bin/bash
-# dgx-portal sends a FRESH reference sample to /upload_reference at every
+# portal-rs sends a FRESH reference sample to /upload_reference at every
 # generation (random name, never reused — that route belongs to the upstream
 # Chatterbox-TTS-Server running inside this image) and Chatterbox exposes no
 # deletion route: without this cleanup, /app/reference_audio grows indefinitely

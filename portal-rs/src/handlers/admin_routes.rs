@@ -2,7 +2,6 @@
 //! admin_storage.py): the administration console's data. Verified on the
 //! isolated parity bench (synthetic database, fictitious admin), since no real
 //! admin session may be used for tests.
-#![allow(unused_imports)]
 use super::*;
 use axum::http::Uri;
 use crate::rowjson;

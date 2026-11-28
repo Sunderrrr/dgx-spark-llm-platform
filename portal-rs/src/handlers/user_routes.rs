@@ -1,6 +1,5 @@
 //! User data routes: pending counts, notifications, announcements, skills list,
 //! conversations, Discord status, API keys, settings, sessions, sharing, preferences.
-#![allow(unused_imports)]
 use super::*;
 
 /// Answer of a user-data read: the value, or the unreadable-database refusal.

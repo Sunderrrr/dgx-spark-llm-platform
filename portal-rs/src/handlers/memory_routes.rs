@@ -1,5 +1,4 @@
 //! Memory routes (memory_routes.py): graph, switches, facts, purge, export, import.
-#![allow(unused_imports)]
 use super::*;
 
 // ── Memory (memory_routes.py) ───────────────────────────────────────────────

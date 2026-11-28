@@ -1,7 +1,6 @@
 //! The « Clés API » tab's actions (app.py `POST /keys`): create, revoke and
 //! rename the viewer's LiteLLM keys, each answering honestly; the budget
 //! request (`request_budget`) is user_requests.rs's.
-#![allow(unused_imports)]
 use super::*;
 
 fn litellm() -> (String, String) {

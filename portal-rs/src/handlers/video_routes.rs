@@ -2,9 +2,8 @@
 //! submit a MiniMax H3 graph (text only, or with a reference image), follow
 //! it, cancel it, and serve the result — from the stored copy, else from
 //! ComfyUI's output directory on disk, else pulled from ComfyUI and cached.
-#![allow(unused_imports)]
 use super::*;
-use axum::extract::{FromRequest, Request};
+use axum::extract::Request;
 use axum::http::Uri;
 
 const VIDEO_HISTORY_LIMIT: i64 = 10;
@@ -89,11 +88,6 @@ pub(crate) fn reference_image(name: &str, mime: &str, data: &[u8]) -> Result<(),
         return Err(format!("Image trop grande : {w}×{h} pixels ({} Mpx max).", MAX_IMAGE_PIXELS / 1_000_000));
     }
     Ok(())
-}
-
-/// `comfyui_generate` without the network: the graph to submit.
-pub(crate) fn h3_graph(uploaded: Option<&str>, prompt: &str, duration: f64, seed: u32) -> Option<Value> {
-    h3_graph_with(uploaded, prompt, duration, seed, None)
 }
 
 /// The same graph, with the model files of a catalog entry substituted.
@@ -502,12 +496,16 @@ mod tests {
 
     #[test]
     fn graphs_substitute_the_four_fields() {
-        let g = h3_graph(None, "un chat", 30.0, 7).unwrap();
+        let g = h3_graph_with(None, "un chat", 30.0, 7, None).unwrap();
         assert_eq!(g["138"]["inputs"]["value"], "un chat");
         assert_eq!(g["132"]["inputs"]["value"], json!(15));
-        assert_eq!(h3_graph(None, "x", 5.0, 1).unwrap()["132"]["inputs"]["value"], json!(5.0));
+        assert_eq!(h3_graph_with(None, "x", 5.0, 1, None).unwrap()["132"]["inputs"]["value"], json!(5.0));
         assert_eq!(g["129"]["inputs"]["noise_seed"], 7);
-        let g = h3_graph(Some("ref_1.png"), "x", 1.0, 1).unwrap();
+        // No catalog entry: the template's own model files stay in place.
+        assert_eq!(g["127"]["inputs"]["unet_name"], "minimax_h3_fl2va_pruned_nvfp4.safetensors");
+        assert_eq!(g["119"]["inputs"]["vae_name"], "minimax_h3_video_vae_fp16.safetensors");
+        assert_eq!(g["120"]["inputs"]["vae_name"], "minimax_h3_audio_vae_fp32.safetensors");
+        let g = h3_graph_with(Some("ref_1.png"), "x", 1.0, 1, None).unwrap();
         assert_eq!(g["137"]["inputs"]["image"], "ref_1.png");
         assert_eq!(g["132"]["inputs"]["value"], json!(2));
     }

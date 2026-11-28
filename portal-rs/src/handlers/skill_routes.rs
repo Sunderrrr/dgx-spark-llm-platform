@@ -1,5 +1,4 @@
 //! Skill package routes (skills_routes.py): detail, download, enable, sync, zip and Git import.
-#![allow(unused_imports)]
 use super::*;
 
 // ── Skills (skills_routes.py) ───────────────────────────────────────────────

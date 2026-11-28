@@ -1,6 +1,5 @@
 //! The viewer's MCP servers (settings_routes.py `/mcp`): register one (checked
 //! live: initialize + tools/list), update, toggle, delete.
-#![allow(unused_imports)]
 use super::*;
 use crate::mcp;
 

@@ -1,7 +1,6 @@
 //! The playground's HTML preview (preview_routes.py): a generated page served
 //! under its OWN sandboxed policy, so it can run its scripts with an opaque
 //! origin — never the viewer's cookies or the API with their rights.
-#![allow(unused_imports)]
 use super::*;
 use axum::http::Uri;
 

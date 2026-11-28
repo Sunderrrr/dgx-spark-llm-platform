@@ -2,10 +2,9 @@
 //! voice_chat_routes.py): mic audio → text, the voice container started on
 //! first use, and one sentence → raw PCM streamed. The ASR sidecar's idle
 //! reaper is a separate background job (asr_reaper.rs); these routes write the shared on-demand state.
-#![allow(unused_imports)]
 use super::*;
 use crate::asr_ondemand;
-use axum::extract::{FromRequest, Request};
+use axum::extract::Request;
 
 const MAX_VOICE_UPLOAD_BYTES: usize = 15 * 1024 * 1024;
 const ASR_RATE_MAX: i64 = 75;

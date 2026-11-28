@@ -23,13 +23,14 @@ import { useCsrf } from "@/lib/useCsrf";
 import { authFetch, postFormData } from "@/lib/api";
 import { useT, useLocale } from "@/lib/i18n";
 import { useDictation } from "@/lib/useDictation";
+import type { JobStatus, RunningModelBase } from "@/lib/shared-types";
 import { DictateButton } from "../_components/DictateButton";
 import { ModelRequestButton } from "../_components/ModelRequestButton";
 import { GenerationPlaceholder } from "../_components/GenerationPlaceholder";
 
-type JobStatus = "idle" | "pending" | "running" | "done" | "error" | "cancelled";
 type HistoryItem = { prompt_id: string; prompt: string; status: string; created_at: string };
-type RunningModel = { name: string; kind: "chat" | "ocr" | "video"; exposed: boolean };
+// Kinds this page can meet (see RunningModelKind in lib/shared-types.ts).
+type RunningModel = RunningModelBase & { kind: "chat" | "ocr" | "video" };
 
 const DURATIONS = ["3", "5", "8", "10", "15"];
 

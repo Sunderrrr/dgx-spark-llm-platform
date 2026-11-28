@@ -18,8 +18,7 @@ import {
   CheckCircleIcon,
 } from "@heroicons/react/24/outline";
 import { useT } from "@/lib/i18n";
-
-type AskQ = { question: string; options: string[] };
+import type { AskQ } from "@/lib/shared-types";
 
 // The model's clarifying questions, shown one at a time (stepper).
 // MULTIPLE answers per question: each option can be checked and unchecked, and

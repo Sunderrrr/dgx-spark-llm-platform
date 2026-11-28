@@ -283,32 +283,39 @@ pub async fn run(pool: &sqlx::SqlitePool, username: &str, body: &Value) -> Resul
     let Some(key) = user_key(pool, username).await else {
         return Err((400, "Aucune clé API — crée une clé dans Réglages ▸ Clés API.".into()));
     };
-    // Images do NOT go through the gateway: LiteLLM 1.104.3 refuses an
-    // `input_image` for every System One provider (« System One providers accept
-    // text input only », measured), while llama.cpp's /v1/systemone takes `files`
-    // — the model itself is multimodal, verified on this box. So an image request
-    // goes to the engine directly. The cost is the billing: these calls are not
-    // in LiteLLM's spend logs, they stay bounded by the page's rate limit.
+    // Attachments used to bypass the gateway: LiteLLM refuses `input_image` for a
+    // System One provider, so the request went straight to the engine — with no
+    // API key, no spend row and no budget check, which defeats the platform's
+    // accounting control for every other GPU route (audit run-4, medium).
+    // The direct hop also could not work: the engine reads `images` and hands raw
+    // base64 to the model, which fails with `AttributeError` (measured). Until the
+    // gateway carries image input, an attachment is refused BEFORE any GPU work.
     let has_files = payload
         .get("files")
         .or_else(|| payload.get("images"))
         .and_then(Value::as_array)
         .is_some_and(|f| !f.is_empty());
-    let (url, request) = if has_files {
-        let base = env("DECISIONS_API_BASE", "http://172.19.0.1:8002/v1");
-        let mut body = payload.as_object().cloned().unwrap_or_default();
-        body.insert("model".into(), json!(model_name()));
-        (format!("{}/systemone", base.trim_end_matches('/')), body)
-    } else {
-        let mut body = payload.as_object().cloned().unwrap_or_default();
-        body.insert("model".into(), json!(model_name()));
-        (format!("{}/v1/systemone", crate::probes::litellm_url().trim_end_matches('/')), body)
-    };
-    let sent = if has_files {
-        crate::sidecars::http().post(url).json(&Value::Object(request)).timeout(Duration::from_secs(120)).send().await
-    } else {
-        crate::sidecars::http().post(url).bearer_auth(&key).json(&Value::Object(request)).timeout(Duration::from_secs(120)).send().await
-    };
+    if has_files {
+        return Err((
+            400,
+            "Les pièces jointes ne sont pas prises en charge par la passerelle : \
+             cette route est réservée au texte. Retire le fichier pour envoyer la demande."
+                .to_string(),
+        ));
+    }
+    // One path only, the gateway, so the key is always required and the spend row
+    // always written.
+    let mut body = payload.as_object().cloned().unwrap_or_default();
+    body.insert("model".into(), json!(model_name()));
+    let url = format!("{}/v1/systemone", crate::probes::litellm_url().trim_end_matches('/'));
+    let request = Value::Object(body);
+    let sent = crate::sidecars::http()
+        .post(url)
+        .bearer_auth(&key)
+        .json(&request)
+        .timeout(Duration::from_secs(120))
+        .send()
+        .await;
     let r = match sent {
         Ok(r) => r,
         Err(e) => {

@@ -264,7 +264,7 @@ async fn container_action_route(kind: &'static str, action: &'static str) -> Jso
     ok_detail(ok, out)
 }
 
-async fn ocr_launch(State(app): State<Arc<App>>, body: Bytes) -> Response {
+async fn ocr_launch(body: Bytes) -> Response {
     let data = json_or_empty(&body);
     let hf = data.get("hf_model_id").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
     if hf.is_empty() {
@@ -278,7 +278,6 @@ async fn ocr_launch(State(app): State<Arc<App>>, body: Bytes) -> Response {
         Ok(t) => t,
         Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({"ok": false, "detail": e}))).into_response(),
     };
-    let _ = app;
     let mut argv: Vec<&str> = vec!["/usr/local/sbin/ocr-recreate.sh", &hf];
     argv.extend(tokens.iter().map(String::as_str));
     let (ok, out) = sudo(&argv, Duration::from_secs(120));
@@ -325,12 +324,6 @@ async fn download_start(State(app): State<Arc<App>>, body: Bytes) -> Response {
 /// `GET /models/download/status` — measured progress, or "no job".
 async fn download_status() -> Json<Value> {
     Json(runner_rs::download::status())
-}
-
-/// `POST /models/download/clear` — forget a finished job (its log stays).
-async fn download_clear() -> Json<Value> {
-    runner_rs::download::clear();
-    Json(json!({"ok": true}))
 }
 
 async fn asr_launch(body: Bytes) -> Response {
@@ -572,7 +565,10 @@ async fn main() {
     // Built before `cfg` is moved into the App: the decision service reads the
     // same paths, but keeps its own process, port and log buffer.
     let decisions = Arc::new(Decisions::new(DecisionsCfg::from_env(&cfg)));
-    let app = Arc::new(App { cfg, sup: Arc::new(Supervisor::default()), ops: Mutex::new(()), log_stamp_clock: service::file_stamp });
+    // Same reason: the guard must carry the operator's CRITICAL_FREE_GIB, not
+    // the supervisor's default.
+    let sup = Arc::new(Supervisor::with_floor(cfg.critical_free_gib));
+    let app = Arc::new(App { cfg, sup, ops: Mutex::new(()), log_stamp_clock: service::file_stamp });
     service::announce_start(&app);
     {
         let w = app.clone();
@@ -590,7 +586,6 @@ async fn main() {
         // platform's own HF token (see src/download.rs).
         .route("/models/download", post(download_start))
         .route("/models/download/status", get(download_status))
-        .route("/models/download/clear", post(download_clear))
         .route("/metrics", get(metrics))
         .merge(decisions_routes(decisions.clone()))
         .route("/video/status", get(video_status))
@@ -640,7 +635,6 @@ mod tests {
             stable_seconds: 600,
             max_auto_retries: 3,
             hf_home: String::new(),
-            sudo: false,
         }
     }
 
@@ -654,6 +648,7 @@ mod tests {
             log_dir: std::env::temp_dir(),
             hf_home: String::new(),
             min_free_gib: 30.0,
+            critical_free_gib: 2.0,
         }))
     }
 

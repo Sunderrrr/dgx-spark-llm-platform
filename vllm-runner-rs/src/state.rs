@@ -71,10 +71,6 @@ impl RunLog {
             self.file = None;
         }
     }
-
-    pub fn is_open(&self) -> bool {
-        self.file.is_some()
-    }
 }
 
 /// `_prune_logs`: keep the newest startups only.

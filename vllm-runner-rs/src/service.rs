@@ -29,7 +29,6 @@ pub struct Config {
     pub stable_seconds: u64,
     pub max_auto_retries: i64,
     pub hf_home: String,
-    pub sudo: bool,
 }
 
 impl Config {
@@ -51,7 +50,6 @@ impl Config {
             stable_seconds: env("RESUME_STABLE_SECONDS", "600").parse().unwrap_or(600),
             max_auto_retries: 3,
             hf_home: env("HF_HOME", &format!("{home}/.cache/huggingface")),
-            sudo: true,
         })
     }
 }
@@ -178,7 +176,7 @@ impl App {
         }
         let env = launch_env::build(engine, &model_env, &self.cfg.hf_home, &|k| std::env::var(k).ok());
         let cwd = if engine == "exllamav3" { Some(self.cfg.paths.tabby_dir.as_str()) } else { None };
-        let proc = self.sup.spawn(&cmd, &model_env, &env, cwd, run_log).map_err(|e| e.to_string())?;
+        let proc = self.sup.spawn(&cmd, &env, cwd, run_log).map_err(|e| e.to_string())?;
         if let Err(e) = state::save_last_launch(&self.cfg.state_file, hf_id, name, &original, engine) {
             self.log(&format!("[runner] could not save state for auto-resume: {e}"));
         }

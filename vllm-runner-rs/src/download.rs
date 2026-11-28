@@ -230,36 +230,6 @@ pub fn status() -> Value {
     })
 }
 
-/// The log's last lines, for the console's "why did it stop" question.
-pub fn log_tail(path: &Path) -> String {
-    let Ok(text) = std::fs::read_to_string(path) else { return String::new() };
-    let lines: Vec<&str> = text.lines().rev().take(12).collect();
-    lines.into_iter().rev().collect::<Vec<_>>().join("\n")
-}
-
-/// True while a job exists and has not finished.
-pub fn busy() -> bool {
-    slot().lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|j| j.running)
-}
-
-/// Forgets the finished job (the console's "dismiss"): the log stays on disk.
-pub fn clear() {
-    let mut guard = slot().lock().unwrap_or_else(|e| e.into_inner());
-    if guard.as_ref().is_some_and(|j| !j.running) {
-        *guard = None;
-    }
-}
-
-/// How long a download may take before the API calls it stuck: generous by
-/// design (a 90 GiB model on a slow link), only used for the console's wording.
-pub const STALE_HINT_S: i64 = 6 * 3600;
-
-/// True when the job looks stuck (no new bytes for a long time is the console's
-/// call to make; this only reports the elapsed time past the hint).
-pub fn stale(elapsed_s: i64) -> bool {
-    elapsed_s > STALE_HINT_S
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

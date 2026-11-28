@@ -45,7 +45,12 @@ pub struct DecisionsCfg {
     pub bin: String,
     pub log_dir: PathBuf,
     pub hf_home: String,
+    /// The launch floor (refuse to start), distinct from `critical_free_gib`,
+    /// the runtime guard that kills this process under `CRITICAL_FREE_GIB`.
     pub min_free_gib: f64,
+    /// The runtime floor, taken from the same `CRITICAL_FREE_GIB` as the chat
+    /// model's guard: the decision model loads NEXT TO it, on one memory pool.
+    pub critical_free_gib: f64,
 }
 
 impl DecisionsCfg {
@@ -66,6 +71,7 @@ impl DecisionsCfg {
             log_dir: cfg.log_dir.clone(),
             hf_home: cfg.hf_home.clone(),
             min_free_gib: cfg.min_free_gib,
+            critical_free_gib: cfg.critical_free_gib,
         }
     }
 }
@@ -134,7 +140,7 @@ pub struct Decisions {
 impl Decisions {
     pub fn new(cfg: DecisionsCfg) -> Decisions {
         Decisions {
-            sup: Arc::new(Supervisor::with_probe(&format!("127.0.0.1:{}", cfg.port))),
+            sup: Arc::new(Supervisor::new(&format!("127.0.0.1:{}", cfg.port), cfg.critical_free_gib)),
             cfg,
             ops: Mutex::new(()),
         }
@@ -240,7 +246,7 @@ impl Decisions {
             s.status = "starting".into();
         }
         let env = crate::launch_env::build("llamacpp", &Default::default(), &cfg.hf_home, &|k| std::env::var(k).ok());
-        self.sup.spawn(&cmd, &Default::default(), &env, None, run_log).map_err(|e| (500, json!({"error": format!("Lancement impossible : {e}")})))?;
+        self.sup.spawn(&cmd, &env, None, run_log).map_err(|e| (500, json!({"error": format!("Lancement impossible : {e}")})))?;
         Ok(json!({"ok": true, "status": "starting", "port": cfg.port, "model": cfg.name}))
     }
 
@@ -303,6 +309,7 @@ mod tests {
             log_dir: std::env::temp_dir(),
             hf_home: String::new(),
             min_free_gib: 30.0,
+            critical_free_gib: 2.0,
         };
         let d = Decisions::new(cfg);
         assert!(!d.enabled());
@@ -322,6 +329,7 @@ mod tests {
             log_dir: std::env::temp_dir(),
             hf_home: String::new(),
             min_free_gib: 30.0,
+            critical_free_gib: 2.0,
         };
         let d = Decisions::new(cfg);
         let s = d.status();
@@ -342,6 +350,7 @@ mod tests {
             log_dir: std::env::temp_dir(),
             hf_home: String::new(),
             min_free_gib: 30.0,
+            critical_free_gib: 2.0,
         };
         let d = Decisions::new(cfg);
         let v = d.stop().unwrap();

@@ -147,21 +147,23 @@ no llama.cpp and no GGUF in this path. The admin catalog still carries a legacy
 
 ### Images
 
-The model is multimodal in principle (d1-3B is built on LFM2.5-VL), but the HTTP
-image path is **not wired end to end yet**:
+The model is multimodal in principle (d1-3B is built on LFM2.5-VL), but the image
+path is **closed**, not merely unwired:
 
-- the workbench page offers up to **four images** (4 MB each) and the portal
-  relays them to the engine directly, because the gateway's System One routes
-  are text-only (the provider answers « System One providers accept text input
-  only »). Such a call is therefore not in LiteLLM's spend logs and does not
-  consume the key's budget — it stays bounded by the page's own rate limit;
-- the page sends a field named `files` while the d1 server reads `images`, and
-  it passes the raw `data:` URLs to the model, which expects decoded images.
-  Measured 2026-11-28: `files` is silently ignored (text-only answer), `images`
-  answers **500**.
+- the workbench page offers up to **four images** (4 MB each), and `POST
+  /api/decisions/run` now answers **400** as soon as a request carries a non-empty
+  `files` or `images` array. Attachments used to be relayed straight to the engine,
+  which took them out of the gateway: no API key, no spend row, no budget check —
+  the accounting control every other GPU route obeys. That bypass is gone; the
+  portal only reaches the engine through LiteLLM, with the caller's key;
+- the engine side was never working anyway: the page sends `files` while the d1
+  server reads `images`, and it passes raw `data:` URLs where decoded images are
+  expected. Measured 2026-11-28: `files` is silently ignored (text-only answer),
+  `images` answers **500**.
 
-Until the two sides agree, treat the served model as **text-only**. Text
-requests keep going through the gateway, billed and budgeted as usual.
+Treat the served model as **text-only** until the gateway carries image input.
+When it does, the two sides must also agree on the field name *and* decode the
+data URLs — three changes, which is why the refusal is the honest state today.
 
 Two routes, one model (LiteLLM serves both from the same deployment; the model
 is registered with `mode: decisions`):

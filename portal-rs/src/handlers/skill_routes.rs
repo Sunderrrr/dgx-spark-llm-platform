@@ -113,6 +113,18 @@ pub async fn api_skill_sync(State(state): State<AppState>, headers: HeaderMap, P
         Err(r) => return r,
         Ok(s) => s,
     };
+    // A Git import downloads up to 25 MiB and inflates up to 96 MiB inside this
+    // handler: without the per-account bucket the zip route already has, one
+    // account looping this endpoint pins every tokio worker (audit run-4, F1).
+    match crate::guards::rate_limited(state.db.pool(), &session.username, "rl-skills", crate::guards::SKILLS_RATE_MAX, 60.0).await {
+        Ok(0) => {}
+        Ok(wait) => {
+            return (StatusCode::TOO_MANY_REQUESTS,
+                    Json(json!({"ok": false, "error": format!("Trop d'imports. Réessaie dans {wait} s.")})))
+                .into_response()
+        }
+        Err(_) => return auth::html_status(StatusCode::INTERNAL_SERVER_ERROR),
+    }
     let pool = state.db.pool();
     let row = match sqlx::query("SELECT name, source, source_url, source_ref, source_path FROM skills WHERE id = ? AND username = ?")
         .bind(id).bind(&session.username).fetch_optional(pool).await
@@ -203,6 +215,18 @@ pub async fn api_skill_import_git(State(state): State<AppState>, headers: Header
         Err(r) => return r,
         Ok(s) => s,
     };
+    // A Git import downloads up to 25 MiB and inflates up to 96 MiB inside this
+    // handler: without the per-account bucket the zip route already has, one
+    // account looping this endpoint pins every tokio worker (audit run-4, F1).
+    match crate::guards::rate_limited(state.db.pool(), &session.username, "rl-skills", crate::guards::SKILLS_RATE_MAX, 60.0).await {
+        Ok(0) => {}
+        Ok(wait) => {
+            return (StatusCode::TOO_MANY_REQUESTS,
+                    Json(json!({"ok": false, "error": format!("Trop d'imports. Réessaie dans {wait} s.")})))
+                .into_response()
+        }
+        Err(_) => return auth::html_status(StatusCode::INTERNAL_SERVER_ERROR),
+    }
     let data = json_object(&headers, &body);
     let field = |k: &str, n: usize| -> String {
         skillstore::py_str_or_empty(data.get(k)).trim_matches(memory::py_is_space).chars().take(n).collect()

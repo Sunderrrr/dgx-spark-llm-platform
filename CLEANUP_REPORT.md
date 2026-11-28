@@ -111,7 +111,7 @@ make readers forget it.
    and **re-enable install scripts** — deliberately not done.
 4. **`@types/node` 26 against a `node:20` image**: pre-existing divergence; fixing it means
    moving the runtime to Node 26.
-5. **Playground page at 2 198 lines**: reaching ~1 200 needs state/effects/handlers moved
+5. **Playground page at 2 193 lines**: reaching ~1 200 needs state/effects/handlers moved
    into hooks (21 effects, 6 network calls at mount). Effect and network ordering cannot be
    proven unchanged without replaying the browser journeys, so it was not attempted; the
    frozen ceiling follows the file down.

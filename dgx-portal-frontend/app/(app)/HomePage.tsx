@@ -39,6 +39,7 @@ import { UserAvatar } from "@/lib/user-avatar";
 import { UsageChart } from "./_components/UsageChart";
 import { useT, useLocale } from "@/lib/i18n";
 import { useSettingsDialog } from "@/lib/settings-dialog";
+import type { RunningModel } from "@/lib/shared-types";
 
 type SysMetrics = {
   cpu_pct: number;
@@ -82,8 +83,6 @@ interface ModelRequest extends Record<string, unknown> {
   status: string;
   created_at: string;
 }
-
-type RunningModel = { name: string; kind: "chat" | "image" | "video" | "ocr" | "voice" | "decisions"; exposed: boolean };
 
 type SidecarMetric = {
   count_today: number;

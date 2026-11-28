@@ -34,9 +34,11 @@ import { streamOcr } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { ModelRequestButton } from "../_components/ModelRequestButton";
 import { useT, useLocale } from "@/lib/i18n";
+import type { RunningModelBase } from "@/lib/shared-types";
 
 type HistoryItem = { id: number; text: string; created_at: string; has_image: boolean };
-type RunningModel = { name: string; kind: "chat" | "ocr" | "video"; exposed: boolean };
+// Kinds this page can meet (see RunningModelKind in lib/shared-types.ts).
+type RunningModel = RunningModelBase & { kind: "chat" | "ocr" | "video" };
 type OcrBlock = { label: string; coords: [number, number, number, number] | null; text: string };
 
 // Two models, two totally different output formats for the detected zones —

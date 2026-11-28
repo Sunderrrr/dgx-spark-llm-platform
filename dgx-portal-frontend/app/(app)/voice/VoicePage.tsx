@@ -36,9 +36,11 @@ import { useDictation } from "@/lib/useDictation";
 import { DictateButton } from "../_components/DictateButton";
 import { ModelRequestButton } from "../_components/ModelRequestButton";
 import { startRecording, type Recorder } from "@/lib/audioRecorder";
+import type { RunningModelBase } from "@/lib/shared-types";
 
 type HistoryItem = { id: number; text: string; created_at: string };
-type RunningModel = { name: string; kind: "chat" | "ocr" | "video" | "voice"; exposed: boolean };
+// Kinds this page can meet (see RunningModelKind in lib/shared-types.ts).
+type RunningModel = RunningModelBase & { kind: "chat" | "ocr" | "video" | "voice" };
 
 /** Chatterbox rejects any sample of 5 s or less (model-side assertion). */
 const MIN_SECONDS = 6;

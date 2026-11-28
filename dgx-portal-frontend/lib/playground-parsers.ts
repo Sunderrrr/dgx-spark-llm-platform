@@ -5,6 +5,8 @@
  *
  * Everything here is pure: no React, no fetch, no DOM. Keep it that way. */
 
+import type { AskQ } from "./shared-types";
+
 // The model asks as many questions as it sees fit — two or ten. These
 // limits are NOT editorial framing but a safety net: a generation
 // that goes off the rails must not produce an endless questionnaire.
@@ -23,8 +25,10 @@ export function isQuestionsBlock(lang: string, body: string): boolean {
   return l === "ask" || ((l === "json" || l === "") && RE_QUESTIONS_BODY.test(body));
 }
 
-// One clarifying question + its proposed answers.
-export type AskQ = { question: string; options: string[] };
+// One clarifying question + its proposed answers. The canonical definition is
+// in lib/shared-types.ts (the question card declares the same type); re-exported
+// so the existing importers of this module keep working.
+export type { AskQ };
 // A model's clarifying block: one or more questions, plus any prose around it.
 export type AskBlock = { questions: AskQ[]; prose: string };
 

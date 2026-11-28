@@ -2,21 +2,11 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useSeed, type Seed } from "@/lib/seed";
-import { Icon } from "@astryxdesign/core/Icon";
 import { Layout, LayoutHeader, LayoutContent } from "@astryxdesign/core/Layout";
 import { useToast } from "@astryxdesign/core/Toast";
 import { VStack, HStack, StackItem } from "@astryxdesign/core/Stack";
 import { useResizable } from "@astryxdesign/core/Resizable";
 import { Heading } from "@astryxdesign/core/Heading";
-import { Text } from "@astryxdesign/core/Text";
-import { Button } from "@astryxdesign/core/Button";
-import {
-  ChatLayout,
-  ChatMessageList,
-} from "@astryxdesign/core/Chat";
-import {
-  SparklesIcon,
-} from "@heroicons/react/24/outline";
 import { useT, tServer } from "@/lib/i18n";
 import { useWhoami } from "@/lib/whoami";
 import { useCsrf } from "@/lib/useCsrf";
@@ -35,7 +25,7 @@ import {
   convAsJson, convAsMarkdown, convTitleFallback, downloadText, type ExportConversation,
 } from "@/lib/export";
 // Pure model-output parsers, extracted for unit tests (tests/playground-parsers.test.ts).
-import { parseAsk, closedContent, openCodeFence, splitInlineThink } from "@/lib/playground-parsers";
+import { parseAsk, closedContent, splitInlineThink } from "@/lib/playground-parsers";
 import {
   CHECKPOINT_MS, beginLiveTurn, endLiveTurn, forSave, fromSaved, getLiveTurn, isLooping,
   recentImages, usePendingFollow, withoutImages,
@@ -52,17 +42,13 @@ import {
   FULL_RESUME_PROMPT,
   RESUME_INSTRUCTION,
   abandonDeclare,
-  docTitleFromContent,
   isResume,
   fileLeftOpen,
   filesUntil,
   fileVersions,
   isDocTask,
-  mimeForLanguage,
-  downloadName,
   parseArtifacts,
   slugify,
-  titleFromContext,
   abortedTurn,
   trimAfterAsk,
   langFromName,
@@ -82,171 +68,30 @@ import { DocumentPanel, type DocumentPanelProps } from "./_components/DocumentPa
 import { FilesDialog } from "./_components/FilesDialog";
 import { VoiceMode } from "./_components/VoiceMode";
 import { diffLines, hunks } from "@/lib/diff";
-import { HistoryDialog } from "./_components/HistoryDialog";
 import { SettingsOverlay } from "./_components/SettingsOverlay";
 import { SnippetsDialog } from "./_components/SnippetsDialog";
 import { SummaryDialog } from "./_components/SummaryDialog";
 import { DocumentPanelFullscreen } from "./_components/DocumentPanelFullscreen";
-import { ThreadMessage } from "./_components/ThreadMessage";
+import { PlaygroundChat } from "./_components/PlaygroundChat";
+import { PlaygroundEmptyState } from "./_components/PlaygroundEmptyState";
+import { PlaygroundHistoryPanel } from "./_components/PlaygroundHistoryPanel";
 import { ThreadTabs } from "./_components/ThreadTabs";
 import { SkillCreator } from "./_components/SkillCreator";
 import { BASE_SKILLS, type Skill, loadCustomSkills, saveCustomSkills, skillMatches } from "@/lib/skills";
 import { VOICE_INSTRUCTION, VOICE_NUDGE } from "@/lib/voice-text";
+import {
+  ATTACH_ACCEPT, ATTACH_EXTENSIONS, IMAGE_ACCEPT, IMAGE_EXTENSIONS, IMAGE_SOURCE_MAX_BYTES,
+  IMAGE_WEIGHT_CHARS, IMAGES_PER_MESSAGE, MAX_ATTACHMENT_BYTES, MAX_IMAGES_PER_REQUEST, prepareImage,
+} from "./_lib/playground-attachments";
+import {
+  ASK_INSTRUCTION, COMPLETENESS_INSTRUCTION, NAME_INSTRUCTION, REWRITE_INSTRUCTION,
+} from "./_lib/playground-prompts";
+import {
+  type Provenance, type StoredSettings, DEFAULT_SETTINGS, artifactRenameKey, loadArtifactRenames,
+  loadPinnedIds, loadSettings, loadSnippets, saveArtifactRenames, savePinnedIds, saveSettings, saveSnippets,
+} from "./_lib/playground-preferences";
+import { derivePanel } from "./_lib/playground-panel";
 
-const DEFAULT_SETTINGS: Settings = {
-  system: "",
-  temperature: 0.7,
-  // The maximum. Only tokens ACTUALLY produced are billed, so a
-  // high ceiling costs nothing on a short answer — and 4096 cleanly cut off any
-  // slightly long answer (full HTML page, large configuration file).
-  // The backend lowers this value to what remains in the context window
-  // once the prompt is counted: a long conversation therefore does not fail,
-  // it simply gets a shorter answer.
-  maxTokens: 131072,
-  topP: 1,
-  reasoning: "auto" as const,
-  // Reasoning effort: '' = leave the model's template at its default
-  // value (recognized values depend on the model — e.g. Qwen3.8: xhigh).
-  reasoningEffort: "",
-};
-
-const ATTACH_ACCEPT =
-  ".md,.markdown,.txt,.text,.log,.logs,.err,.error,.out,.json,.jsonl,.csv,.tsv,.yaml,.yml,.toml,.ini,.conf,.cfg,.env,.py,.js,.ts,.jsx,.tsx,.java,.c,.cpp,.h,.go,.rs,.rb,.php,.sh,.bash,.sql,.html,.css,.xml,.diff,.patch";
-
-const MAX_ATTACHMENT_BYTES = 96 * 1024;
-
-/** Extensions that the `accept` attribute only SUGGESTS: a file picker
- *  always lets « Tous les fichiers » through, and drag-and-drop
- *  ignores it entirely. Without this check, an image was read as TEXT
- *  (`readAsText`) and its binary content went into the prompt as
- *  mojibake, with no warning at all. */
-const ATTACH_EXTENSIONS = ATTACH_ACCEPT.split(",").map((e) => e.trim().toLowerCase());
-
-/** Images: accepted ONLY if the selected model reads them (`model_vision`).
- *  Downscaled in the browser before sending — a phone photo (4 000 px,
- *  5 Mo) would otherwise cost thousands of preload tokens and exceed
- *  the conversation save limit. 1 568 px is enough to read text
- *  or a screenshot. See `prepareImage`: an already reasonable image
- *  goes as is, without going through a canvas. */
-const IMAGE_ACCEPT = ".png,.jpg,.jpeg,.webp,.gif";
-const IMAGE_EXTENSIONS = IMAGE_ACCEPT.split(",");
-const IMAGE_SIDE_MAX = 1568;
-const IMAGE_SOURCE_MAX_BYTES = 25 * 1024 * 1024;
-const IMAGES_PER_MESSAGE = 4;
-/** Images replayed to the model per request: the most recent ones (same bound as the server). */
-const MAX_IMAGES_PER_REQUEST = 8;
-/** Estimated weight of an image in the context window, in characters (~1 500 tokens). */
-const IMAGE_WEIGHT_CHARS = 1500 * 4;
-
-/** Size beyond which an image is downscaled (the server rejects > ~2,2 Mo). */
-const ORIGINAL_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
-
-function readDataUrl(file: Blob): Promise<string> {
-  return new Promise((ok, ko) => {
-    const r = new FileReader();
-    r.onload = () => ok(String(r.result));
-    r.onerror = () => ko(r.error);
-    r.readAsDataURL(file);
-  });
-}
-
-/** Does the canvas really render what is drawn on it?
- *  Measured on 2026-10-01: on some browsers (canvas anti-tracking
- *  protections), reading back yields an EMPTY canvas — the image went out
- *  all black, and the model confidently described an invented scene. */
-function reliableCanvas(): boolean {
-  try {
-    const c = document.createElement("canvas");
-    c.width = c.height = 4;
-    const ctx = c.getContext("2d");
-    if (!ctx) return false;
-    ctx.fillStyle = "rgb(255,0,0)";
-    ctx.fillRect(0, 0, 4, 4);
-    const [r, g, b, a] = ctx.getImageData(1, 1, 1, 1).data;
-    return r > 200 && g < 60 && b < 60 && a > 200;
-  } catch {
-    return false;
-  }
-}
-
-/** The image to send, as a `data:` URL.
- *  An already reasonable image goes AS IS (no canvas: nothing to
- *  damage). Only a large image is downscaled to IMAGE_COTE_MAX in JPEG, and
- *  only if the canvas is reliable; otherwise we refuse rather than send
- *  a black image. */
-async function prepareImage(file: File): Promise<string> {
-  const bmp = await createImageBitmap(file);
-  const { width, height } = bmp;
-  const typeOk = /^image\/(png|jpeg|webp|gif)$/.test(file.type);
-  if (typeOk && file.size <= ORIGINAL_IMAGE_MAX_BYTES && Math.max(width, height) <= IMAGE_SIDE_MAX * 2) {
-    bmp.close();
-    return readDataUrl(file);
-  }
-  if (!reliableCanvas()) {
-    bmp.close();
-    throw new Error("canevas");
-  }
-  const scale = Math.min(1, IMAGE_SIDE_MAX / Math.max(width, height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(width * scale));
-  canvas.height = Math.max(1, Math.round(height * scale));
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("canvas");
-  ctx.fillStyle = "white";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-  bmp.close();
-  return canvas.toDataURL("image/jpeg", 0.85);
-}
-
-
-
-// Appended to the system prompt so the model can ask the user one or several
-// multiple-choice clarifying questions (rendered as selectable answers, submitted
-// together) instead of guessing — the same idea as Claude's "ask the user" tool.
-const ASK_INSTRUCTION = `When you need the user to clarify things before you can answer well, ask your questions as a single fenced block. Output it exactly like this:
-\`\`\`ask
-{"questions": [{"question": "<question 1>", "options": ["<option>", "<option>"]}, {"question": "<question 2>", "options": ["<option>", "<option>", "<option>"]}]}
-\`\`\`
-Strict rules:
-- Before the block you MAY write ONE short introductory sentence (e.g. "Bien sûr ! Quelques précisions pour bien t'aider :"). Do NOT write the questions or their options as normal text anywhere — they go INSIDE the block ONLY.
-- Ask as many questions as are genuinely useful — two if two are enough, more if the request really needs it. Do not pad to reach a number, and do not drop a question that matters. Each question gets 2 to 6 short options in the user's language. Ask everything you need in this one block (the user answers them all at once).
-- Do NOT add an "Other" option (the interface adds one).
-- The user can pick SEVERAL options for the same question, so write options that can be combined rather than mutually exclusive ones whenever that makes sense. Their answer may come back as "A + B".
-- Ask AT MOST ONCE. As soon as the user has answered, you MUST give your real, complete answer using their choices — NEVER reply with another ask block once they have answered.
-- The fence language MUST be \`ask\` — never \`json\` or anything else, or the user will not see clickable questions.
-- Only ask when it genuinely helps; otherwise just answer normally.`;
-
-// Instruction added to the system prompt: fix an already produced file without
-// rewriting it entirely. Rewriting 400 lines to change three costs time,
-// tokens, and reintroduces errors elsewhere in the file.
-// The model names its own files: it knows what the user asked for
-// and which project they fit into. Without this, the UI has to guess and
-// falls back to a generic name.
-const NAME_INSTRUCTION = `Name every file you output: put its path in backticks on the line just before the code block (\`index.html\`, \`roles/web/tasks/main.yml\`), chosen from what the user asked. Reuse the exact same name for a file you already produced.`;
-
-// The partial-edit protocol was removed: on generated code containing
-// errors, a spot fix left a half-right file, and
-// a mis-copied anchor did not apply at all. We ask for the file
-// ENTIRE — it is longer to generate, but what comes out is usable as is.
-// Only for when no file tools are offered: the server arms str_replace on an
-// edit request, and this instruction then made the model skip them and
-// reprint the whole file (2026-10-12) — hence the explicit precedence.
-const REWRITE_INSTRUCTION = `When the user asks you to fix or change a file you already produced: if file-editing tools (str_replace, view_file) are available, use them and do not print the file again. Otherwise, output that file COMPLETE, from its first line to its last, under the exact same name — never a partial file, an excerpt, a diff, or a "rest unchanged" placeholder.`;
-
-// The model GIVES UP on its own on a large file: measured in prod on 22/08,
-// it stopped at 14 187 tokens out of 131 072 available, with
-// finish_reason=stop (so nothing distinguished it from a successful answer),
-// writing « Le fichier est trop long pour etre affiche en entier ici » followed
-// by a truncated file presented as complete. No technical limit was
-// reached. This instruction goes out on EVERY turn, not only when a
-// file already exists, and goes LAST so as not to dilute ASK_INSTRUCTION
-// (whose effectiveness depends on its position at the top, see measurement below).
-// Voice mode: the answer is READ ALOUD sentence by sentence (VoiceMode).
-// Written-chat habits sound absurd spoken — a bullet list, a code block, a
-// URL spelled out — and a long answer keeps the user waiting to talk.
-
-const COMPLETENESS_INSTRUCTION = `Never abridge a file you were asked to produce. Never write that a file is "too long to show here", never say you are giving a "shortened", "simplified" or "essential" version, and never replace any part of a file with an ellipsis, a placeholder, or a comment such as "rest of the code unchanged". There is no display limit: write the file in full, from its first line to its last. If you run out of room before the end, stop mid-file rather than closing it early — you will be asked to continue, and you will resume at the exact character where you stopped. A truncated file presented as complete is the worst possible answer.`;
 
 // Input placeholder: we rotate a few texts (including the « / » trick
 // to call a skill). Each entry is an i18n key (FR-as-msgid).
@@ -259,44 +104,12 @@ const PLACEHOLDER_TEXTS = [
 // « / » commands that open the skill creator.
 const SLASH_CREATE_COMMANDS = ["skill-creator", "create", "new", "creer", "competence", "compétence"];
 
-// Pinned (starred) conversations: a personal preference stored in the browser —
-// no backend migration, shared on this machine.
-const PINNED_KEY = "dgx.pinned.conversations";
-function loadPinnedIds(): string[] {
-  try {
-    return (JSON.parse(localStorage.getItem(PINNED_KEY) || "[]") as string[]);
-  } catch {
-    return [];
-  }
-}
-function savePinnedIds(ids: string[]) {
-  try {
-    localStorage.setItem(PINNED_KEY, JSON.stringify(ids));
-  } catch {
-    /* storage unavailable (private mode): we ignore it */
-  }
-}
 
 // Math/LaTeX: rendering now lives in `lib/maths.tsx`, called by
 // `SafeMarkdown` (see `lib/markdown.tsx`). It could not stay here: an
 // `inlinePlugins` applies PER text node, and the parser splits text at
 // every backslash — so the formula was never recognized. Protecting
 // LaTeX now happens BEFORE the parser.
-const SNIPPET_KEY = "dgx.snippets";
-function loadSnippets(): Snippet[] {
-  try {
-    return (JSON.parse(localStorage.getItem(SNIPPET_KEY) || "[]") as Snippet[]);
-  } catch {
-    return [];
-  }
-}
-function saveSnippets(list: Snippet[]) {
-  try {
-    localStorage.setItem(SNIPPET_KEY, JSON.stringify(list));
-  } catch {
-    /* storage unavailable (private mode): we ignore it */
-  }
-}
 
 // Tabs: several conversations open in parallel. The generation logic
 // stays intact (the live state `messages`/`model`/… belongs to the ACTIVE
@@ -308,86 +121,6 @@ function newTabId() {
   tabSeq += 1;
   return `tab-${Date.now()}-${tabSeq}`;
 }
-
-// Renaming generated files (artifacts). Key = `convId::kind::titre`
-// (file names are made unique by the model) and persisted in
-// localStorage to survive a reload; `convId` prevents the same name
-// (`file-1.yml`) in two conversations from renaming each other.
-const ARTIFACT_RENAME_KEY = "dgx.artifact.renames";
-function loadArtifactRenames(): Record<string, string> {
-  try {
-    return JSON.parse(localStorage.getItem(ARTIFACT_RENAME_KEY) || "{}") as Record<string, string>;
-  } catch {
-    return {};
-  }
-}
-function saveArtifactRenames(m: Record<string, string>) {
-  try {
-    localStorage.setItem(ARTIFACT_RENAME_KEY, JSON.stringify(m));
-  } catch {
-    /* storage unavailable (private mode): we ignore it */
-  }
-}
-function artifactRenameKey(convId: string | null, a: Artifact): string {
-  return `${convId ?? "anon"}::${a.kind}::${a.title}`;
-}
-
-// Playground settings (persona, generation, reasoning): a personal preference
-// kept in the browser, like the pinned conversations and the snippets.
-// « je dois le sélectionner à chaque fois » : NOTHING was saved, so every page
-// load — and every round trip through another page — reset the panel to
-// DEFAULT_SETTINGS, the reasoning choice (Auto / Toujours / Jamais) first. Now
-// loaded ONCE at mount, saved on every change. Per browser, like every other
-// playground preference: a server-side copy would follow the account, this one
-// needs no migration and restores without a single loading frame.
-const SETTINGS_KEY = "dgx.playground.settings";
-type Provenance = "persona" | "skill" | "manual";
-type StoredSettings = { settings: Settings; provenance: Provenance };
-function loadSettings(): StoredSettings {
-  const base: StoredSettings = { settings: DEFAULT_SETTINGS, provenance: "manual" };
-  try {
-    const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null") as
-      (Partial<Settings> & { provenance?: unknown }) | null;
-    if (!raw || typeof raw !== "object") return base;
-    // Field by field over the defaults: a value stored by an OLDER version (or
-    // hand-edited) must not break the panel — unknown or wrong-typed, it is
-    // ignored and the default stands.
-    return {
-      settings: {
-        ...DEFAULT_SETTINGS,
-        system: typeof raw.system === "string" ? raw.system : DEFAULT_SETTINGS.system,
-        temperature: typeof raw.temperature === "number" ? raw.temperature : DEFAULT_SETTINGS.temperature,
-        maxTokens: typeof raw.maxTokens === "number" ? raw.maxTokens : DEFAULT_SETTINGS.maxTokens,
-        topP: typeof raw.topP === "number" ? raw.topP : DEFAULT_SETTINGS.topP,
-        reasoning:
-          raw.reasoning === true || raw.reasoning === false || raw.reasoning === "auto"
-            ? raw.reasoning
-            : DEFAULT_SETTINGS.reasoning,
-        reasoningEffort:
-          typeof raw.reasoningEffort === "string" ? raw.reasoningEffort : DEFAULT_SETTINGS.reasoningEffort,
-      },
-      provenance: raw.provenance === "persona" ? "persona" : "manual",
-    };
-  } catch {
-    return base; // unreadable storage: back to the default settings
-  }
-}
-function saveSettings(settings: Settings, provenance: Provenance) {
-  try {
-    // The system prompt a SKILL injects belongs to that skill, not to the
-    // user's own defaults: selecting a skill must not become the persona of
-    // every conversation to come. We keep the stored one instead.
-    const legacy = loadSettings();
-    const persona =
-      provenance === "skill"
-        ? { system: legacy.settings.system, provenance: legacy.provenance }
-        : { system: settings.system, provenance };
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, ...persona }));
-  } catch {
-    /* storage unavailable (private mode): we ignore it */
-  }
-}
-
 
 
 // Playground settings panel: target width, and safety margin to the
@@ -1936,39 +1669,6 @@ export default function PlaygroundPage({
   const ctxLevel: "accent" | "warning" | "error" =
     used / max >= 0.95 ? "error" : used / max >= 0.8 ? "warning" : "accent";
 
-  // History list: search by title + pinned first, then recent.
-  const q = histQuery.trim().toLowerCase();
-  // `filter().sort()` over all conversations was redone on EVERY render,
-  // hence on every token received, while the list is only read in the
-  // « Historique » box: we only compute it when it is open.
-  const visibleConvs = useMemo(
-    () => (historyOpen
-      ? conversations
-          .filter((c) => !q || (c.title || "").toLowerCase().includes(q))
-          .sort((a, b) => {
-            const pa = pinnedIds.includes(a.id) ? 0 : 1;
-            const pb = pinnedIds.includes(b.id) ? 0 : 1;
-            return pa - pb || ((b.ts ?? 0) - (a.ts ?? 0));
-          })
-      : []),
-    [historyOpen, conversations, q, pinnedIds],
-  );
-  const lastMsg = messages[messages.length - 1];
-  // While a document is being streamed, the chat shows a card (not the raw text)
-  // and the side panel can show a live view of the document being written.
-  const streamingDocActive =
-    streaming && lastMsg?.role === "assistant" && isDocTask(messages[messages.length - 2]?.content ?? "");
-  const liveContent = streamingDocActive ? (lastMsg?.content ?? "") : "";
-  // Code file being written: it displays DIRECTLY in the panel,
-  // not in the chat. On a narrow screen there is no panel — we then let it
-  // scroll in the chat, otherwise the user would see nothing being written.
-  const liveCode =
-    streaming && !isNarrow && lastMsg?.role === "assistant" && !streamingDocActive
-      ? openCodeFence(lastMsg.content ?? "")
-      : null;
-  const liveCodeTitle = liveCode
-    ? titleFromContext((lastMsg?.content ?? "").slice(0, liveCode.start)) || `${liveCode.lang}`
-    : "";
   // Every version of every file (cards « v2 », the panel's tabs and version
   // picker). Keyed on the message COUNT while streaming: the answer being
   // written is left out, so the thread is not re-walked for every token.
@@ -1987,58 +1687,23 @@ export default function PlaygroundPage({
         : t("Le modèle répond aussi à d'autres conversations ({busy}/{total} sessions) : la réponse peut tarder…"))
         .replace("{busy}", String(queueInfo.busy)).replace("{total}", String(queueInfo.total))
     : undefined;
-  const showLiveDoc = liveDocOpen && streamingDocActive;
-  // Between two files (previous block closed, next not started), the panel
-  // keeps the last finished file instead of emptying. Derived from content, no
-  // state: nothing to synchronize, hence nothing to desynchronize.
-  const lastFinished =
-    streaming && !isNarrow && lastMsg?.role === "assistant" && !streamingDocActive
-      ? (parseArtifacts(lastMsg.content ?? "", false, t, messages[messages.length - 2]?.content ?? "").artifacts.slice(-1)[0] ?? null)
-      : null;
-  const pinned = liveCode ? null : (lastFinished ?? artifact);
-  const showLive = showLiveDoc || !!liveCode;
-  // Unified panel values: file being written, last finished file, live document,
-  // else the pinned artifact.
-  const panelIsCode = !!liveCode || pinned?.kind === "code";
-  const panelTitle = liveCode
-    ? liveCodeTitle
-    : showLiveDoc
-      ? docTitleFromContent(liveContent)
-      : (pinned ? renamedTitle(pinned) : "Document");
-  const canRenamePanel = !!pinned && !liveCode && !showLiveDoc;
-  // Versions of the pinned file (the panel's picker). The choice is stored
-  // WITH the artifact it was made on: opening another file falls back to the
-  // version that file's card showed, with nothing to reset.
-  const pinnedVersions = pinned?.kind === "code" && !showLive ? versions.get(pinned.title) : undefined;
-  const pinnedMatch = pinnedVersions ? pinnedVersions.findIndex((v) => v.content === pinned!.content) : -1;
-  const chosen = panelChoice.of === pinned && pinnedVersions ? panelChoice : null;
-  const versionIdx = chosen ? Math.min(chosen.idx, pinnedVersions!.length - 1) : pinnedMatch;
-  const shownVersion = versionIdx >= 0 ? pinnedVersions?.[versionIdx] : undefined;
-  const showChanges = !!chosen?.changes && versionIdx > 0;
+  // The document panel: file being written, last finished file, live
+  // document, else the pinned artifact. Pure derivation, kept in
+  // `_lib/playground-panel`; the preview effect below reads two of its
+  // values, so the effect itself stays here and its order is unchanged.
+  const {
+    liveCode, lastFinished, showLive, panelIsCode, panelTitle, panelSubtitle, panelContent,
+    panelLang, panelIsHtml, panelDownloadName, panelDownloadMime, canRenamePanel,
+    pinned, chosen, pinnedVersions, versionIdx, showChanges,
+  } = derivePanel({
+    messages, streaming, isNarrow, artifact, liveDocOpen, panelChoice, versions, t, renamedTitle,
+  });
   const changeLines = useMemo(
     () => (showChanges && pinnedVersions
       ? hunks(diffLines(pinnedVersions[versionIdx - 1].content, pinnedVersions[versionIdx].content))
       : null),
     [showChanges, pinnedVersions, versionIdx],
   );
-  const panelContent = liveCode
-    ? liveCode.body
-    : showLiveDoc
-      ? liveContent
-      : (shownVersion?.content ?? pinned?.content ?? "");
-  const panelSubtitle = liveCode
-    ? t("Écriture en cours…")
-    : showLiveDoc
-      ? t("Rédaction en cours…")
-      : (panelIsCode && pinned?.kind === "code" ? pinned.lang : "");
-  const panelLang = liveCode ? liveCode.lang : (pinned?.kind === "code" ? pinned.lang : "text");
-  // A finished HTML page can be WATCHED, not only read as code. We do not
-  // offer it while it is being written: a half-written render flickers.
-  const panelIsHtml = !liveCode && panelIsCode && /^html?$/i.test(panelLang);
-  const panelDownloadName = panelIsCode
-    ? downloadName(panelTitle, panelLang)
-    : `${slugify(panelTitle)}.md`;
-  const panelDownloadMime = panelIsCode ? mimeForLanguage(panelLang) : "text/markdown";
   // Publishes the page to preview as soon as its content changes. External write
   // (network) followed by a state update AFTER the await: no cascading
   // render. Nothing is published while no preview is being watched.
@@ -2389,73 +2054,38 @@ export default function PlaygroundPage({
             newTab={newTab}
           />
           {isFirstEmpty ? (
-            <StackItem size="fill">
-              <VStack width="100%" height="100%" vAlign="center" hAlign="center" gap={4} padding={4}>
-                <HStack gap={2} vAlign="center">
-                  <Icon icon={SparklesIcon} size="lg" color="accent" />
-                  <Text type="display-2" as="h1">{greeting}</Text>
-                </HStack>
-                <HStack gap={4} width="100%" hAlign="center">
-                  <VStack maxWidth={720} width="100%">{composerNode}</VStack>
-                </HStack>
-              </VStack>
-            </StackItem>
+            <PlaygroundEmptyState greeting={greeting} composer={composerNode} />
           ) : (
-          <ChatLayout
-            density="spacious"
-            composer={composerNode}
-            ref={followBottomSetRef}
-            scrollButton={
-              showScrollDown ? (
-                <Button
-                  label={t("Descendre")}
-                  variant="secondary"
-                  size="sm"
-                  onClick={scrollToBottom}
-                />
-              ) : null
-            }>
-            <ChatMessageList
-              emptyState={
-                <VStack gap={2} hAlign="center">
-                  <Text type="display-2" as="h1">{greeting}</Text>
-                  <Text type="supporting" color="secondary">{t("Écris ton message ci-dessous pour commencer.")}</Text>
-                </VStack>
-              }>
-                {messages.map((m, i) => (
-                  <ThreadMessage
-                    key={i}
-                    m={m}
-                    i={i}
-                    messages={messages}
-                    streaming={streaming}
-                    liveCode={liveCode}
-                    isNarrow={isNarrow}
-                    webSteps={webSteps}
-                    editingIdx={editingIdx}
-                    liveStats={liveStats}
-                    resume={resume}
-                    model={model}
-                    renamedTitle={renamedTitle}
-                    versions={versions}
-                    waitLabel={waitLabel}
-                    onAnswerNow={answerNow}
-                    onAnswer={answer}
-                    onRequestFullFile={requestFullFile}
-                    onRedoFile={redoFile}
-                    onContinue={continueTurn}
-                    onRegenerate={regenerate}
-                    onEditMessage={editMessage}
-                    onOpenImage={setViewedImage}
-                    onOpenArtifact={(a) => {
-                      setArtifact(a);
-                      setRenamingArtifact(false);
-                    }}
-                    onOpenLiveDoc={openLiveDoc}
-                  />
-                ))}
-            </ChatMessageList>
-          </ChatLayout>
+            <PlaygroundChat
+              composer={composerNode}
+              followBottomSetRef={followBottomSetRef}
+              showScrollDown={showScrollDown}
+              scrollToBottom={scrollToBottom}
+              greeting={greeting}
+              messages={messages}
+              streaming={streaming}
+              liveCode={liveCode}
+              isNarrow={isNarrow}
+              webSteps={webSteps}
+              editingIdx={editingIdx}
+              liveStats={liveStats}
+              resume={resume}
+              model={model}
+              renamedTitle={renamedTitle}
+              versions={versions}
+              waitLabel={waitLabel}
+              onAnswerNow={answerNow}
+              onAnswer={answer}
+              onRequestFullFile={requestFullFile}
+              onRedoFile={redoFile}
+              onContinue={continueTurn}
+              onRegenerate={regenerate}
+              onEditMessage={editMessage}
+              onOpenImage={setViewedImage}
+              setArtifact={setArtifact}
+              setRenamingArtifact={setRenamingArtifact}
+              onOpenLiveDoc={openLiveDoc}
+            />
           )}
           </VStack>
           </StackItem>
@@ -2500,14 +2130,12 @@ export default function PlaygroundPage({
             archiveName={convTitleFallback(messages, t("Conversation"))}
             onOpen={(a) => { setArtifact(a); setRenamingArtifact(false); }}
           />
-          <HistoryDialog
+          <PlaygroundHistoryPanel
             historyOpen={historyOpen}
             setHistoryOpen={setHistoryOpen}
-            count={conversations.length}
+            conversations={conversations}
             histQuery={histQuery}
             setHistQuery={setHistQuery}
-            q={q}
-            visibleConvs={visibleConvs}
             currentId={currentId}
             renamingId={renamingId}
             setRenamingId={setRenamingId}

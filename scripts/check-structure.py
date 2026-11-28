@@ -20,7 +20,7 @@ MAX_LINES = 1200
 
 # Files above MAX_LINES on 2026-10-13, frozen at their size that day.
 FROZEN = {
-    'dgx-portal-frontend/app/(app)/playground/PlaygroundPage.tsx': 2585,
+    'dgx-portal-frontend/app/(app)/playground/PlaygroundPage.tsx': 2198,
 }
 
 SOURCE_EXT = ('.py', '.ts', '.tsx', '.js', '.mjs', '.sh')

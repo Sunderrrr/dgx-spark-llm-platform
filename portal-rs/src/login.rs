@@ -4,6 +4,7 @@
 //! store. The passkey second factor is checked in webauthn.rs.
 use hmac::Hmac;
 use sha2::Sha256;
+use crate::clock::now_s;
 
 /// werkzeug `check_password_hash` for the `scrypt:` and `pbkdf2:` methods.
 pub fn check_password_hash(stored: &str, password: &str) -> bool {
@@ -98,15 +99,11 @@ use axum::response::{IntoResponse, Response};
 
 use crate::AppState;
 
-fn now() -> f64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
-}
-
 /// `_login_locked`: seconds of lock left on a key.
 pub async fn locked(pool: &sqlx::SqlitePool, key: &str) -> i64 {
     let until: Option<Option<f64>> = sqlx::query_scalar("SELECT locked_until FROM login_attempts WHERE key=?").bind(key).fetch_optional(pool).await.ok().flatten();
     match until.flatten() {
-        Some(u) if u != 0.0 => ((u - now()) as i64).max(0),
+        Some(u) if u != 0.0 => ((u - now_s()) as i64).max(0),
         _ => 0,
     }
 }
@@ -302,11 +299,11 @@ pub async fn apply_session(state: &AppState, headers: &HeaderMap, ip: &str, user
         Some(c) => c,
         None => return Err(crate::auth::html_status(StatusCode::INTERNAL_SERVER_ERROR)),
     };
-    let auth_at = now() as i64;
+    let auth_at = now_s() as i64;
     let max_age: i64 = std::env::var("SESSION_MAX_AGE").ok().and_then(|v| v.parse().ok()).unwrap_or(12 * 3600);
     let ua: String = headers.get(axum::http::header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or("").chars().take(400).collect();
     if sqlx::query("INSERT INTO user_sessions (sid, username, auth_at, expires_at, revoked, created_at, ip, user_agent) VALUES (?, ?, ?, ?, 0, ?, ?, ?)")
-        .bind(&sid).bind(username).bind(auth_at).bind(auth_at + max_age).bind(now()).bind(ip).bind(&ua)
+        .bind(&sid).bind(username).bind(auth_at).bind(auth_at + max_age).bind(now_s()).bind(ip).bind(&ua)
         .execute(pool).await.is_err()
     {
         return Err(crate::auth::html_status(StatusCode::INTERNAL_SERVER_ERROR));
@@ -333,7 +330,7 @@ const LOGIN_LOCK: f64 = 900.0;
 /// `_login_fail(key)`: one more failure in the window; the sixth locks the
 /// key for 15 min, and the lock is audited.
 pub async fn fail(pool: &sqlx::SqlitePool, key: &str) {
-    let t = now();
+    let t = now_s();
     let row: Option<(i64, f64)> = sqlx::query_as("SELECT fails, CAST(first_at AS REAL) FROM login_attempts WHERE key=?").bind(key).fetch_optional(pool).await.ok().flatten();
     let (fails, first_at) = match row {
         Some((f, first)) if t - first <= LOGIN_WINDOW => (f + 1, first),

@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use sqlx::SqlitePool;
 
-use crate::handlers::admin_budget::{key_duration, update_envelope};
+use crate::handlers::admin_routes::{key_duration, update_envelope};
 use crate::keys;
 use crate::AppState;
 

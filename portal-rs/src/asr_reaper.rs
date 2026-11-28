@@ -9,11 +9,12 @@
 //! the stop lock while the Flask copy was still running.
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use crate::asr_ondemand::{note_activity, sidecar_action, state_dir};
 use crate::db::Database;
 use crate::sidecars;
+use crate::clock::now_s;
 
 /// `_ASR_IDLE_S`: no transcription for this long means stop the container.
 pub const IDLE_S: f64 = 600.0;
@@ -65,10 +66,6 @@ pub fn needs_repair(chat_running: bool, container_running: bool, model_loaded: b
 const REPAIR_S: u64 = 180;
 static LAST_REPAIR: Mutex<Option<Instant>> = Mutex::new(None);
 
-fn now_epoch() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
-}
-
 /// Age of a file, from its mtime. None when it cannot be read.
 fn age_of(p: &Path) -> Option<Duration> {
     std::fs::metadata(p).ok()?.modified().ok()?.elapsed().ok()
@@ -109,7 +106,7 @@ pub fn idle_s(dir: &Path) -> Option<f64> {
 /// here, as Flask does, so the next check has a reference point.
 fn decide(chat_running: bool) -> Gate {
     let dir = state_dir();
-    let g = gate(calls_in_flight(&dir, Duration::from_secs(CALL_MAX_S)), pinned(&dir, now_epoch()), idle_s(&dir), chat_running);
+    let g = gate(calls_in_flight(&dir, Duration::from_secs(CALL_MAX_S)), pinned(&dir, now_s()), idle_s(&dir), chat_running);
     if g == Gate::Arm {
         note_activity();
     }
@@ -263,12 +260,12 @@ mod tests {
     #[test]
     fn pin_holds_until_its_epoch() {
         let dir = scratch("pin");
-        std::fs::write(dir.join("pinned"), (now_epoch() + 100.0).to_string()).unwrap();
-        assert!(pinned(&dir, now_epoch()));
+        std::fs::write(dir.join("pinned"), (now_s() + 100.0).to_string()).unwrap();
+        assert!(pinned(&dir, now_s()));
         std::fs::write(dir.join("pinned"), "1000.0").unwrap();
-        assert!(!pinned(&dir, now_epoch()));
+        assert!(!pinned(&dir, now_s()));
         std::fs::write(dir.join("pinned"), "garbage").unwrap();
-        assert!(!pinned(&dir, now_epoch()));
+        assert!(!pinned(&dir, now_s()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

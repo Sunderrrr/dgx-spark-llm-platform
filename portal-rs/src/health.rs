@@ -17,6 +17,7 @@ use sqlx::PgPool;
 use crate::db::Database;
 use crate::ranking::round_to;
 use crate::models;
+use crate::clock::now_s;
 
 /// Sum of a Prometheus metric's samples (exact name, labels ignored), or None
 /// when the metric is absent. Pure.
@@ -123,10 +124,6 @@ fn engine_base() -> String {
 
 fn client(timeout: u64) -> Option<reqwest::Client> {
     reqwest::Client::builder().timeout(Duration::from_secs(timeout)).build().ok()
-}
-
-fn now_s() -> f64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
 }
 
 static SLOT_TASKS: Mutex<Option<HashMap<String, f64>>> = Mutex::new(None);

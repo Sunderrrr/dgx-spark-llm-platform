@@ -3,6 +3,7 @@
 //! origin — never the viewer's cookies or the API with their rights.
 use super::*;
 use axum::http::Uri;
+use crate::clock::now_s;
 
 const PREVIEW_TTL_S: f64 = 3600.0;
 /// Per-account cap (an account's burst only evicts its own previews).
@@ -62,13 +63,9 @@ fn py_str(v: &Value) -> String {
     }
 }
 
-fn now_epoch() -> f64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
-}
-
 /// `_preview_purge` then the insert, in one transaction.
 async fn store(pool: &sqlx::SqlitePool, username: &str, pid: &str, html: &str) -> Result<(), sqlx::Error> {
-    let now = now_epoch();
+    let now = now_s();
     let mut tx = pool.begin().await?;
     sqlx::query("DELETE FROM previews WHERE created_at < ?").bind(now - PREVIEW_TTL_S).execute(&mut *tx).await?;
     sqlx::query(
@@ -87,7 +84,7 @@ async fn store(pool: &sqlx::SqlitePool, username: &str, pid: &str, html: &str) -
         .bind(pid)
         .bind(username)
         .bind(html)
-        .bind(now_epoch())
+        .bind(now_s())
         .execute(&mut *tx)
         .await?;
     tx.commit().await

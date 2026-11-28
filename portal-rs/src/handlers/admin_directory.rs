@@ -7,6 +7,7 @@ use super::*;
 use super::admin_routes::admin_guard;
 use super::admin_writes::{add_announcement, admin_form, json_error, json_ok, username_ok};
 use std::collections::{BTreeSet, HashMap};
+use crate::clock::now_s;
 
 /// A `local_users` row as these views read it.
 struct LocalRow {
@@ -60,10 +61,6 @@ async fn locals(pool: &sqlx::SqlitePool, filter: &str, arg: Option<&str>) -> Vec
 
 async fn owner(state: &AppState) -> String {
     state.db.get_setting("owner_username").await.ok().flatten().unwrap_or_default()
-}
-
-fn epoch_now() -> f64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
 }
 
 /// GET /api/admin/users - every known account, its sources and state.
@@ -200,7 +197,7 @@ pub async fn api_admin_users(State(state): State<AppState>, headers: HeaderMap) 
             json!({"name": n, "max_budget": b.map(num), "is_admin": a, "sources": s.clone().unwrap_or_default().split(',').filter(|x| !x.is_empty()).collect::<Vec<_>>(), "members": members.get(n).copied().unwrap_or(0)})
         })
         .collect();
-    Json(json!({"users": out, "groups": groups_out, "default_budget": default, "budget_duration": super::admin_groups::default_duration(&state).await})).into_response()
+    Json(json!({"users": out, "groups": groups_out, "default_budget": default, "budget_duration": super::admin_routes::key_duration(&state).await})).into_response()
 }
 
 /// GET /admin/users/<username>/detail - everything known about one account
@@ -367,7 +364,7 @@ fn backup_state() -> Value {
     let Some((last, t)) = found.iter().max_by(|a, b| a.1.total_cmp(&b.1)).cloned() else {
         return json!({"latest": null, "age_hours": null, "fresh": false, "count": 0, "readable": true});
     };
-    let age = (epoch_now() - t) / 3600.0;
+    let age = (now_s() - t) / 3600.0;
     json!({"latest": last, "age_hours": round1(age), "fresh": age <= 26.0, "count": found.len(), "readable": true})
 }
 
@@ -398,7 +395,7 @@ async fn model_state(state: &AppState) -> Value {
         if let Ok(o) = serde_json::from_str::<Value>(if served.is_empty() { "{}" } else { &served }) {
             if o.get("name") == Some(&name) {
                 if let Some(since) = o.get("since").filter(|v| keys::truthy(v)).and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))) {
-                    uptime = json!(((epoch_now() - since) as i64).max(0));
+                    uptime = json!(((now_s() - since) as i64).max(0));
                 }
             }
         }
@@ -409,7 +406,7 @@ async fn model_state(state: &AppState) -> Value {
 async fn portal_state(pool: &sqlx::SqlitePool) -> Value {
     let path: Option<String> = sqlx::query("PRAGMA database_list").fetch_optional(pool).await.ok().flatten().and_then(|r| r.try_get::<String, _>(2).ok());
     let size = path.filter(|p| !p.is_empty()).and_then(|p| std::fs::metadata(p).ok()).map(|m| round1(m.len() as f64 / 1024f64.powi(2)));
-    let now = epoch_now();
+    let now = now_s();
     let one = |sql: &'static str| async move { sqlx::query_scalar::<_, i64>(sql).bind(now).fetch_one(pool).await.unwrap_or(0) };
     let utc = keys::iso(&chrono::Utc::now().naive_utc());
     json!({
@@ -459,7 +456,7 @@ pub async fn admin_platform(State(state): State<AppState>, headers: HeaderMap) -
         "memory": {"available_gib": mem.map(round1), "low_gib": 8},
         "directory": directory_state(&state).await,
         "maintenance": state.db.maintenance_active().await,
-        "checked_at": epoch_now() as i64,
+        "checked_at": now_s() as i64,
     }))
     .into_response()
 }

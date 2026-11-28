@@ -136,25 +136,32 @@ Three details worth knowing, all found by testing:
 
 A **decision model** answers typed questions about an input instead of writing
 text: a yes/no probability, a pick from a fixed list, a score on an ordered
-scale. The platform serves one, LiquidAI **d1-3B** `Q4_K_M`, under the name
-**`clef-q4km`**, on the same gateway and with the same keys and budgets as chat.
-It is **not** a chat model: `/v1/chat/completions` does not exist for it.
+scale. The platform serves one, LiquidAI **d1-3B**, in **bf16** (its
+`config.json` declares `"dtype": "bfloat16"`, loaded in bf16 on the GPU),
+registered as **`d1-3b`**, on the same gateway and with the same keys and
+budgets as chat. It is **not** a chat model: `/v1/chat/completions` does not
+exist for it. The engine is the `d1-decisions` container
+(`systemd/d1-decisions.service`), which serves `/v1/systemone` itself — there is
+no llama.cpp and no GGUF in this path. The admin catalog still carries a legacy
+`clef-q4km` name; it is a catalog label, not the served model.
 
 ### Images
 
-The model is **multimodal**: the repo ships the projector
-(`mmproj-Cloudflare_clef-f16.gguf`, 885 MB) and llama.cpp's `/v1/systemone` takes
-`files` — a list of `data:image/...;base64,...` URLs, up to 4 here, 4 MB each.
-Measured on this box: an image adds ~1 150 input tokens and changes the answer
-(a screenshot of the portal is read as « interface » at 0.96).
+The model is multimodal in principle (d1-3B is built on LFM2.5-VL), but the HTTP
+image path is **not wired end to end yet**:
 
-> The page's requests with images do **not** go through LiteLLM: 1.104.3 refuses
-> an image input for every System One provider (« System One providers accept
-> text input only », verified on the pinned image), so the portal calls the
-> engine directly via `DECISIONS_API_BASE` for those. Consequence to know: an
-> image request is not in LiteLLM's spend logs, so it does not consume the key's
-> budget; it stays bounded by the page's own rate limit. Text-only requests keep
-> going through the gateway, billed and budgeted as usual.
+- the workbench page offers up to **four images** (4 MB each) and the portal
+  relays them to the engine directly, because the gateway's System One routes
+  are text-only (the provider answers « System One providers accept text input
+  only »). Such a call is therefore not in LiteLLM's spend logs and does not
+  consume the key's budget — it stays bounded by the page's own rate limit;
+- the page sends a field named `files` while the d1 server reads `images`, and
+  it passes the raw `data:` URLs to the model, which expects decoded images.
+  Measured 2026-11-28: `files` is silently ignored (text-only answer), `images`
+  answers **500**.
+
+Until the two sides agree, treat the served model as **text-only**. Text
+requests keep going through the gateway, billed and budgeted as usual.
 
 Two routes, one model (LiteLLM serves both from the same deployment; the model
 is registered with `mode: decisions`):
@@ -165,7 +172,7 @@ curl https://api.example.org/v1/systemone \
   -H "Authorization: Bearer sk-your-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "clef-q4km",
+    "model": "d1-3b",
     "state": "Client : facturé deux fois pour la commande 4411, personne n a répondu.",
     "questions": {
       "remboursement": {"type": "noul", "instructions": "Le client demande-t-il un remboursement ?"},
@@ -183,7 +190,7 @@ curl https://api.example.org/v1/decisions \
   -H "Authorization: Bearer sk-your-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "clef-q4km",
+    "model": "d1-3b",
     "input": "Client : facturé deux fois pour la commande 4411.",
     "questions": [
       {"type": "predicate", "name": "remboursement", "instructions": "Demande-t-il un remboursement ?"},
@@ -207,9 +214,11 @@ Facts worth knowing before writing a client:
 - **Keys, budgets and spend apply**: the call goes through LiteLLM like chat, so
   a spent budget answers **429**. The model has no vendor price; the route is
   stamped at 1 like the other self-hosted models.
-- The model is **started by an administrator** (Admin, or the page's button) and
-  lives on its own port: starting it never replaces the chat model, and it is
-  refused when the memory left would not hold it.
+- The engine is the **`d1-decisions` service**: it comes up with its systemd
+  unit, stays warm (5.9 GiB of bf16 weights) and never replaces the chat model.
+  `systemctl status d1-decisions` or `curl http://172.19.0.1:8002/health` tells
+  you whether it answers; a 503 from the API means the container is loading or
+  down.
 
 ## Thinking over the API
 

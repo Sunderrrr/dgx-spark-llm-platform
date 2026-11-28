@@ -74,9 +74,10 @@ bare repo id uses `-hf` (which can pick the wrong shard).
   Their pseudo-flags (`--llama-k2`, `--llama-next`, `--llama-prism`,
   `--llama-atomic`, `--vllm-025/027/028/nightly`) were removed **from the runner
   and from the parity fixture**: a flag whose binary is gone fails a launch with
-  a misleading message, so it must not exist. `--llama-clef` is NOT one of them
-  — the decisions engine has its own binary (`llama-b11936`) and needs
-  `--mmproj`, a newer llama.cpp than the chat one.
+  a misleading message, so it must not exist. The Clef build and its `--mmproj`
+  have no home here either: Clef was retired on 2026-11-25 and the decision
+  model is the d1 container now (see
+  [the decision model](#the-decision-model)).
 - **`llamacpp`** uses `LLAMA_BIN` (env), which comes from `.env` and not from the
   code default. It points at your llama-server build (the
   TurboQuant fork, `bailingmoe3` + `deepseek4`). Both builds are dynamic
@@ -138,14 +139,16 @@ bare repo id uses `-hf` (which can pick the wrong shard).
   not know** (id 142), so loading it fails and a "just to see" attempt costs the
   memory of the served model. Know it BEFORE loading: HTTP `Range` request on the
   GGUF (32 MiB is enough) + read the header (`general.architecture`, type
-  projection), then `strings`/`nm` on the candidate binary's `.so` files. It runs
-  on the Prism ML fork build (`ubuntu-vulkan-arm64`, `b10743`,
-  `/root/llama-prism/…`, overridable via `LLAMA_BIN_PRISM`), via `--llama-prism`.
-  Three pitfalls: that build is older and ignores `--kv-unified-per-slot` (use
-  `--ctx-size 1048576 --parallel 4` without `--kv-unified` for 4 private 256k
-  slots). Its projector is the same as the Qwen3.8-27B one. The `--llama-prism`
-  pseudo-flag only exists for the runner **after a restart** (`BIN_FLAG_PATHS` is
-  built at import), and that restart kills the served model.
+  projection), then `strings`/`nm` on the candidate binary's `.so` files. It used
+  to run on the Prism ML fork build (`ubuntu-vulkan-arm64`, `b10743`,
+  `/root/llama-prism/…`) through the `--llama-prism` pseudo-flag; **that path is
+  gone** — the fork and the flag were deleted on 2026-10-29, so the model cannot
+  be launched today. Three pitfalls if it comes back: that build is older and
+  ignores `--kv-unified-per-slot` (use `--ctx-size 1048576 --parallel 4` without
+  `--kv-unified` for 4 private 256k slots); its projector is the same as the
+  Qwen3.8-27B one; and restoring the flag means a new entry in
+  [`vllm-runner-rs/src/flags.rs`](../vllm-runner-rs/src/flags.rs) plus a rebuild
+  and a runner restart — which kills the served model.
 - **K2-Horizon**: entry **removed from the catalog** and `Q8_0` weights (37.1 GiB)
   **deleted** on 2026-09-13. Serving it again requires re-downloading them, and
   the `k2_horizon` arch is in no llama.cpp build of this repository (fork only,
@@ -226,90 +229,91 @@ memory that the kernel OOM killer CAN see (unlike GPU allocations).
 
 ## The decision model
 
-A decision model is not a chat model: Cloudflare **Clef** reads a state and a
+A decision model is not a chat model: LiquidAI **d1-3B** reads a state and a
 schema of typed questions and returns probabilities in **one forward pass**. It
 has no chat endpoint, so it cannot be served on `:8000` without replacing the
-chat model — and it must not. The runner therefore keeps a **second**
-`llama-server`, on its own port (`8002` by default), started and stopped
-explicitly:
+chat model — and it must not. It runs in its **own container**, started by
+`systemd/d1-decisions.service`, published on the docker bridge at
+`172.19.0.1:8002`:
 
-| Route (runner) | Effect |
+| Piece | Value |
 |---|---|
-| `GET /decisions/status` | state, port, pid, memory left — what the page shows |
-| `POST /decisions/start` | spawn it, after the memory floor check |
-| `POST /decisions/stop` | kill **that** process only |
-| `GET /decisions/logs` | its startup journal, capped like the chat model's |
+| Unit | `d1-decisions.service` (`install.sh` installs it; enable it once with `systemctl enable --now d1-decisions`) |
+| Image | `d1-decisions:3b-cu130`, built from `decisions-d1/Dockerfile` (CUDA 13 runtime, torch cu130, `transformers>=5.14`) |
+| Weights | mounted read-only at `/app/model`, in **bf16** (`config.json` → `"dtype": "bfloat16"`, loaded in bf16 on the GPU) |
+| HTTP | `POST /v1/systemone` served by `decisions-d1/server.py` (FastAPI), plus `GET /health` and `GET /v1/models` |
+| Publish | `-p 172.19.0.1:8002:8002` — docker bridge only, never host-wide |
 
-Rules, all of them measured or structural:
+The System One contract (`state`, typed `questions`, `answers`, `usage`) is
+[api → decisions](api.md#decisions); the engine answers it itself — there is no
+llama.cpp and no GGUF in this path any more. The admin catalog still carries a
+legacy `clef-q4km` row; it is a catalog name, not the served model.
 
-- **It is never started automatically.** No auto-resume, no boot start: it costs
-  ~17.65 GB of the unified pool, and the chat model already holds most of it.
-- **The memory floor applies** (`MIN_FREE_TO_LAUNCH_GIB`, 30 GiB by default): a
-  start below it is **refused**, with the number in the message. The fix is to
-  stop a media sidecar — never to shrink the chat model.
-- **The runtime guard is the same**: the runner kills this process (only this
-  one) if `MemAvailable` falls under `CRITICAL_FREE_GIB`.
-- **LiteLLM reaches it on the docker bridge**, like `:8000`: `vllm-restrict.service`
-  admits `8002` from `172.19.0.0/16` and loopback, and drops it from the VPN.
-  Without that port admitted, the portal sees the engine and LiteLLM does not.
-- **No streaming.** A decision is one pass; LiteLLM documents the decision routes
-  as non-streamed.
-- **Concurrency is not promised.** llama-server's slot behaviour for a decision
-  model was not measured on this box; assume one request at a time until you have
-  measured otherwise.
+Rules, all of them structural or measured:
 
-### Activating it (manual, not done by an update)
+- **It is a service, not an on-demand process.** Clef was spawned on request by
+  the runner; that path was retired with Clef on 2026-11-25. d1 is small (5.9 GiB
+  of bf16 weights) and stays warm next to the chat model, so a decision costs
+  milliseconds instead of a load on the first one. Once enabled, it comes up at
+  boot.
+- **It never replaces the chat model.** Starting or stopping this unit touches
+  only its own container.
+- **No memory limit on the container.** The unit sets no `--memory`: on the GB10
+  a container memory cap also caps GPU memory and breaks CUDA loading.
+- **The port is on the docker bridge only.** `vllm-restrict.service` admits
+  `8002` from loopback and `172.19.0.0/16` and drops it from the VPN — that is
+  how LiteLLM and the portal reach it. Nothing is published beyond the bridge.
+- **No streaming.** A decision is one pass; `usage.output_tokens` is 0.
+- **One decision at a time.** `server.py` serialises calls with a lock; there is
+  no slot pool to tune.
+- **The runner's `/decisions/*` routes are legacy.** `vllm-runner-rs/src/decisions.rs`
+  still answers `/decisions/status|start|stop|logs`, and Admin → Modèles still
+  has buttons wired to them, but they do **not** manage this container (a start
+  there would try to bind a port the container already holds). Use systemd.
 
-Nothing below happens on its own: no weight is downloaded by the platform.
+### Running it
 
-1. **Get a `llama-server` that knows the architecture and the endpoint.** Clef
-   landed in llama.cpp around **b11430**; the chat binary on this box is older
-   and knows neither the `clef` architecture nor `/v1/systemone` (checked with
-   `strings`: no `systemone` at all). The project publishes prebuilt aarch64
-   CUDA builds, and they work on the GB10: **b11936**
-   (`llama-b11936-bin-ubuntu-cuda-13.4-arm64.tar.gz` plus its
-   `cudart-…-cuda-13.4-arm64.tar.gz` runtime, unpacked side by side) runs on the
-   r580 driver **without `LD_LIBRARY_PATH`** — the binary carries an `$ORIGIN`
-   rpath. Measured end to end on this box: a real request came back with
-   *facturation* at 0.9899, confidence 0.98, and an urgency score of 2.49 on 3.
-   Keep it **separate** from the chat binary (`LLAMA_BIN_DECISIONS`): upgrading
-   the one serving chat is the risk this split removes.
-2. **Download the quant** into the models directory, under the slug you will
-   reference:
+1. **Start / stop / inspect**:
    ```bash
-   mkdir -p "$MODELS_DIR/clef-q4km"
-   hf download bartowski/Cloudflare_clef-GGUF \
-     --include "Cloudflare_clef-Q4_K_M.gguf" --local-dir "$MODELS_DIR/clef-q4km"
+   sudo systemctl start d1-decisions      # or restart, stop
+   systemctl status d1-decisions
+   journalctl -u d1-decisions -f           # the container's output
    ```
-   `DECISIONS_MODEL=local:clef-q4km` resolves the first `*.gguf` shard of that
-   folder, the same resolver the chat models use.
-3. **Set the keys** — in `/etc/vllm-runner/paths.env` for the runner (which
-   needs `DECISIONS_MODEL`, `LLAMA_BIN_DECISIONS`, `DECISIONS_PORT`), and in
-   `.env` for the portal if you want it to know the declaration before the
-   runner reports it. See [configuration](configuration.md#configuration).
-4. **Restart `vllm-runner`** so it reads them — the environment is read at
-   startup. This **kills the chat model**: do it in a window, it is not a
-   zero-downtime change.
-5. **Admit the port**: install/restart `vllm-restrict.service` (the tracked unit
-   now lists `8002`). A container that cannot reach it gets a timeout, not an
-   error message.
-6. **Start it** from Admin → Décisions (or `POST /decisions/start` on the runner
-   with the token). A successful start **registers the LiteLLM route** with
-   `mode: decisions`; a refused start registers nothing.
-7. **Verify end to end**, with a user key:
+   `journalctl` is the log: the unit runs `docker run` under systemd, so the
+   container's stdout lands there.
+2. **Build the image** if it is absent — the unit only runs it:
+   ```bash
+   docker build -t d1-decisions:3b-cu130 decisions-d1/
+   ```
+   The weights live in the directory the unit mounts read-only at `/app/model`
+   (`/root/models/d1-3b` in the shipped unit; `install.sh` rewrites the home
+   prefix). The model ships its own code, loaded with `trust_remote_code` from
+   that read-only directory.
+3. **Check that it answers**:
+   ```bash
+   curl -fsS http://172.19.0.1:8002/health
+   # {"status":"ok","model":"d1-3B","error":null}
+   ```
+   `503` with `"status":"loading"` means the weights are still loading; a
+   connection refused means the unit is down (`systemctl status`). `GET /v1/models`
+   answers `d1-3b`.
+4. **Verify end to end**, with a user key:
    ```bash
    curl https://api.example.org/v1/systemone \
      -H "Authorization: Bearer sk-…" -H "Content-Type: application/json" \
-     -d '{"model":"clef-q4km","state":"test","questions":{"ok":{"type":"noul","instructions":"Is this a test?"}}}'
+     -d '{"model":"d1-3b","state":"test","questions":{"ok":{"type":"noul","instructions":"Is this a test?"}}}'
    ```
-   `noul` must come back as a probability. A 400 naming the model means the route
-   is not registered; a 503 means the engine is not running.
+   `noul` must come back as a probability. A 400 naming the model means the
+   LiteLLM route is not registered; a 503 means the container is loading or down.
 
-Optional: the repository also ships a multimodal projector
-(`mmproj-Cloudflare_clef-f16.gguf`). The page does **not** offer images in this
-version: adding it means passing `--mmproj` in `DECISIONS_ARGS` and teaching the
-page to send `files`. Until the whole path is validated, treat the served model
-as **text-only**.
+**Images are not usable end to end yet.** The page offers up to four images
+(4 MB each) and the portal relays them to the engine directly (LiteLLM refuses
+image input on the System One routes), but the two sides do not agree: the page
+sends `files`, the d1 server reads `images`, and it hands the raw data URLs to
+the model, which expects decoded images. Measured 2026-11-28: `files` is silently
+ignored (the answer is the text-only one), `images` answers **500** (`'str'
+object has no attribute 'size'`). Treat the served model as **text-only** until
+that mapping is fixed.
 
 ## Concurrent sessions (the served chat model)
 

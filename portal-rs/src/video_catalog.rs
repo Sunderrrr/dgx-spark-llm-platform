@@ -2,7 +2,7 @@
 //!
 //! Until 2026-11-17 the pipeline was frozen: the finish templates carried the
 //! file names, so the only video model that could ever run was the one baked
-//! into them. A row now carries the files, and `h3_graph` substitutes them.
+//! into them. A row now carries the files, and `h3_graph_with` substitutes them.
 use serde_json::Value;
 use sqlx::SqlitePool;
 

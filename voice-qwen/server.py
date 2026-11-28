@@ -233,7 +233,12 @@ def _trim_silence(wav, sr: int, thresh: float = 0.012):
 
 
 def _speak(text: str, language: str | None):
-    """Audio for one sentence: the fine-tuned speaker, or the clone path."""
+    """Audio for one sentence: the fine-tuned speaker, or the clone path.
+
+    `language` is kept because the fine-tune path forwards it to the model, but
+    every caller passes None today (automatic detection): in the clone path it
+    only selects the fallback name.
+    """
     if FINETUNE_DIR:
         wavs, sr = _model.generate_custom_voice(text=text, speaker=SPEAKER, language=language)
     elif _ref_audio:
@@ -244,7 +249,7 @@ def _speak(text: str, language: str | None):
         # The language must be a NAME ("french"), never the ISO code and never
         # None: passed raw, the model generated blind and spent MINUTES on one
         # sentence (measured 2026-11-28 on the 0.6B).
-        lang_name = _languages.get(language or "auto") or _languages.get("auto") or "english"
+        lang_name = _languages.get(language or "auto") or "english"
         prompt = _model.create_voice_clone_prompt(
             ref_audio=_ref_audio, ref_text=None, x_vector_only_mode=True)
         wavs, sr = _model.generate_voice_clone(
@@ -403,8 +408,7 @@ def _split_clauses(text: str) -> list[str]:
     the model needs 8 s to generate it. Every piece is therefore capped at
     PIECE_MAX_CHARS, cut at a space when possible.
     """
-    import re as _re
-    rough = [p.strip() for p in _re.split(r"(?<=[,;:!?])\s+", text) if p.strip()]
+    rough = [p.strip() for p in re.split(r"(?<=[,;:!?])\s+", text) if p.strip()]
     out: list[str] = []
     for part in rough:
         while len(part) > PIECE_MAX_CHARS:

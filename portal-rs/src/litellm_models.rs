@@ -181,7 +181,6 @@ fn template_kwargs(args: &str) -> Option<serde_json::Value> {
 /// got `reasoning_effort "high" is not supported by the chat template`.
 #[derive(Default)]
 struct EngineCaps {
-    vision: bool,
     reasoning: bool,
     levels: Vec<String>,
 }
@@ -202,9 +201,6 @@ async fn engine_caps() -> EngineCaps {
     let effort_ok = caps.and_then(|c| c.get("supports_reasoning_effort")).and_then(|b| b.as_bool()) == Some(true);
     let preserve = caps.and_then(|c| c.get("supports_preserve_reasoning")).and_then(|b| b.as_bool()) == Some(true);
     EngineCaps {
-        vision: v.pointer("/modalities/vision").and_then(|x| x.as_bool())
-            .or_else(|| v.get("vision").and_then(|x| x.as_bool()))
-            .unwrap_or(false),
         // A template that preserves reasoning or accepts an effort produces
         // `reasoning_content`; one that does neither never will.
         reasoning: effort_ok || preserve || !levels.is_empty(),

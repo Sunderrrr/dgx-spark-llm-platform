@@ -46,24 +46,6 @@ pub static VALUE_FLAGS: &[&str] = &[
     "--video-pruning-rate",
 ];
 
-pub static ENV_FLAGS: &[&str] = &[
-    "--cute-dsl-arch-sm121a",
-    "--force-fp8-marlin",
-];
-
-pub static VLLM_BIN_FLAGS: &[&str] = &[
-    "--vllm-032",
-    "--vllm-034",
-];
-
-pub static BIN_FLAGS: &[&str] = &[
-    "--llama-v080",
-    "--llama-v100",
-    "--llama-master",
-    "--vllm-032",
-    "--vllm-034",
-];
-
 pub static LLAMA_BOOL_FLAGS: &[&str] = &[
     "--cont-batching",
     "--context-shift",
@@ -203,9 +185,11 @@ pub static EXL3_VALUE_FLAGS: &[&str] = &[
     "--vision",
 ];
 
-pub static TRUST_RC_MODELS: &[&str] = &[
-    "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
-];
+/// The chat models allowed to pass `--trust-remote-code`: none. That flag is for
+/// the OCR path only (it lives in `OCR_BOOL_FLAGS`, with its own engine), and the
+/// single entry this list carried left the catalog in 12d97e9. The table stays so
+/// the rule keeps one place: a future exception is a deliberate line here.
+pub static TRUST_RC_MODELS: &[&str] = &[];
 
 /// (flag, env var, value)
 pub static ENV_FLAG_VARS: &[(&str, &str, &str)] = &[

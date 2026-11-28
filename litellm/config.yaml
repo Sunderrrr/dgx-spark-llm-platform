@@ -30,8 +30,8 @@ router_settings:
 litellm_settings:
   drop_params: true
   # Fallback for a key created WITHOUT an explicit budget (hand-created in the
-  # LiteLLM dashboard). It must reflect the platform policy —
-  # dgx-portal/config.py, `KEY_MAX_BUDGET` / `KEY_BUDGET_DURATION` — otherwise
+  # LiteLLM dashboard). It must reflect the platform policy — the portal's
+  # settings table, `default_key_budget` / `default_key_duration` — otherwise
   # two creation paths give two different caps depending on who creates the
   # key. Keys created by the portal, on the other hand, always carry their
   # envelope.

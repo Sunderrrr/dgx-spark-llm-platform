@@ -2,7 +2,6 @@
 //! voice audio. Each is the viewer's own (checked in the same SQL query as the
 //! lookup), read from the local volume first, then from the bucket with the
 //! browser's Range passed through.
-#![allow(unused_imports)]
 use super::*;
 use axum::http::Uri;
 

@@ -1,6 +1,5 @@
 //! Support thread and feedback, and the playground's model data
 //! (chat_routes.py): the parts of the chat pages that are plain reads and writes.
-#![allow(unused_imports)]
 use super::*;
 
 /// GET /api/support/thread - the viewer's kept Support thread

@@ -162,5 +162,6 @@ next.config.ts      # fallback rewrite + proxy limits, output: standalone (CSP l
 
 Built and run as its own Docker service (`dgx-portal-frontend` in the repo
 root's `docker-compose.yml`), non-root, `output: "standalone"`. It owns the
-platform's public port; `portal-rs` has no published port and is only
-reachable from this container over the internal docker network.
+platform's public port; `portal-rs` publishes only on loopback
+(`127.0.0.1:5100`) and is otherwise reachable from this container over the
+internal docker network.

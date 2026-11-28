@@ -3,7 +3,6 @@
 //! Generation is SYNCHRONOUS on the sidecar side; two protocols depending on
 //! the loaded engine (Qwen3-TTS: one multipart POST; Chatterbox: upload the
 //! reference, then generate by its file name). Kyutai cannot clone.
-#![allow(unused_imports)]
 use super::*;
 use axum::extract::{FromRequest, Request};
 

@@ -1,9 +1,8 @@
 # Rust migration of the portal
 
 The portal backend (Flask, `dgx-portal/`, removed 2026-10-17; now `portal-rs/`) and the model runner
-(`vllm-runner/`) move to Rust **route by route**, with no cut-over day. This
-file is the plan and its rules; [rust-routes.md](rust-routes.md) is the live
-inventory (generated, one row per route, where it is served today).
+(`vllm-runner-rs/`) move to Rust **route by route**, with no cut-over day. This
+file is the plan and its rules.
 
 > **Historical.** The Flask backend (`dgx-portal/`) was removed from the working tree on
 > 2026-10-17; `portal-rs` serves every route. The plan and the phase log below are kept as
@@ -74,10 +73,11 @@ it, a look-alike path and the rest of the portal stayed on Flask.
 
 ## Phase 1 — the runner (vllm-runner-rs): in service since 2026-10-16
 
-`vllm-runner-rs/` is the whole of the former `vllm-runner/runner.py` (removed; see git history): the argument rules,
-the command construction, the launch environment, the supervisor (process
-group, output, readiness, memory guard, stop), the watchdog (auto-resume,
-memory floor, persisted failure counter), and the HTTP surface on :8001.
+`vllm-runner-rs/` is the whole of the former Python runner (removed; see git
+history): the argument rules, the command construction, the launch environment,
+the supervisor (process group, output, readiness, memory guard, stop), the
+watchdog (auto-resume, memory floor, persisted failure counter), and the HTTP
+surface on :8001.
 
 Verified, against runner.py itself:
 - allow-lists copied from runner.py, then frozen (the generator is removed);
@@ -318,11 +318,11 @@ dgx-portal; the runner and engine stay reachable from it (checked).
 ### The admin relay
 
 Some routes have an admin branch that cannot be compared with Flask: no
-admin session may be used for tests. `portal-rs/src/relay.rs` serves them
-for every other account and hands an ADMIN session's request to Flask
-unchanged (method, path, query, cookie, CSRF, body), streaming Flask's answer
-back (SSE included; checked against a fake upstream). Covered:
-`/api/home`, `/system/stats`, `/api/ranking*`, `/support/chat`,
+admin session may be used for tests. The admin relay (removed with the Flask
+backend) served them for every other account and handed an ADMIN
+session's request to Flask unchanged (method, path, query, cookie, CSRF, body),
+streaming Flask's answer back (SSE included; checked against a fake upstream).
+Covered: `/api/home`, `/system/stats`, `/api/ranking*`, `/support/chat`,
 `/support/confirm`. The first three were already ported and compared for the
 demo account (identical); they are now routed, admins staying on Flask.
 
@@ -699,8 +699,9 @@ on Flask: nothing of this phase (the password change moved with the LDAP block).
 List, detail, download, enable, sync, and the .zip and Git imports
 (`portal-rs/src/skillstore.rs`, routes in `handlers/skill_routes.rs`). The
 security-sensitive parts are checked against outputs of the Python code
-itself (`tests/fixtures/skills_ref.json`, `skills_zip.json`): the SSRF address
-rule of `mcp_client._is_blocked_ip` on 6 947 addresses (Python 3.12's
+itself (`portal-rs/tests/fixtures/skills_ref.json`,
+`portal-rs/tests/fixtures/skills_zip.json`): the SSRF address rule of
+`mcp_client._is_blocked_ip` on 6 947 addresses (Python 3.12's
 `ipaddress` ranges and exceptions, IPv4-mapped IPv6 included), the zip member
 path rule, the SKILL.md front matter, the Git URL forms, and the archive
 reading on trapped archives (path traversal, absolute and drive paths, `.git`,
@@ -799,4 +800,4 @@ SSRF filters (`mcp_client._is_blocked_ip`, `websearch.public_url`), the
 Support's guarded tools and their refusal after untrusted content, the CSP of
 previews, the « a failed probe is not proof of absence » rules (model list,
 accounts), 503 instead of 502 for upstream failures (Cloudflare replaces 502
-bodies), and every limit in `guards.py`.
+bodies), and every limit in `portal-rs/src/guards.rs`.

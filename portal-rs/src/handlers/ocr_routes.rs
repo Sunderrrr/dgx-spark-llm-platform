@@ -1,6 +1,5 @@
 //! OCR extraction (ocr_routes.py): an image in, the OCR container's answer
 //! relayed as SSE while it streams, the job kept in the history at the end.
-#![allow(unused_imports)]
 use super::*;
 use axum::extract::Request;
 

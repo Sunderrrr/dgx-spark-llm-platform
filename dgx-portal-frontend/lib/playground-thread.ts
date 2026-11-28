@@ -19,8 +19,6 @@ import {
   isExcerptOf,
 } from "@/lib/playground-parsers";
 
-export { FILE_EXT, BARE_FILES, askedFileNames };
-
 // Something the assistant produced worth showing in the side panel (canvas/
 // artifact style) and copying in one click: a code "file" or a long "document"
 // (e.g. a rewritten/reformatted text).

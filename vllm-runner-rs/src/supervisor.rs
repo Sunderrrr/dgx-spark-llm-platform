@@ -55,23 +55,40 @@ pub struct Supervisor {
     next_gen: AtomicU64,
     /// Where the readiness probe asks for /v1/models (127.0.0.1:8000 in service).
     pub probe_addr: String,
+    /// The runtime guard's floor: the operator's `CRITICAL_FREE_GIB`, or the
+    /// documented default when unset. The kernel's OOM killer cannot see GPU
+    /// memory, so this guard is what stops our own engine before the box dies.
+    pub critical_free_gib: f64,
 }
 
-/// `_CRITICAL_FREE_GIB` default, `STABLE_SECONDS` default: see runner.py.
-pub const CRITICAL_FREE_GIB: f64 = 2.0;
+/// `_CRITICAL_FREE_GIB` default (2.0): `service.rs` parses the operator's
+/// `CRITICAL_FREE_GIB` override, which lands in `Supervisor.critical_free_gib`.
+pub const DEFAULT_CRITICAL_FREE_GIB: f64 = 2.0;
 
 impl Default for Supervisor {
     fn default() -> Self {
-        Supervisor { inner: Mutex::new(Shared::default()), next_gen: AtomicU64::new(1), probe_addr: "127.0.0.1:8000".into() }
+        Supervisor {
+            inner: Mutex::new(Shared::default()),
+            next_gen: AtomicU64::new(1),
+            probe_addr: "127.0.0.1:8000".into(),
+            critical_free_gib: DEFAULT_CRITICAL_FREE_GIB,
+        }
     }
 }
 
 impl Supervisor {
-    /// A supervisor whose readiness probe targets `addr`. The decision service
-    /// is a second engine on its own port: same lifecycle, same guards, other
-    /// socket. `next_gen` stays private, so this is the only way in.
-    pub fn with_probe(addr: &str) -> Supervisor {
-        Supervisor { probe_addr: addr.to_string(), ..Supervisor::default() }
+    /// A supervisor whose readiness probe targets `addr`, with the operator's
+    /// runtime floor. The decision service is a second engine on its own port:
+    /// same lifecycle, same guards, other socket. `next_gen` stays private, so
+    /// this is the only way in.
+    pub fn new(probe_addr: &str, critical_free_gib: f64) -> Supervisor {
+        Supervisor { probe_addr: probe_addr.to_string(), critical_free_gib, ..Supervisor::default() }
+    }
+
+    /// The chat model's supervisor: the default loopback probe, and the floor
+    /// the operator configured (`CRITICAL_FREE_GIB`, default 2.0).
+    pub fn with_floor(critical_free_gib: f64) -> Supervisor {
+        Supervisor { critical_free_gib, ..Supervisor::default() }
     }
 
     pub fn lock(&self) -> MutexGuard<'_, Shared> {
@@ -79,8 +96,10 @@ impl Supervisor {
     }
 
     /// `_start_process`: spawn the command, then its readers. The caller holds
-    /// the lock; the previous process must already be stopped.
-    pub fn spawn(self: &Arc<Self>, cmd: &[String], model_env: &BTreeMap<String, String>, env: &BTreeMap<String, String>, cwd: Option<&str>, run_log: Option<RunLog>) -> std::io::Result<Arc<Proc>> {
+    /// the lock; the previous process must already be stopped. `env` is the
+    /// complete launch environment (model-specific variables included): a
+    /// second, model-only map used to be passed here and was never read.
+    pub fn spawn(self: &Arc<Self>, cmd: &[String], env: &BTreeMap<String, String>, cwd: Option<&str>, run_log: Option<RunLog>) -> std::io::Result<Arc<Proc>> {
         let (rd, wr) = std::io::pipe()?;
         let wr2 = wr.try_clone()?;
         let mut command = Command::new(&cmd[0]);
@@ -95,7 +114,6 @@ impl Supervisor {
             });
         }
         let child = command.spawn()?;
-        let _ = model_env;
         let gen = self.next_gen.fetch_add(1, Ordering::SeqCst);
         let proc = Arc::new(Proc { pid: child.id(), gen, exited: AtomicBool::new(false), code: Mutex::new(None) });
         {
@@ -199,7 +217,7 @@ impl Supervisor {
     fn memory_guard(self: Arc<Self>, proc: Arc<Proc>) {
         while proc.alive() {
             if let Some(free) = crate::state::mem_available_gib() {
-                if free < CRITICAL_FREE_GIB {
+                if free < self.critical_free_gib {
                     self.lock().logs.append(&format!(
                         "[runner] CRITICAL MEMORY: {free:.1} GiB available — force-stopping the model to avoid a machine-wide OOM."
                     ));
@@ -293,7 +311,7 @@ mod tests {
         let sup = quiet();
         let proc = sup.lock().proc.clone();
         assert!(proc.is_none());
-        let p = sup.spawn(&cmd("echo one; echo two; exit 3"), &BTreeMap::new(), &env(), None, None).unwrap();
+        let p = sup.spawn(&cmd("echo one; echo two; exit 3"), &env(), None, None).unwrap();
         assert!(wait_exit(&p, Duration::from_secs(10)));
         assert_eq!(p.code(), Some(3));
         let s = sup.lock();
@@ -306,7 +324,7 @@ mod tests {
     #[test]
     fn startup_line_marks_running() {
         let sup = quiet();
-        let p = sup.spawn(&cmd("echo Application startup complete; sleep 5"), &BTreeMap::new(), &env(), None, None).unwrap();
+        let p = sup.spawn(&cmd("echo Application startup complete; sleep 5"), &env(), None, None).unwrap();
         let start = Instant::now();
         while sup.lock().status != "running" && start.elapsed() < Duration::from_secs(10) {
             thread::sleep(Duration::from_millis(20));
@@ -319,7 +337,7 @@ mod tests {
     fn stop_takes_the_whole_group_down() {
         let sup = quiet();
         // the engine forks a child that outlives a plain terminate of the shell
-        let p = sup.spawn(&cmd("sleep 300 & sleep 300; wait"), &BTreeMap::new(), &env(), None, None).unwrap();
+        let p = sup.spawn(&cmd("sleep 300 & sleep 300; wait"), &env(), None, None).unwrap();
         thread::sleep(Duration::from_millis(200));
         let started = Instant::now();
         kill(&p);

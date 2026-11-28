@@ -2,7 +2,6 @@
 //! of a batch. The job runs in a background task that calls the image sidecar
 //! once per variation (sequentially: one image at a time keeps the GPU memory
 //! spike at single-image level on unified memory).
-#![allow(unused_imports)]
 use super::*;
 use axum::extract::{FromRequest, Request};
 

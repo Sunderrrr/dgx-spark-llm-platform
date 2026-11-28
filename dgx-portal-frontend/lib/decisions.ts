@@ -7,8 +7,6 @@
  * only surface as a 400 far from the editor.
  */
 
-export type QuestionType = "noul" | "choice" | "score";
-
 export const MAX_QUESTIONS = 32;
 export const MAX_STATE_BYTES = 64 * 1024;
 export const MAX_CHOICES = 255;

@@ -1,7 +1,6 @@
 //! The playground's non-streamed model calls (chat_routes.py): the automatic
 //! title and the summary of a conversation. Billed on the viewer's own key,
 //! behind the same guards as the chat (maintenance, then a per-route bucket).
-#![allow(unused_imports)]
 use super::*;
 
 /// Python's `repr()` of a JSON value — what `str(x)` gives for a list or dict.

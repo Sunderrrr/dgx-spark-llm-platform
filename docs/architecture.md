@@ -13,7 +13,7 @@ flowchart LR
   CF -->|forwardAuth: maintenance gate| AC[/internal/authcheck/]
   AC -->|checked against| P
   CF -->|:5000| F[dgx-portal-frontend]
-  CF -->|api.example.org · no published port| L[LiteLLM]
+  CF -->|api.example.org · loopback only| L[LiteLLM]
   F -->|internal docker network| P[portal-rs]
   P -->|LDAP / OIDC auth| IDP[Authentik · LDAP outpost + OIDC]
   P -->|issues keys + budgets| L
@@ -37,10 +37,10 @@ flowchart LR
 | **litellm** | OpenAI-compatible gateway: per-user keys, budgets, token accounting | `4001` | Docker container |
 | **litellm-postgres** | LiteLLM database (keys, spend logs) | `5432` (internal) | Docker container |
 | **dgx-portal-frontend** | The UI (Next.js + Astryx): login, home, playground, media pages, support, find-a-model, leaderboard, admin, users (keys and memory live in the Settings dialog) | `5000` | Docker container (non-root) |
-| **portal-rs** | Backend (Rust): LDAP/OIDC auth, sessions, JSON API, business logic, jobs | internal only | Docker container (non-root) |
+| **portal-rs** | Backend (Rust): LDAP/OIDC auth, sessions, JSON API, business logic, jobs | `5100` (loopback only) | Docker container (non-root) |
 | **vllm-runner** | Daemon driving **one** chat model process (start/stop/logs; engines `vllm` / `llamacpp` / `ds4`) with auto-resume, plus scoped start/stop/recreate of every media sidecar | `8001` | systemd service on the host |
 | **vLLM** | OpenAI-compatible inference server (the main chat engine) | `8000` | process spawned by the runner |
-| **Decision engine** | `LiquidAI/d1-3B` behind the System One API (`d1-decisions.service`, a container), serving a decision model (Cloudflare **Clef**, `Q4_K_M`) on `/v1/systemone` and nothing else. Its own port, its own process: starting it never replaces the chat model, and the memory floor can refuse it | `8002`, host-restricted | process spawned by the runner (`/decisions/*`) |
+| **Decision engine** | `LiquidAI/d1-3B` behind the System One API (`d1-decisions.service`, a container): **bf16** weights from the models directory, serving `/v1/systemone` and nothing else. It is no longer spawned by the runner and never replaces the chat model | `8002`, docker bridge only | Docker container (`d1-decisions.service`, `decisions-d1/`) |
 | **OCR container** | vLLM serving an OCR-capable VLM (baidu/Unlimited-OCR by default, chandra-ocr-2 also supported), swappable via an admin catalog | internal only | Docker container, own network + GPU slice |
 | **ComfyUI** | Video generation graph engine (MiniMax H3 in **NVFP4** — the Blackwell-native 4-bit format the GB10 supports; measured on disk: 11.7 GiB ≈ 12.5 GB per UNET, two UNET variants) | `8188`, host-restricted | systemd service on the host |
 | **Image container** | Text-to-image (diffusers). FLUX.2 Klein 4B by default, 35 diffusion steps per image (`IMAGE_STEPS`) | internal only | Docker container, own network + GPU slice |
@@ -49,9 +49,10 @@ flowchart LR
 | **SearXNG + crawl4ai** | Web search for the playground: SearXNG finds links, crawl4ai reads the pages | internal only | Docker containers, shared `web_net` |
 
 > Only one **chat** model runs on the GPU at a time (launching another replaces the
-> current one). The decision engine is the one exception to "one model": it is a
-> second, smaller process with its own port, and it is only started if what is left
-> in the unified pool can hold it — otherwise the runner refuses and says so. — the media sidecars are separate, always-addressable backends running
+> current one). The decision engine is the one exception to "one model": a small,
+> always-warm container (5.9 GiB of bf16 weights) on its own port, started by its
+> own systemd unit — it never replaces the chat model. The media sidecars are
+> separate, always-addressable backends running
 > alongside it, each with its own GPU memory budget. On a single 128 GB unified-memory
 > box that budget is genuinely shared: if a launch fails with an out-of-memory error,
 > stop a sidecar from **Admin** rather than shrinking the chat model.

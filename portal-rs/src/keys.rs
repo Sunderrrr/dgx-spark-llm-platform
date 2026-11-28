@@ -6,7 +6,6 @@
 //! of each key), never through its HTTP `/key/info`, which would put the key in
 //! the proxy's access log.
 use std::collections::HashMap;
-use std::time::Duration;
 
 use chrono::NaiveDateTime;
 use serde_json::{json, Map, Value};

@@ -1,5 +1,39 @@
 # Changelog
 
+## 2026-11-28 — nettoyage : code mort, dépendances inutiles, documentation périmée
+
+Phase 1 du grand nettoyage. Rien ne change pour l'utilisateur : mêmes routes côté
+portail, mêmes variables d'environnement, mêmes noms de services.
+
+- **Quatre crates retirées de `portal-rs`** (`serde`, `tower`, `clap`, `tokio-test`,
+  zéro référence) et **huit de `vllm-runner-rs`** (`serde`, `tower`, `tower-http`,
+  `tracing`, `tracing-subscriber`, `anyhow`, `thiserror`, `clap`).
+- **`sharp` et `@types/katex` retirés du frontend** (importés nulle part ; `katex`
+  fournit ses propres types, `sharp` reste installé via Next) ; `@astryxdesign/cli`
+  passe en `devDependencies` (outil de build, jamais importé).
+- **Code mort supprimé** : `h3_graph` (appelé par ses seuls tests, désormais pointés
+  sur `h3_graph_with`), `EngineCaps::vision` (écrit, jamais lu), le test factice
+  `it_works`, les statics `ENV_FLAGS`/`VLLM_BIN_FLAGS`/`BIN_FLAGS`, `log_tail`,
+  `busy`, `stale()`, `RunLog::is_open`, `Config.sudo` et le paramètre `model_env`
+  jamais lu — plus les **seize `#![allow(unused_imports)]`** qui masquaient cette
+  accumulation (aucun import inutilisé ne restait derrière).
+- **`CRITICAL_FREE_GIB` est enfin lu** : la variable documentée était parsée puis
+  ignorée, le garde-fou utilisant la constante 2.0. Même valeur par défaut, donc
+  comportement identique tant que l'opérateur ne la règle pas.
+- **Suppression d'une exception oubliée** : le modèle Nemotron retiré du catalogue
+  restait dans `TRUST_RC_MODELS`, la seule liste qui laissait un modèle de CHAT
+  passer `--trust-remote-code`.
+- **Route interne supprimée** : `POST /models/download/clear` sur le runner (Bearer),
+  sans appelant dans le portail ni dans l'interface.
+- **Documentation** : `docs/rust-routes.md` (inventaire de l'ancienne application
+  Flask, 22 modules disparus) supprimé ; chemins périmés corrigés dans
+  `rust-migration.md`, `ci.md`, `operations.md`, `troubleshooting.md` ; le README
+  dit maintenant ce que le code fait (ports en loopback, décision d1-3B).
+- **Divers** : le contexte de build Docker ne transporte plus `.next` (1,2 Gio), ni
+  `secrets/`, `runtime/`, `searxng/` ; le patch TabbyAPI sort du répertoire
+  `vllm-runner/` (qui ne contenait plus de runner) ; le générateur de favicon
+  jetable est supprimé ; une erreur silencieuse de Real-ESRGAN est désormais
+  journalisée et exposée dans `/health`.
 ## 2026-11-28 — une voix légère : le 0.6B cloné à partir d'une référence
 
 L'opérateur juge le 1.7B fine-tuné trop lourd. Le sidecar accepte maintenant un

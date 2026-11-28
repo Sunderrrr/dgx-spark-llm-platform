@@ -2,7 +2,7 @@
 //! recorded then): every case must agree, the refusal wording included.
 //!
 //! `validate.json` is a recorded oracle, not a generated one — runner.py is gone
-//! (only `vllm-runner/patches/` remains), so the file cannot be regenerated.
+//! (only `patches/` remains), so the file cannot be regenerated.
 //! On 2026-10-29, 44 of its cases were rewritten by hand: they exercised the
 //! engine-version pseudo-flags (`--vllm-025/027/028/nightly`, `--llama-k2`,
 //! `--llama-next`, `--llama-prism`, `--llama-atomic`) whose binaries were

@@ -26,10 +26,11 @@ account). A Support assistant can act on your behalf.
   gateway as the chat (see [api.md](docs/api.md)).
 - **Web search** — on explicit request: SearXNG finds the links, crawl4ai reads
   the pages, every step shown live.
-- **Decisions** — a decision model (Cloudflare **Clef**) answers closed questions
-  about a text or a JSON document (yes/no, one option out of a list, a score)
-  with probabilities instead of prose, from its own page *and* on the API
-  (`/v1/systemone`, `/v1/decisions`) with the same keys and budgets.
+- **Decisions** — a decision model (**LiquidAI d1-3B**, run as the `d1-decisions`
+  service) answers closed questions about a text or a JSON document (yes/no, one
+  option out of a list, a score) with probabilities instead of prose, from its own
+  page *and* on the API (`/v1/systemone`, `/v1/decisions`) with the same keys and
+  budgets. The admin catalog still lists the legacy `clef-q4km` entry.
 - **Skills** — `/summarize`, `/code`, `/email`, `/slides`… prepared prompts that
   shape the model, plus your own.
 - **Conversations** — history, pinning, sharing by read-only link, export as
@@ -52,12 +53,13 @@ account). A Support assistant can act on your behalf.
 ## How it works
 
 The UI is a **Next.js shell** (`dgx-portal-frontend`, port 5000) talking to a
-**Rust portal** (`portal-rs`, no published port) over the internal docker
-network. The portal owns authentication (LDAP/OIDC, sessions, per-request account
-checks) and business logic; it issues per-user keys and budgets to **LiteLLM**,
-the OpenAI-compatible gateway that serves the public API
+**Rust portal** (`portal-rs`, loopback-published on `127.0.0.1:5100`) over the
+internal docker network. The portal owns authentication (LDAP/OIDC, sessions,
+per-request account checks) and business logic; it issues per-user keys and
+budgets to **LiteLLM**, the OpenAI-compatible gateway that serves the public API
 (`https://api.example.org/v1`) through Cloudflare and Traefik. LiteLLM publishes
-no host port at all. It keeps keys and spend logs in **PostgreSQL**.
+only on the loopback interface (`127.0.0.1:4001`). It keeps keys and spend logs
+in **PostgreSQL**.
 On the GPU, a systemd daemon (`vllm-runner`) starts and stops **one chat model**
 at a time (vLLM, llama.cpp, ds4 or exllamav3) and auto-resumes it after a crash
 or reboot. OCR, video, image, voice and dictation run in **on-demand
@@ -105,7 +107,7 @@ One command, four groups: code gates (backend tests, frontend, types, lint,
 i18n, secrets, static analysis, English-only code, module size, vulnerable
 dependencies), the **running** service, the user journeys (login/SSO, chat,
 reasoning, image, web search, skills, conversations, export, admin, API keys,
-page sweep, page actions, security) with route coverage of 158 routes, and
+page sweep, page actions, security) with a sweep over the portal's routes, and
 health. Safe to run at any moment (no destructive action), time-bounded, 7–8
 minutes. A green test suite and a broken service have cohabited twice — this is
 the gate that catches it. Details and the engineering loop:

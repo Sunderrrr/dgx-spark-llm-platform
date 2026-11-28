@@ -125,8 +125,11 @@ nothing (`restart=unless-stopped`, so it never frees itself), the web UI
   runner lives in the `vllm-runner.service` cgroup (verified via
   `/proc/<pid>/cgroup`). Any change to the runner daemon that must take effect needs
   the same downtime window as a model relaunch — this is not a "zero-downtime"
-  operation. New pseudo-flags (`--llama-prism` and friends) exist only after such
-  a restart (`_BIN_FLAGS` is built at import).
+  operation. There is no import-time flag map: the allowlist is the static table
+  in [`vllm-runner-rs/src/flags.rs`](../vllm-runner-rs/src/flags.rs), so a new
+  pseudo-flag reaches the daemon only with a rebuild and a restart. `--llama-prism`
+  is not accepted at all any more: the pseudo-flag and its binary were removed on
+  2026-10-29.
 - **Switching llama.cpp binaries does NOT need a restart**: `LLAMA_BIN` is a
   symlink resolved at each spawn (the env variable only at import). Each
   `build*/bin/` folder is self-contained. On 2026-09-25 the path pointed for one

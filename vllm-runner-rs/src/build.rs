@@ -257,7 +257,7 @@ pub fn resolve_model_dir(p: &Paths, hf_id: &str) -> R<String> {
     let dir = format!("{}/{}", p.models_dir, slug);
     let base = realpath(&p.models_dir);
     let inside = match (realpath(&dir), &base) {
-        (Some(real), Some(base)) => real.starts_with(&base.join("")) && real != *base,
+        (Some(real), Some(base)) => real.starts_with(base.join("")) && real != *base,
         _ => false,
     };
     if slug.is_empty() || slug == "." || slug == ".." || !inside || !Path::new(&format!("{dir}/model.json")).is_file() {

@@ -58,12 +58,9 @@ it belongs to Postgres and LiteLLM.
 | `IMAGE_URL` | Internal URL of the text-to-image container (default `http://image:8007`) |
 | `COMFYUI_URL` | Internal URL of the ComfyUI video backend (default `http://host.docker.internal:8188`) |
 | `PUBLIC_API_URL` | Public API URL shown to users (default `https://api.example.org/v1`) |
-| `DECISIONS_MODEL` | The decision model to serve: `local:<slug>` under `MODELS_DIR`, or an HF repository id. **Empty (the default) disables the service** — no process, no port, no memory; the Decisions page says so |
-| `DECISIONS_NAME` | Public name of the decision model in LiteLLM and in the page (default `clef-q4km`). Never `auto-model`: that alias follows the *chat* model |
-| `DECISIONS_PORT` | Port of the decision `llama-server` on the host (default `8002`), never published. `8000` is the chat model's, `8001` the runner's |
-| `DECISIONS_ARGS` | Engine arguments for the decision model (default `--ctx-size 8192 --ubatch-size 2048 --n-gpu-layers 999 --flash-attn on`). A Clef prompt is a state plus questions, evaluated in one batch: a big context buys nothing |
-| `DECISIONS_API_BASE` | Where **LiteLLM** reaches the decision engine (default `http://172.19.0.1:8002/v1`). Used both to register the route (`hosted_vllm`) and by the portal's status probe |
-| `LLAMA_BIN_DECISIONS` | The `llama-server` used **only** for decisions (default: `LLAMA_BIN`). Clef needs llama.cpp **b11430 or newer**; keeping a second binary avoids upgrading the one serving chat |
+| `DECISIONS_API_BASE` | Where **LiteLLM** and the portal reach the decision engine (default `http://172.19.0.1:8002/v1`), i.e. the `d1-decisions` container. Used as the route's `api_base` when the LiteLLM route is (re)registered (`hosted_vllm`, `mode: decisions`), and by the page's direct call for image requests. **This is the setting that matters** for the served model: the container takes its weights, port and behaviour from `systemd/d1-decisions.service`, not from here |
+| `DECISIONS_NAME` | Public name of the decision route in LiteLLM and in the page. **It must be the name LiteLLM actually knows** — the default is the legacy catalog name `clef-q4km`, while the route served here is `d1-3b`; on a mismatch the page's requests are refused with `Invalid model name`. Never `auto-model`: that alias follows the *chat* model |
+| `DECISIONS_MODEL`, `DECISIONS_PORT`, `DECISIONS_ARGS`, `LLAMA_BIN_DECISIONS` | **Legacy runner-process settings.** They configure the old on-demand `llama-server` path still present in `vllm-runner-rs/src/decisions.rs` (and the portal's status fallback); the d1 container ignores them — its weights path, port and request handling are fixed by the unit and `decisions-d1/server.py`. `DECISIONS_MODEL` empty (the default) disables that runner path, not d1 |
 
 | `SESSION_COOKIE_SECURE` | `1` behind an HTTPS proxy (Traefik), `0` for plain-HTTP LAN |
 | `KEY_MAX_BUDGET` / `KEY_BUDGET_DURATION` | Default per-account budget (default 200 M tokens / week) |

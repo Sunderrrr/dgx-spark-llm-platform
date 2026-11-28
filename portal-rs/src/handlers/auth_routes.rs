@@ -1,6 +1,5 @@
 //! Session routes that need no credential check (auth.py / app.py): the CSRF
 //! token and the logout. The login itself is in login.rs.
-#![allow(unused_imports)]
 use super::*;
 use crate::session_store;
 

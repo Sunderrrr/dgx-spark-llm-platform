@@ -62,11 +62,3 @@ pub struct AppState {
     /// LiteLLM's database (consumption), None when LITELLM_DATABASE_URL is unset.
     pub spend: Option<sqlx::PgPool>,
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}

@@ -5,6 +5,7 @@
 //! an internal address is refused after the read.
 use serde_json::{json, Value};
 
+use crate::memory::py_take;
 use crate::skillstore::is_blocked_ip;
 
 const BANNER_LINES: &[&str] = &[
@@ -132,13 +133,9 @@ pub fn too_poor(text: &str) -> Option<&'static str> {
     (words < MIN_USEFUL_WORDS).then_some("Page sans contenu exploitable (chargée en JavaScript, ou accès refusé).")
 }
 
-fn take(s: &str, n: usize) -> String {
-    s.chars().take(n).collect()
-}
-
 /// `search`: question → links (public ones only); (results, error).
 pub async fn search(question: &str, count: i64) -> (Vec<Value>, Option<String>) {
-    let question = take(crate::memory::py_strip(question), 400);
+    let question = py_take(crate::memory::py_strip(question), 400);
     if question.is_empty() {
         return (Vec::new(), Some("Question vide.".into()));
     }
@@ -169,9 +166,9 @@ pub async fn search(question: &str, count: i64) -> (Vec<Value>, Option<String>) 
         }
         seen.insert(url.clone());
         out.push(json!({
-            "title": take(item.get("title").and_then(Value::as_str).unwrap_or(""), 200),
+            "title": py_take(item.get("title").and_then(Value::as_str).unwrap_or(""), 200),
             "url": url,
-            "excerpt": take(item.get("content").and_then(Value::as_str).unwrap_or(""), 400),
+            "excerpt": py_take(item.get("content").and_then(Value::as_str).unwrap_or(""), 400),
         }));
         if out.len() >= count {
             break;
@@ -241,8 +238,8 @@ pub async fn read(urls: &[String]) -> (Vec<Value>, Option<String>) {
             }
             results.push((key, json!({
                 "ok": item.get("success").is_some_and(crate::keys::truthy),
-                "markdown": take(&md, MAX_CHARS_PAGE),
-                "title": take(item.pointer("/metadata/title").and_then(Value::as_str).unwrap_or(""), 200),
+                "markdown": py_take(&md, MAX_CHARS_PAGE),
+                "title": py_take(item.pointer("/metadata/title").and_then(Value::as_str).unwrap_or(""), 200),
             })));
         }
     }
@@ -264,7 +261,7 @@ pub async fn read(urls: &[String]) -> (Vec<Value>, Option<String>) {
             pages.push(json!({"url": u, "title": info["title"], "error": issue}));
             continue;
         }
-        let text = take(&cleaned, MAX_CHARS_TOTAL.saturating_sub(total));
+        let text = py_take(&cleaned, MAX_CHARS_TOTAL.saturating_sub(total));
         total += text.chars().count();
         pages.push(json!({"url": u, "title": info["title"], "content": text}));
     }
@@ -306,7 +303,7 @@ fn url_args(args: &Value) -> Vec<String> {
 /// `_announce`: what is about to happen, told to the client first.
 pub fn announce(name: &str, args: &Value) -> Value {
     match name {
-        "recherche_web" => json!({"step": "search", "tool": "searxng", "question": take(&str_arg(args, "question"), 200)}),
+        "recherche_web" => json!({"step": "search", "tool": "searxng", "question": py_take(&str_arg(args, "question"), 200)}),
         "lire_pages" => json!({"step": "reading", "tool": "crawl4ai", "urls": url_args(args)}),
         other => json!({"step": "unknown", "tool": other}),
     }
@@ -326,7 +323,7 @@ fn count_arg(args: &Value) -> Result<i64, ()> {
 pub async fn exec(name: &str, args: &Value, step_log: &mut Vec<Value>) -> Result<String, ()> {
     match name {
         "recherche_web" => {
-            let question = take(&str_arg(args, "question"), 400);
+            let question = py_take(&str_arg(args, "question"), 400);
             let count = count_arg(args)?;
             let (res, err) = search(&question, count).await;
             step_log.push(json!({"step": "search_done", "tool": "searxng", "question": question, "count": res.len(), "error": err,
@@ -375,7 +372,7 @@ pub fn findings_text(findings: &[(String, String)]) -> String {
     for (name, content) in findings {
         s.push_str(&format!("\n[{name}]\n{content}\n"));
     }
-    take(&s, 40000)
+    py_take(&s, 40000)
 }
 
 #[cfg(test)]

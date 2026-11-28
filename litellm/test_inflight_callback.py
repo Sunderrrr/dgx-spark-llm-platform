@@ -1,4 +1,4 @@
-"""Tests of the LiteLLM in-flight activity callback (`dgx-portal/litellm_inflight.py`).
+"""Tests of the LiteLLM in-flight activity callback (`litellm/litellm_inflight.py`).
 
 This module runs INSIDE the proxy (mounted as `dgx_inflight`), but its
 logic is critical: it is the only source naming a user while they generate.
@@ -17,9 +17,8 @@ import time
 import unittest
 from unittest import mock
 
-# The module lives in dgx-portal/ (not in litellm/) because the test
-# container only mounts that folder: this is what keeps it covered by CI.
-# LiteLLM, for its part, gets it mounted as `dgx_inflight` — see docker-compose.yml.
+# The module lives in litellm/, next to the proxy config: it is mounted into
+# the proxy as `dgx_inflight` — see docker-compose.yml.
 import litellm_inflight
 
 
@@ -132,10 +131,6 @@ class InflightActivityTest(unittest.TestCase):
             hooks.log_failure_event(kwargs=_kwargs())
 
 
-if __name__ == '__main__':
-    unittest.main()
-
-
 class SystemNormalisationTest(unittest.TestCase):
     """`system` must be ONE message, first — llama.cpp's template refuses the rest."""
 
@@ -162,3 +157,7 @@ class SystemNormalisationTest(unittest.TestCase):
     def test_a_correct_request_is_left_alone(self):
         msgs = [{"role": "system", "content": "A"}, {"role": "user", "content": "q"}]
         self.assertIs(self.mod._normalise_system(msgs), msgs)
+
+
+if __name__ == '__main__':
+    unittest.main()

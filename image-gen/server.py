@@ -10,6 +10,7 @@ by DiffusionPipeline, and the output is normalized, because pipelines do not
 all return the same thing (see _premiere_image).
 """
 import io
+import logging
 import os
 import threading
 
@@ -19,6 +20,9 @@ from fastapi.responses import JSONResponse, Response
 from PIL import Image, ImageFilter
 
 import esrgan
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+log = logging.getLogger("image-gen")
 
 MODEL_DIR = os.environ.get("MODEL_DIR", "/model")
 # Default values provided by image-recreate.sh, which picks them per model: a
@@ -54,11 +58,19 @@ def _get_esrgan():
             return _esrgan
         try:
             if not os.path.isfile(ESRGAN_PATH):
-                _esrgan_error = f"poids absents: {ESRGAN_PATH}"
+                _esrgan_error = f"weights missing: {ESRGAN_PATH}"
             else:
                 _esrgan = esrgan.load_esrgan(ESRGAN_PATH, "cuda")
+                _esrgan_error = None
         except Exception as e:  # we degrade cleanly to Lanczos
             _esrgan_error = f"{type(e).__name__}: {e}"
+        if _esrgan is None:
+            # Recorded then never read until now: /health said `ready` whatever
+            # happened and the upscale fell back to Lanczos in silence. Logged
+            # once per attempt (the load is lazy and retried on every upscale
+            # above the threshold) and exposed in /health as `esrgan_error`.
+            log.warning("Real-ESRGAN unavailable (%s) — upscaling falls back to Lanczos",
+                        _esrgan_error)
         return _esrgan
 
 app = FastAPI()
@@ -144,8 +156,10 @@ def _first_image(out):
 
 @app.get("/health")
 def health():
+    # `esrgan_error` is additive: a failed Real-ESRGAN load used to be invisible
+    # (the upscale just degraded to Lanczos), now it is reported here as well.
     return {"ready": _pipe is not None, "loading": _pipe is None and _load_error is None,
-            "error": _load_error, "model": _model_name}
+            "error": _load_error, "model": _model_name, "esrgan_error": _esrgan_error}
 
 
 @app.get("/model-info")

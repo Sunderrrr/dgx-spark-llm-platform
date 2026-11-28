@@ -2092,11 +2092,6 @@ export default function PlaygroundPage({
           {(artifact || showLive || lastFinished) && !isNarrow && (
             <DocumentPanel {...panelProps} />
           )}
-          {/* History: ONE row per conversation, trash can at the end. Clicking
-              the row opens the conversation (and closes the panel); clicking
-              the trash can deletes WITHOUT closing, so several can be cleaned
-              up in a row. The trash can is a SIBLING button of the row, not a
-              nested one: no risk of a click triggering both. */}
           {/* Playground settings: a FIXED overlay anchored under the gear. No
               focus trap, no hidden element to reveal: opening triggers NO
               scrolling — the chat stays exactly where it is. */}

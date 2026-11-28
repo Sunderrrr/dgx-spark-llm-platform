@@ -157,15 +157,6 @@ pub(crate) async fn find_image(state: &AppState, safe: &str, idx: i64) -> Option
     None
 }
 
-/// `login_required` on these page paths: signed out → 302 to the login page, not 401.
-pub(crate) async fn page_viewer(state: &AppState, headers: &HeaderMap, path: &str) -> Result<auth::SessionData, Response> {
-    match auth::require_session(headers, &state.db).await {
-        Ok(s) => Ok(s),
-        Err(auth::AuthError::Unauthorized) => Err(auth::login_redirect(path)),
-        Err(e) => Err(e.into_response()),
-    }
-}
-
 async fn image_file_impl(state: AppState, headers: HeaderMap, path: String, prompt_id: String, idx: i64) -> Response {
     // An encoded slash is a separator once werkzeug decodes the path: no route matches.
     if prompt_id.contains('/') {

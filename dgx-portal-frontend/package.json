@@ -11,7 +11,6 @@
     "test": "node --test tests/*.test.ts"
   },
   "dependencies": {
-    "@astryxdesign/cli": "^0.7.4",
     "@astryxdesign/core": "^0.7.4",
     "@astryxdesign/theme-neutral": "^0.7.4",
     "@blobatar/react": "^2.7.0",
@@ -23,12 +22,11 @@
     "next": "^16.4.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "sharp": "^0.35.4",
     "thinking-orbs": "^0.3.1",
     "voice-glow": "^0.2.1"
   },
   "devDependencies": {
-    "@types/katex": "^0.16.8",
+    "@astryxdesign/cli": "^0.7.4",
     "@types/node": "^26.6.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
